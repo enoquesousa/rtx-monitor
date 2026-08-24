@@ -1,151 +1,229 @@
 # RTX Monitor
 
-Monitor de baixo nível, somente leitura, para a temperatura e as capacidades térmicas que o driver de uma **GPU NVIDIA RTX** realmente publica. O projeto usa três linguagens com fronteiras explícitas:
+> Temperatura de GPUs NVIDIA lida pelas APIs públicas do driver — sem usar a saída do `nvidia-smi`, analisar texto ou inventar valores.
 
-- C carrega NVML e, no Windows, NVAPI diretamente do driver e expõe uma ABI estável;
-- C++ oferece RAII, modelo de domínio e CLIs de leitura e inventário;
-- C# consome a ABI C por P/Invoke e entrega a mesma telemetria em uma API gerenciada.
+O **RTX Monitor** é um monitor de baixo nível e somente leitura. Ele mostra a temperatura atual do chip gráfico e informa quais outros canais térmicos o driver disponibiliza para a sua placa.
 
-Não há subprocesso de `nvidia-smi`, scraping de texto, estimativa ou interpolação da temperatura.
+Com ele, você pode responder duas perguntas de forma objetiva:
 
-## O que significa “temperatura real”
+1. Qual é a temperatura do chip da GPU agora?
+2. Quais sensores térmicos esta combinação de placa, firmware e driver realmente publica?
 
-O valor principal exibido é a leitura inteira, em graus Celsius, do sensor **GPU die** que o firmware/driver NVIDIA disponibiliza por NVML. A NVIDIA define `NVML_TEMPERATURE_GPU` como o sensor do die. Essa é a mesma infraestrutura de gerenciamento usada pelo `nvidia-smi`.
+## O que o projeto mede
 
-Isso não é acesso ao ADC físico, a registradores privados ou a uma sonda externa. O driver pode aplicar calibração, agregação e arredondamento antes de expor o valor. Portanto, o projeto chama a medição de **leitura real reportada pelo driver**, e não de temperatura analógica bruta.
+| Canal | Como é obtido | Comportamento |
+| --- | --- | --- |
+| **GPU die** | Sensor `NVML_TEMPERATURE_GPU` da NVML | É a leitura principal exibida pelo monitor |
+| **Memória** | Campo `NVML_FI_DEV_MEMORY_TEMP` | Aparece somente quando o driver oferece suporte |
+| **Canais térmicos adicionais** | Inventário público da NVML e, no Windows, da NVAPI | Mantém o nome e a origem informados pelo driver |
+| **Hotspot e VRM** | Somente se uma API pública identificar esses alvos | Nunca são deduzidos a partir de outro sensor |
+| **Valores estimados** | Não são usados | O projeto não interpola nem fabrica temperaturas |
 
-O inventário adicional consulta apenas contratos públicos:
+> **Importante:** `not_supported` não significa que o componente físico não existe. Significa apenas que a API pública não entregou essa leitura para a placa e o driver em uso. Esse resultado é mais seguro do que exibir um número com o nome errado.
 
-- `nvmlDeviceGetThermalSettings`: até três sensores e seus alvos/controladores;
-- `nvmlDeviceGetFieldValues` com `NVML_FI_DEV_MEMORY_TEMP`: temperatura de memória quando suportada;
-- `NvAPI_GPU_GetThermalSettings`: visão térmica pública complementar no Windows.
+## Início rápido
 
-Cada resultado conserva fonte, alvo, controlador, estado, código nativo e confiança. Um canal não publicado aparece como `not_supported` ou `provider_unavailable`; nunca é transformado em hotspot, VRM ou temperatura estimada.
+### 1. Instale os requisitos
 
-Referências oficiais:
+Para compilar no Windows, você precisa de:
 
-- [Visão geral da NVML](https://docs.nvidia.com/deploy/nvml-api/nvml-api-reference.html)
-- [Consultas de temperatura do dispositivo](https://docs.nvidia.com/deploy/nvml-api/group__nvmlDeviceQueries.html)
-- [Enum do sensor do die](https://docs.nvidia.com/deploy/nvml-api/group__nvmlDeviceEnums.html)
-- [Estruturas térmicas NVML](https://docs.nvidia.com/deploy/nvml-api/group__nvmlDeviceStructs.html)
-- [Consultas de campos NVML](https://docs.nvidia.com/deploy/nvml-api/group__nvmlFieldValueQueries.html)
-- [Sensores térmicos NVAPI](https://docs.nvidia.com/nvapi/group__gputhermal.html)
-
-## Arquitetura
-
-```text
-sensores + firmware + driver NVIDIA
-                  │
-       ┌──────────┴───────────┐
-       ▼                      ▼
- NVML pública            NVAPI pública
- die / thermal / field   thermal settings
-       └──────────┬───────────┘
-                  ▼
-        rtxmon_native (C, ABI v2)
-             ┌────┴──────────────┐
-             ▼                   ▼
-     rtxmon_core (C++)   RtxMonitor.Managed (C#)
-             │                   │
-         rtxmon.exe      RtxMonitor.Console.exe
-```
-
-A DLL C procura as bibliotecas NVIDIA somente em caminhos confiáveis do sistema, resolve os símbolos em runtime, prefere `nvmlDeviceGetTemperatureV` e usa a API antiga apenas como fallback de compatibilidade. NVAPI é opcional: sua ausência não impede a leitura NVML.
-
-Leia [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para contratos, modelo de falhas, segurança e extensões planejadas. As decisões estão registradas no [ADR 0001](docs/adr/0001-use-nvml.md) e no [ADR 0002](docs/adr/0002-public-capability-discovery.md).
-
-Os componentes NVIDIA não são redistribuídos; consulte [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) para a origem das declarações mínimas de interoperabilidade.
-
-## Requisitos
-
-- Windows 10/11 x64;
-- GPU NVIDIA compatível e driver instalado;
-- Visual Studio 2022 Build Tools com C/C++;
+- Windows 10 ou 11, x64;
+- uma GPU NVIDIA compatível com o driver instalado;
+- Visual Studio 2022 Build Tools com o componente de C/C++;
 - CMake 3.25 ou superior;
 - .NET SDK 8 ou superior.
 
-O código nativo também contém o caminho de carregamento Linux, mas a automação entregue nesta versão é Windows x64.
+### 2. Baixe e compile
 
-## Compilar
-
-No PowerShell:
+Abra o PowerShell e execute:
 
 ```powershell
+git clone https://github.com/enoquesousa/rtx-monitor.git
+cd rtx-monitor
 .\scripts\build.ps1 -Configuration Release
 ```
 
-Artefatos principais:
+O script compila os componentes em C, C++ e C#.
 
-- `build\windows-x64\bin\Release\rtxmon_native.dll`
-- `build\windows-x64\bin\Release\rtxmon-c.exe`
-- `build\windows-x64\bin\Release\rtxmon.exe`
-- `csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe`
-
-## Executar
-
-Monitor C# contínuo, com atualização a cada segundo:
-
-```powershell
-.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe
-```
-
-Uma amostra pelo CLI C++:
+### 3. Leia a temperatura uma vez
 
 ```powershell
 .\build\windows-x64\bin\Release\rtxmon.exe --once
 ```
 
-Exemplo C puro:
+Exemplo de saída:
+
+```text
+2026-08-24T23:06:22.680Z | GPU 0 NVIDIA GeForce RTX 3060 | die 33 C | NVML nvmlDeviceGetTemperatureV
+```
+
+A temperatura do exemplo é apenas ilustrativa. O valor real depende da GPU, da carga e do ambiente.
+
+### 4. Monitore continuamente
+
+Pelo executável C++:
+
+```powershell
+.\build\windows-x64\bin\Release\rtxmon.exe --watch --interval 1000
+```
+
+Ou pelo aplicativo C#:
+
+```powershell
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe
+```
+
+Os dois comandos atualizam a leitura a cada segundo. Pressione `Ctrl+C` para encerrar.
+
+## Descubra quais sensores estão disponíveis
+
+Use o inventário térmico antes de assumir que uma GPU oferece memória, hotspot ou VRM:
+
+```powershell
+.\build\windows-x64\bin\Release\rtxmon.exe --capabilities
+```
+
+Para obter uma saída estável, adequada a scripts e outras aplicações:
+
+```powershell
+.\build\windows-x64\bin\Release\rtxmon.exe --capabilities --json
+```
+
+Cada fonte consultada recebe um estado explícito:
+
+| Estado | Significado |
+| --- | --- |
+| `available` | A leitura está disponível |
+| `not_supported` | A API respondeu, mas não oferece esse canal |
+| `provider_unavailable` | A biblioteca ou a função necessária não está disponível |
+| `query_failed` | A fonte existe, mas a consulta falhou |
+| `unknown` | Ainda não há informação suficiente para classificar o resultado |
+
+Em uma RTX 3060 usada durante o desenvolvimento, por exemplo, o driver publicou o **GPU die**, mas retornou `not_supported` para a temperatura da memória. Hotspot e VRM não foram renomeados nem estimados. Esse exemplo não é uma promessa de compatibilidade para outros modelos.
+
+O formato JSON completo está documentado em [capabilities-v2.schema.json](docs/schema/capabilities-v2.schema.json).
+
+## Comandos principais
+
+| Comando | Para que serve |
+| --- | --- |
+| `--once` | Lê uma amostra e encerra |
+| `--watch` | Continua lendo até `Ctrl+C` |
+| `--list` | Lista as GPUs NVIDIA encontradas |
+| `--capabilities` | Mostra as fontes e os canais térmicos públicos |
+| `--gpu INDEX` | Seleciona a GPU pelo índice, começando em zero |
+| `--interval MS` | Define o intervalo de 100 a 60000 milissegundos |
+| `--count N` | Encerra o modo contínuo após `N` amostras; zero significa ilimitado |
+| `--json` | Produz JSON; no modo contínuo, uma amostra por linha |
+| `--help` | Exibe a ajuda completa |
+
+O CLI C++ usa `--once` como padrão. O aplicativo C# usa `--watch` como padrão.
+
+Para monitorar a segunda GPU do computador:
+
+```powershell
+.\build\windows-x64\bin\Release\rtxmon.exe --watch --gpu 1
+```
+
+Também há um exemplo mínimo em C:
 
 ```powershell
 .\build\windows-x64\bin\Release\rtxmon-c.exe
 ```
 
-Saída JSON estável para integração:
+## O que significa “temperatura real”
 
-```powershell
-.\build\windows-x64\bin\Release\rtxmon.exe --watch --interval 1000 --json
-.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe --once --json
+O projeto devolve o valor que o firmware e o driver NVIDIA publicam no momento da consulta. A leitura principal vem da **NVML**, biblioteca de gerenciamento que também serve de base para o `nvidia-smi`. Durante o monitoramento, os executáveis carregam a NVML diretamente em vez de iniciar esse utilitário como subprocesso.
+
+Isso não equivale a acessar o conversor analógico do sensor, registradores privados ou uma sonda física externa. O fabricante ainda pode calibrar, agregar ou arredondar a medição antes de expô-la.
+
+Neste projeto, portanto, **temperatura real** significa **temperatura reportada diretamente pelo driver**, com a fonte identificada e sem estimativa feita pela aplicação.
+
+## Como a arquitetura funciona
+
+```text
+sensores e firmware da GPU
+            |
+            v
+       driver NVIDIA
+            |
+      +-----+------+
+      |            |
+     NVML        NVAPI
+   principal   complementar
+      +-----+------+
+            |
+            v
+ rtxmon_native.dll (C)
+ contrato binário versionado
+      +-----+------+
+      |            |
+      v            v
+ CLI C/C++     biblioteca C#
+                   |
+                   v
+             console C#
 ```
 
-Inventário térmico público, incluindo identidade PCI/VBIOS e estados negativos explícitos:
+Cada linguagem tem uma responsabilidade clara:
 
-```powershell
-.\build\windows-x64\bin\Release\rtxmon.exe --capabilities --json
-.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe --capabilities --json
-```
+| Camada | Responsabilidade |
+| --- | --- |
+| **C** | Carrega NVML/NVAPI, consulta o driver e expõe uma ABI — o contrato binário usado pelas outras linguagens |
+| **C++** | Organiza os dados em uma API mais segura e fornece o CLI `rtxmon.exe` |
+| **C#** | Consome a ABI C por P/Invoke e oferece uma API gerenciada para aplicações .NET |
 
-O contrato dessa saída está em [capabilities-v2.schema.json](docs/schema/capabilities-v2.schema.json).
+A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura principal por NVML continua funcionando.
 
-Para outra GPU, use `--gpu 1`. O intervalo permitido é de 100 a 60000 ms.
+## Por onde começar no código
 
-## Verificar de ponta a ponta
+| Se você quer... | Comece por |
+| --- | --- |
+| Entender a API pública do projeto | [native/include/rtxmon/rtxmon.h](native/include/rtxmon/rtxmon.h) |
+| Ver o menor exemplo possível em C | [examples/c/temperature_once.c](examples/c/temperature_once.c) |
+| Entender o CLI C++ | [cpp/cli/main.cpp](cpp/cli/main.cpp) |
+| Integrar com uma aplicação .NET | [csharp/RtxMonitor.Managed/NvidiaMonitor.cs](csharp/RtxMonitor.Managed/NvidiaMonitor.cs) |
+| Conhecer as decisões de arquitetura | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+
+## Valide antes de contribuir
+
+Depois de alterar o código, execute:
 
 ```powershell
 .\scripts\verify.ps1 -Configuration Release
 ```
 
-O script:
+A verificação:
 
-1. compila C, C++ e C# com avisos como erros;
-2. executa os testes da ABI;
-3. lê o sensor pelos três consumidores;
-4. confirma o mesmo UUID contra `nvidia-smi`;
-5. compara identidade da placa, fontes e capacidades entre C++ e C#;
-6. confirma que a temperatura de memória tem um registro explícito, mesmo sem suporte;
-7. tolera até 5 °C de diferença entre consultas sequenciais;
-8. testa os modos contínuos C++ e C#.
+- compila C, C++ e C# tratando avisos como erros;
+- executa os testes do contrato binário;
+- compara a identidade da GPU com o `nvidia-smi`;
+- confirma que C, C++ e C# observam o mesmo dispositivo;
+- testa o inventário de capacidades e os modos contínuos.
 
-## Princípios de engenharia
+## Segurança e limites atuais
 
-- somente leitura: nenhuma chamada de controle, clock, tensão, fan ou power limit;
-- sem privilégio administrativo como requisito de projeto;
-- DLL NVIDIA carregada por caminho absoluto para reduzir risco de DLL hijacking;
-- ABI C versionada com `struct_size` em todas as estruturas de saída;
-- erro nativo preservado por thread, sem estado global compartilhado de diagnóstico;
-- timestamps produzidos imediatamente após a leitura do sensor;
-- valor inteiro preservado: a UI não inventa casas decimais;
-- multi-GPU endereçada por índice e validada por UUID;
-- correlação NVML/NVAPI por identidade PCI exata, não por ordem de enumeração;
-- hotspot, VRM e memória só recebem esses nomes quando o driver publica o alvo correspondente;
-- nenhuma leitura I2C/DDC, SMBus, MMIO, ROM ou registrador privado nesta fase.
+- O projeto é **somente leitura**.
+- Não altera ventoinha, clock, tensão ou limite de energia.
+- Não exige privilégio administrativo por decisão de projeto.
+- Não lê I2C, DDC, SMBus, MMIO, ROM ou registradores privados.
+- Não transforma um sensor desconhecido em hotspot, VRM ou memória.
+- A DLL NVIDIA é carregada por um caminho confiável do sistema.
+- A identidade entre NVML e NVAPI é correlacionada pelo endereço PCI, não pela ordem em que as APIs listam as placas.
+- A camada nativa já possui um caminho de carregamento para Linux, mas os scripts de compilação e validação desta versão são voltados ao Windows x64.
+
+## Documentação técnica
+
+- [Arquitetura e contratos](docs/ARCHITECTURE.md)
+- [Procedimento de validação](docs/VALIDATION.md)
+- [ADR 0001 — uso da NVML](docs/adr/0001-use-nvml.md)
+- [ADR 0002 — descoberta pública de capacidades](docs/adr/0002-public-capability-discovery.md)
+- [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
+- [Avisos de componentes de terceiros](THIRD_PARTY_NOTICES.md)
+
+## Referências oficiais
+
+- [Visão geral da NVML](https://docs.nvidia.com/deploy/nvml-api/nvml-api-reference.html)
+- [Consultas de dispositivo na NVML](https://docs.nvidia.com/deploy/nvml-api/group__nvmlDeviceQueries.html)
+- [Campos públicos da NVML](https://docs.nvidia.com/deploy/nvml-api/group__nvmlFieldValueEnums.html)
+- [Sensores térmicos da NVAPI](https://docs.nvidia.com/nvapi/group__gputhermal.html)
