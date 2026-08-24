@@ -34,7 +34,7 @@ Não há contrato público e estável que permita interpretar esses valores como
 
 ### NVAPI
 
-É uma opção NVIDIA no Windows, mas adicionaria uma segunda superfície de API sem benefício para o requisito atual. NVML já expõe explicitamente o sensor do die, funciona com o driver instalado e também permite uma evolução Linux.
+Foi rejeitada como backend da leitura principal: NVML já expõe explicitamente o sensor do die, funciona com o driver instalado e permite uma evolução Linux. O [ADR 0002](0002-public-capability-discovery.md) adiciona NVAPI posteriormente como fonte opcional de inventário, sem substituir o backend NVML.
 
 ## Consequências
 

@@ -1,0 +1,17 @@
+# Third-party notices
+
+## NVIDIA NVAPI SDK
+
+The minimal NVAPI ABI declarations and public interface identifiers used by this project are derived from the [NVIDIA NVAPI SDK](https://github.com/NVIDIA/nvapi). The NVAPI implementation itself is supplied by the installed NVIDIA driver and is not distributed by this repository.
+
+Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## NVIDIA Management Library
+
+This project declares only the minimal public NVML ABI needed for runtime interoperability. It does not redistribute NVIDIA's NVML header, import library, binary, or driver. The authoritative API contract is the [official NVML documentation](https://docs.nvidia.com/deploy/nvml-api/).

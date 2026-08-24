@@ -10,6 +10,7 @@ internal enum RunMode
     Watch,
     Once,
     List,
+    Capabilities,
 }
 
 internal sealed record Options(
@@ -57,6 +58,14 @@ internal static class Program
             }
 
             GpuInfo gpu = monitor.GetGpu(options.GpuIndex);
+            if (options.Mode == RunMode.Capabilities)
+            {
+                BoardIdentity board = monitor.GetBoardIdentity(options.GpuIndex);
+                ThermalReport report = monitor.ScanThermalCapabilities(options.GpuIndex);
+                PrintCapabilities(gpu, board, report, options.Json);
+                return 0;
+            }
+
             if (options.Mode == RunMode.Once)
             {
                 TemperatureSample sample = monitor.ReadGpuDieTemperature(options.GpuIndex);
@@ -81,7 +90,7 @@ internal static class Program
         catch (BadImageFormatException error)
         {
             Console.Error.WriteLine(
-                "rtxmon-csharp: a arquitetura da DLL nativa não corresponde ao processo .NET (use x64)." );
+                "rtxmon-csharp: a arquitetura da DLL nativa não corresponde ao processo .NET (use x64).");
             Console.Error.WriteLine(error.Message);
             return 1;
         }
@@ -123,6 +132,9 @@ internal static class Program
                     break;
                 case "--list":
                     mode = RunMode.List;
+                    break;
+                case "--capabilities":
+                    mode = RunMode.Capabilities;
                     break;
                 case "--json":
                     json = true;
@@ -189,11 +201,13 @@ internal static class Program
               dotnet RtxMonitor.Console.dll [--watch] [--gpu INDEX] [--interval MS]
               dotnet RtxMonitor.Console.dll --once [--gpu INDEX] [--json]
               dotnet RtxMonitor.Console.dll --list [--json]
+              dotnet RtxMonitor.Console.dll --capabilities [--gpu INDEX] [--json]
 
             Opções:
               --watch         Monitor contínuo (padrão)
               --once          Lê uma amostra e encerra
               --list          Lista as GPUs NVIDIA
+              --capabilities Inventaria capabilities térmicas públicas e o estado das fontes
               --gpu INDEX     Índice da GPU, começando em zero
               --interval MS   Intervalo de 100 a 60000 ms (padrão: 1000)
               --count N       Encerra após N amostras; zero é ilimitado
@@ -247,6 +261,109 @@ internal static class Program
         Console.WriteLine(
             $"{sample.CapturedAt:O} | GPU {sample.GpuIndex} {gpu.Name} | die {sample.TemperatureC} °C | {sample.BackendName}");
     }
+
+    private static void PrintCapabilities(
+        GpuInfo gpu,
+        BoardIdentity board,
+        ThermalReport report,
+        bool json)
+    {
+        if (json)
+        {
+            var payload = new
+            {
+                schema_version = 2,
+                gpu = new
+                {
+                    index = gpu.Index,
+                    name = gpu.Name,
+                    uuid = gpu.Uuid,
+                    driver_version = gpu.DriverVersion,
+                    nvml_version = gpu.NvmlVersion,
+                },
+                board = new
+                {
+                    pci_identity_available = board.HasPciIdentity,
+                    pci_bus_id = board.PciBusId,
+                    pci_vendor_id = HexId(board.PciVendorId),
+                    pci_device_id = HexId(board.PciDeviceId),
+                    pci_subsystem_vendor_id = HexId(board.PciSubsystemVendorId),
+                    pci_subsystem_device_id = HexId(board.PciSubsystemDeviceId),
+                    vbios_available = board.HasVbiosVersion,
+                    vbios_version = board.HasVbiosVersion ? board.VbiosVersion : null,
+                    profile_key = BoardProfileKey(board),
+                },
+                captured_at_unix_ms = report.TimestampUnixMilliseconds,
+                providers = report.Providers.Select(provider => new
+                {
+                    provider = provider.ProviderName,
+                    state = provider.StateName,
+                    native_status = provider.NativeStatus,
+                    capability_count = provider.CapabilityCount,
+                }),
+                thermal_capabilities = report.Capabilities.Select(sensor => new
+                {
+                    provider = sensor.ProviderName,
+                    provider_native_id = sensor.ProviderNativeId,
+                    target = sensor.TargetName,
+                    controller = sensor.ControllerName,
+                    state = sensor.StateName,
+                    confidence = sensor.ConfidenceName,
+                    current_temperature_c = sensor.CurrentTemperatureC,
+                    default_min_temperature_c = sensor.DefaultMinimumTemperatureC,
+                    default_max_temperature_c = sensor.DefaultMaximumTemperatureC,
+                    native_status = sensor.NativeStatus,
+                }),
+            };
+            Console.WriteLine(JsonSerializer.Serialize(payload));
+            return;
+        }
+
+        Console.WriteLine($"GPU {gpu.Index}  {gpu.Name}");
+        Console.WriteLine($"Driver {gpu.DriverVersion}  NVML {gpu.NvmlVersion}");
+        Console.WriteLine(
+            $"PCI {board.PciBusId}  {HexId(board.PciVendorId)}:{HexId(board.PciDeviceId)[2..]}  " +
+            $"subsystem {HexId(board.PciSubsystemVendorId)}:{HexId(board.PciSubsystemDeviceId)[2..]}");
+        Console.WriteLine($"VBIOS {(board.HasVbiosVersion ? board.VbiosVersion : "indisponível")}");
+        Console.WriteLine();
+        Console.WriteLine("Fontes:");
+        foreach (ThermalProviderResult provider in report.Providers)
+        {
+            Console.WriteLine(
+                $"  {provider.ProviderName} | {provider.StateName} | capabilities {provider.CapabilityCount} | " +
+                $"status nativo {provider.NativeStatus}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Capacidades térmicas:");
+        foreach (ThermalCapability sensor in report.Capabilities)
+        {
+            string line =
+                $"  {sensor.ProviderName}[{sensor.ProviderNativeId}] | alvo {sensor.TargetName} | " +
+                $"controlador {sensor.ControllerName} | {sensor.StateName} | {sensor.ConfidenceName}";
+            if (sensor.CurrentTemperatureC is int current)
+            {
+                line += $" | atual {current} °C";
+            }
+            if (sensor.DefaultMinimumTemperatureC is int minimum &&
+                sensor.DefaultMaximumTemperatureC is int maximum)
+            {
+                line += $" | padrões do driver {minimum}..{maximum} °C";
+            }
+            Console.WriteLine($"{line} | status nativo {sensor.NativeStatus}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(
+            "Somente canais públicos reportados pelo driver são listados; leituras indisponíveis de hotspot, memória ou VRM não são inferidas.");
+    }
+
+    private static string HexId(uint value) => $"0x{value & 0xffffU:x4}";
+
+    private static string BoardProfileKey(BoardIdentity board) =>
+        $"{board.PciVendorId & 0xffffU:x4}:{board.PciDeviceId & 0xffffU:x4}/" +
+        $"{board.PciSubsystemVendorId & 0xffffU:x4}:{board.PciSubsystemDeviceId & 0xffffU:x4}@" +
+        (board.HasVbiosVersion ? board.VbiosVersion : "unknown");
 
     private static async Task<int> WatchAsync(
         NvidiaMonitor monitor,

@@ -1,6 +1,6 @@
 #include <rtxmon/rtxmon.h>
 
-#include "nvml_loader.h"
+#include "rtxmon_internal.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -21,12 +21,31 @@
 
 #define RTXMON_ERROR_CAPACITY 512U
 
-struct rtxmon_context {
-    rtxmon_nvml_api_t nvml;
-    int initialized;
-};
+#if defined(_MSC_VER)
+#define RTXMON_PRIVATE_STATIC_ASSERT(condition, message) static_assert(condition, message)
+#else
+#define RTXMON_PRIVATE_STATIC_ASSERT(condition, message) _Static_assert(condition, message)
+#endif
+
+RTXMON_PRIVATE_STATIC_ASSERT(
+    sizeof(rtxmon_nvml_temperature_v1_t) == 12U,
+    "NVML temperature ABI changed");
+RTXMON_PRIVATE_STATIC_ASSERT(sizeof(rtxmon_nvml_pci_info_t) == 68U, "NVML PCI ABI changed");
+RTXMON_PRIVATE_STATIC_ASSERT(
+    sizeof(rtxmon_nvml_thermal_settings_t) == 64U,
+    "NVML thermal ABI changed");
+RTXMON_PRIVATE_STATIC_ASSERT(
+    sizeof(rtxmon_nvml_field_value_t) == 40U,
+    "NVML field value ABI changed");
+RTXMON_PRIVATE_STATIC_ASSERT(
+    sizeof(rtxmon_nvapi_thermal_settings_v2_t) == 68U,
+    "NVAPI thermal ABI changed");
 
 static RTXMON_THREAD_LOCAL char rtxmon_error[RTXMON_ERROR_CAPACITY];
+
+#if defined(_WIN32)
+static SRWLOCK rtxmon_nvapi_global_lock = SRWLOCK_INIT;
+#endif
 
 static void rtxmon_clear_error(void)
 {
@@ -83,6 +102,20 @@ static rtxmon_status_t rtxmon_map_nvml_status(nvmlReturn_t result)
     }
 }
 
+void rtxmon_lock_nvapi_internal(void)
+{
+#if defined(_WIN32)
+    AcquireSRWLockExclusive(&rtxmon_nvapi_global_lock);
+#endif
+}
+
+void rtxmon_unlock_nvapi_internal(void)
+{
+#if defined(_WIN32)
+    ReleaseSRWLockExclusive(&rtxmon_nvapi_global_lock);
+#endif
+}
+
 static rtxmon_status_t rtxmon_validate_context(const rtxmon_context_t *context)
 {
     if (context == NULL || context->initialized == 0) {
@@ -128,7 +161,28 @@ static rtxmon_status_t rtxmon_get_device(
     return RTXMON_STATUS_OK;
 }
 
-static uint64_t rtxmon_timestamp_unix_ms(void)
+nvmlReturn_t rtxmon_get_pci_info_internal(
+    rtxmon_context_t *context,
+    nvmlDevice_t device,
+    rtxmon_nvml_pci_info_t *out_pci)
+{
+    nvmlReturn_t result;
+
+    if (context->nvml.device_get_pci_info_v3 == NULL) {
+        return NVML_ERROR_FUNCTION_NOT_FOUND;
+    }
+
+    (void)memset(out_pci, 0, sizeof(*out_pci));
+    result = context->nvml.device_get_pci_info_v3(device, out_pci);
+    if (result == NVML_SUCCESS) {
+        out_pci->bus_id_legacy[sizeof(out_pci->bus_id_legacy) - 1U] = '\0';
+        out_pci->bus_id[sizeof(out_pci->bus_id) - 1U] = '\0';
+    }
+
+    return result;
+}
+
+uint64_t rtxmon_timestamp_unix_ms_internal(void)
 {
 #if defined(_WIN32)
     FILETIME file_time;
@@ -167,9 +221,9 @@ const char *RTXMON_CALL rtxmon_status_string(rtxmon_status_t status)
     case RTXMON_STATUS_OUT_OF_MEMORY:
         return "out of memory";
     case RTXMON_STATUS_BACKEND_NOT_FOUND:
-        return "NVML backend not found";
+        return "NVIDIA monitoring backend not found";
     case RTXMON_STATUS_BACKEND_SYMBOL_MISSING:
-        return "required NVML symbol missing";
+        return "required monitoring backend symbol missing";
     case RTXMON_STATUS_DRIVER_NOT_LOADED:
         return "NVIDIA driver not loaded";
     case RTXMON_STATUS_NO_PERMISSION:
@@ -181,9 +235,9 @@ const char *RTXMON_CALL rtxmon_status_string(rtxmon_status_t status)
     case RTXMON_STATUS_GPU_LOST:
         return "GPU is inaccessible or lost";
     case RTXMON_STATUS_BACKEND_ERROR:
-        return "NVML backend error";
+        return "monitoring backend error";
     case RTXMON_STATUS_ABI_MISMATCH:
-        return "NVML ABI version mismatch";
+        return "backend ABI version mismatch";
     default:
         return "unknown rtxmon status";
     }
@@ -201,6 +255,124 @@ const char *RTXMON_CALL rtxmon_temperature_backend_string(uint32_t backend)
     }
 }
 
+const char *RTXMON_CALL rtxmon_thermal_provider_string(uint32_t provider)
+{
+    switch (provider) {
+    case RTXMON_PROVIDER_NVML_THERMAL_SETTINGS:
+        return "NVML nvmlDeviceGetThermalSettings";
+    case RTXMON_PROVIDER_NVML_FIELD_VALUES:
+        return "NVML nvmlDeviceGetFieldValues";
+    case RTXMON_PROVIDER_NVAPI_THERMAL_SETTINGS:
+        return "NVAPI NvAPI_GPU_GetThermalSettings";
+    default:
+        return "unknown thermal provider";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_capability_state_string(uint32_t state)
+{
+    switch (state) {
+    case RTXMON_CAPABILITY_UNKNOWN:
+        return "unknown";
+    case RTXMON_CAPABILITY_AVAILABLE:
+        return "available";
+    case RTXMON_CAPABILITY_NOT_SUPPORTED:
+        return "not_supported";
+    case RTXMON_CAPABILITY_PROVIDER_UNAVAILABLE:
+        return "provider_unavailable";
+    case RTXMON_CAPABILITY_QUERY_FAILED:
+        return "query_failed";
+    default:
+        return "invalid capability state";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_thermal_target_string(uint32_t target)
+{
+    switch (target) {
+    case RTXMON_THERMAL_TARGET_NONE:
+        return "none";
+    case RTXMON_THERMAL_TARGET_GPU:
+        return "gpu";
+    case RTXMON_THERMAL_TARGET_MEMORY:
+        return "memory";
+    case RTXMON_THERMAL_TARGET_POWER_SUPPLY:
+        return "power_supply";
+    case RTXMON_THERMAL_TARGET_BOARD:
+        return "board";
+    case RTXMON_THERMAL_TARGET_VCD_BOARD:
+        return "vcd_board";
+    case RTXMON_THERMAL_TARGET_VCD_INLET:
+        return "vcd_inlet";
+    case RTXMON_THERMAL_TARGET_VCD_OUTLET:
+        return "vcd_outlet";
+    case RTXMON_THERMAL_TARGET_UNKNOWN:
+        return "unknown";
+    default:
+        return "unrecognized";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_thermal_controller_string(uint32_t controller)
+{
+    switch (controller) {
+    case RTXMON_THERMAL_CONTROLLER_NONE:
+        return "none";
+    case RTXMON_THERMAL_CONTROLLER_GPU_INTERNAL:
+        return "gpu_internal";
+    case RTXMON_THERMAL_CONTROLLER_ADM1032:
+        return "adm1032";
+    case RTXMON_THERMAL_CONTROLLER_ADT7461:
+        return "adt7461";
+    case RTXMON_THERMAL_CONTROLLER_MAX6649:
+        return "max6649";
+    case RTXMON_THERMAL_CONTROLLER_MAX1617:
+        return "max1617";
+    case RTXMON_THERMAL_CONTROLLER_LM99:
+        return "lm99";
+    case RTXMON_THERMAL_CONTROLLER_LM89:
+        return "lm89";
+    case RTXMON_THERMAL_CONTROLLER_LM64:
+        return "lm64";
+    case RTXMON_THERMAL_CONTROLLER_G781:
+        return "g781";
+    case RTXMON_THERMAL_CONTROLLER_ADT7473:
+        return "adt7473";
+    case RTXMON_THERMAL_CONTROLLER_SBMAX6649:
+        return "sbmax6649";
+    case RTXMON_THERMAL_CONTROLLER_VBIOSEVT:
+        return "vbios_event";
+    case RTXMON_THERMAL_CONTROLLER_OS:
+        return "os";
+    case RTXMON_THERMAL_CONTROLLER_NVSYSCON_CANOAS:
+        return "nvsyscon_canoas";
+    case RTXMON_THERMAL_CONTROLLER_NVSYSCON_E551:
+        return "nvsyscon_e551";
+    case RTXMON_THERMAL_CONTROLLER_MAX6649R:
+        return "max6649r";
+    case RTXMON_THERMAL_CONTROLLER_ADT7473S:
+        return "adt7473s";
+    case RTXMON_THERMAL_CONTROLLER_UNKNOWN:
+        return "unknown";
+    default:
+        return "unrecognized";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_sensor_confidence_string(uint32_t confidence)
+{
+    switch (confidence) {
+    case RTXMON_CONFIDENCE_UNKNOWN:
+        return "unknown";
+    case RTXMON_CONFIDENCE_DRIVER_REPORTED:
+        return "driver_reported";
+    case RTXMON_CONFIDENCE_EXPERIMENTAL:
+        return "experimental";
+    default:
+        return "invalid confidence";
+    }
+}
+
 const char *RTXMON_CALL rtxmon_last_error(void)
 {
     return rtxmon_error;
@@ -208,7 +380,9 @@ const char *RTXMON_CALL rtxmon_last_error(void)
 
 rtxmon_status_t RTXMON_CALL rtxmon_context_create(rtxmon_context_t **out_context)
 {
+    char nvapi_error[256];
     rtxmon_context_t *context;
+    rtxmon_nvapi_loader_status_t nvapi_loader_status;
     rtxmon_nvml_loader_status_t loader_status;
     nvmlReturn_t result;
 
@@ -225,6 +399,8 @@ rtxmon_status_t RTXMON_CALL rtxmon_context_create(rtxmon_context_t **out_context
         rtxmon_set_error("could not allocate rtxmon context");
         return RTXMON_STATUS_OUT_OF_MEMORY;
     }
+
+    context->nvapi_initialize_status = RTXMON_NVAPI_LIBRARY_NOT_FOUND;
 
     loader_status = rtxmon_nvml_load(
         &context->nvml,
@@ -249,6 +425,23 @@ rtxmon_status_t RTXMON_CALL rtxmon_context_create(rtxmon_context_t **out_context
         return rtxmon_map_nvml_status(result);
     }
 
+    nvapi_loader_status = rtxmon_nvapi_load(
+        &context->nvapi,
+        nvapi_error,
+        sizeof(nvapi_error));
+    if (nvapi_loader_status == RTXMON_NVAPI_LOADER_OK) {
+        rtxmon_lock_nvapi_internal();
+        context->nvapi_initialize_status = context->nvapi.initialize();
+        rtxmon_unlock_nvapi_internal();
+        if (context->nvapi_initialize_status == RTXMON_NVAPI_OK) {
+            context->nvapi_initialized = 1;
+        }
+    } else if (nvapi_loader_status == RTXMON_NVAPI_LOADER_PLATFORM_UNAVAILABLE ||
+               nvapi_loader_status == RTXMON_NVAPI_LOADER_INTERFACE_MISSING ||
+               nvapi_loader_status == RTXMON_NVAPI_LOADER_QUERY_INTERFACE_MISSING) {
+        context->nvapi_initialize_status = RTXMON_NVAPI_NO_IMPLEMENTATION;
+    }
+
     context->initialized = 1;
     *out_context = context;
     rtxmon_clear_error();
@@ -260,6 +453,11 @@ void RTXMON_CALL rtxmon_context_destroy(rtxmon_context_t *context)
     if (context == NULL) {
         return;
     }
+
+    rtxmon_lock_nvapi_internal();
+    rtxmon_nvapi_unload(&context->nvapi, context->nvapi_initialized);
+    rtxmon_unlock_nvapi_internal();
+    context->nvapi_initialized = 0;
 
     if (context->initialized != 0 && context->nvml.shutdown != NULL) {
         (void)context->nvml.shutdown();
@@ -387,6 +585,94 @@ rtxmon_get_gpu_info(
 }
 
 rtxmon_status_t RTXMON_CALL
+rtxmon_get_board_identity(
+    rtxmon_context_t *context,
+    uint32_t gpu_index,
+    rtxmon_board_identity_t *out_identity)
+{
+    const char *function_separator;
+    char *parse_end = NULL;
+    rtxmon_board_identity_t identity;
+    rtxmon_nvml_pci_info_t pci;
+    rtxmon_status_t status;
+    nvmlDevice_t device = NULL;
+    nvmlReturn_t result;
+
+    rtxmon_clear_error();
+    status = rtxmon_validate_context(context);
+    if (status != RTXMON_STATUS_OK) {
+        return status;
+    }
+
+    if (out_identity == NULL) {
+        rtxmon_set_error("out_identity is null");
+        return RTXMON_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (out_identity->struct_size < sizeof(rtxmon_board_identity_t)) {
+        rtxmon_set_error(
+            "rtxmon_board_identity_t size mismatch: caller=%u, required=%u",
+            out_identity->struct_size,
+            (uint32_t)sizeof(rtxmon_board_identity_t));
+        return RTXMON_STATUS_ABI_MISMATCH;
+    }
+
+    status = rtxmon_get_device(context, gpu_index, &device);
+    if (status != RTXMON_STATUS_OK) {
+        return status;
+    }
+
+    result = rtxmon_get_pci_info_internal(context, device, &pci);
+    if (result != NVML_SUCCESS) {
+        rtxmon_set_error(
+            "nvmlDeviceGetPciInfo_v3 failed: %s (%d)",
+            rtxmon_nvml_error_text(context, result),
+            result);
+        return result == NVML_ERROR_FUNCTION_NOT_FOUND
+            ? RTXMON_STATUS_NOT_SUPPORTED
+            : rtxmon_map_nvml_status(result);
+    }
+
+    (void)memset(&identity, 0, sizeof(identity));
+    identity.struct_size = (uint32_t)sizeof(identity);
+    identity.gpu_index = gpu_index;
+    identity.pci_vendor_id = pci.pci_device_id & 0xffffU;
+    identity.pci_device_id = (pci.pci_device_id >> 16U) & 0xffffU;
+    identity.pci_subsystem_vendor_id = pci.pci_subsystem_id & 0xffffU;
+    identity.pci_subsystem_device_id = (pci.pci_subsystem_id >> 16U) & 0xffffU;
+    identity.pci_domain = pci.domain;
+    identity.pci_bus = pci.bus;
+    identity.pci_device = pci.device;
+    identity.flags = RTXMON_BOARD_IDENTITY_PCI_VALID;
+    (void)snprintf(identity.pci_bus_id, sizeof(identity.pci_bus_id), "%s", pci.bus_id);
+
+    function_separator = strrchr(identity.pci_bus_id, '.');
+    if (function_separator != NULL && function_separator[1] != '\0') {
+        const unsigned long parsed = strtoul(function_separator + 1, &parse_end, 16);
+        if (parse_end != function_separator + 1 && *parse_end == '\0' && parsed <= 7UL) {
+            identity.pci_function = (uint32_t)parsed;
+        }
+    }
+
+    if (context->nvml.device_get_vbios_version != NULL) {
+        result = context->nvml.device_get_vbios_version(
+            device,
+            identity.vbios_version,
+            (uint32_t)sizeof(identity.vbios_version));
+        if (result == NVML_SUCCESS) {
+            identity.flags |= RTXMON_BOARD_IDENTITY_VBIOS_VALID;
+        } else {
+            identity.vbios_version[0] = '\0';
+        }
+    }
+
+    identity.pci_bus_id[sizeof(identity.pci_bus_id) - 1U] = '\0';
+    identity.vbios_version[sizeof(identity.vbios_version) - 1U] = '\0';
+    (void)memcpy(out_identity, &identity, sizeof(identity));
+    return RTXMON_STATUS_OK;
+}
+
+rtxmon_status_t RTXMON_CALL
 rtxmon_read_gpu_die_temperature(
     rtxmon_context_t *context,
     uint32_t gpu_index,
@@ -441,7 +727,7 @@ rtxmon_read_gpu_die_temperature(
         if (versioned_result == NVML_SUCCESS) {
             sample.temperature_c = versioned_temperature.temperature;
             sample.backend = RTXMON_BACKEND_NVML_TEMPERATURE_V1;
-            sample.timestamp_unix_ms = rtxmon_timestamp_unix_ms();
+            sample.timestamp_unix_ms = rtxmon_timestamp_unix_ms_internal();
             (void)memcpy(out_sample, &sample, sizeof(sample));
             return RTXMON_STATUS_OK;
         }
@@ -456,7 +742,7 @@ rtxmon_read_gpu_die_temperature(
         if (legacy_result == NVML_SUCCESS) {
             sample.temperature_c = (int32_t)legacy_temperature;
             sample.backend = RTXMON_BACKEND_NVML_TEMPERATURE_LEGACY;
-            sample.timestamp_unix_ms = rtxmon_timestamp_unix_ms();
+            sample.timestamp_unix_ms = rtxmon_timestamp_unix_ms_internal();
             (void)memcpy(out_sample, &sample, sizeof(sample));
             return RTXMON_STATUS_OK;
         }
@@ -474,4 +760,43 @@ rtxmon_read_gpu_die_temperature(
     }
 
     return rtxmon_map_nvml_status(versioned_result);
+}
+
+rtxmon_status_t RTXMON_CALL
+rtxmon_scan_thermal_capabilities(
+    rtxmon_context_t *context,
+    uint32_t gpu_index,
+    rtxmon_thermal_report_t *out_report)
+{
+    rtxmon_thermal_report_t report;
+    rtxmon_status_t status;
+    nvmlDevice_t device = NULL;
+
+    rtxmon_clear_error();
+    status = rtxmon_validate_context(context);
+    if (status != RTXMON_STATUS_OK) {
+        return status;
+    }
+
+    if (out_report == NULL) {
+        rtxmon_set_error("out_report is null");
+        return RTXMON_STATUS_INVALID_ARGUMENT;
+    }
+
+    if (out_report->struct_size < sizeof(rtxmon_thermal_report_t)) {
+        rtxmon_set_error(
+            "rtxmon_thermal_report_t size mismatch: caller=%u, required=%u",
+            out_report->struct_size,
+            (uint32_t)sizeof(rtxmon_thermal_report_t));
+        return RTXMON_STATUS_ABI_MISMATCH;
+    }
+
+    status = rtxmon_get_device(context, gpu_index, &device);
+    if (status != RTXMON_STATUS_OK) {
+        return status;
+    }
+
+    rtxmon_collect_thermal_capabilities(context, gpu_index, device, &report);
+    (void)memcpy(out_report, &report, sizeof(report));
+    return RTXMON_STATUS_OK;
 }
