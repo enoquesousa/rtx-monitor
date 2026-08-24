@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 project(
     rtx-monitor
-    VERSION 0.1.0
-    DESCRIPTION "Read-only NVIDIA RTX die temperature monitor"
+    VERSION 0.2.0
+    DESCRIPTION "Read-only NVIDIA RTX thermal monitor and capability inventory"
     LANGUAGES C CXX
 )
 
@@ -22,8 +22,10 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 add_library(rtxmon_native SHARED
+    native/src/nvapi_loader.c
     native/src/nvml_loader.c
     native/src/rtxmon.c
+    native/src/thermal_scan.c
 )
 
 target_include_directories(rtxmon_native
@@ -41,7 +43,7 @@ target_compile_definitions(rtxmon_native
 )
 
 if(WIN32)
-    # The loader uses an absolute System32/NVSMI path and needs no nvml.lib.
+    # The loaders use absolute System32/NVSMI paths and need no import libraries.
 elseif(UNIX)
     target_link_libraries(rtxmon_native PRIVATE ${CMAKE_DL_LIBS})
 else()
@@ -102,6 +104,8 @@ if(RTXMON_BUILD_TESTS)
     if(RTXMON_ENABLE_GPU_TESTS)
         add_test(NAME rtxmon_gpu_smoke COMMAND rtxmon_cli --once --json)
         set_tests_properties(rtxmon_gpu_smoke PROPERTIES LABELS "gpu;integration")
+        add_test(NAME rtxmon_capability_smoke COMMAND rtxmon_cli --capabilities --json)
+        set_tests_properties(rtxmon_capability_smoke PROPERTIES LABELS "gpu;integration;capabilities")
     endif()
 endif()
 

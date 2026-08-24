@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -22,6 +23,7 @@ enum class Mode {
     once,
     watch,
     list,
+    capabilities,
 };
 
 struct Options {
@@ -62,11 +64,13 @@ void print_help()
         << "Usage:\n"
         << "  rtxmon [--once] [--gpu INDEX] [--json]\n"
         << "  rtxmon --watch [--gpu INDEX] [--interval MS] [--count N] [--json]\n"
-        << "  rtxmon --list [--json]\n\n"
+        << "  rtxmon --list [--json]\n"
+        << "  rtxmon --capabilities [--gpu INDEX] [--json]\n\n"
         << "Options:\n"
         << "  --once          Read one sample (default)\n"
         << "  --watch         Read continuously until Ctrl+C\n"
         << "  --list          List NVIDIA GPUs\n"
+        << "  --capabilities  Inventory public thermal capabilities and provider states\n"
         << "  --gpu INDEX     Select the zero-based GPU index\n"
         << "  --interval MS   Poll interval, 100 to 60000 ms (default: 1000)\n"
         << "  --count N       Stop watch mode after N samples; 0 means unlimited\n"
@@ -95,6 +99,10 @@ Options parse_options(int argc, char **argv)
         }
         if (argument == "--list") {
             options.mode = Mode::list;
+            continue;
+        }
+        if (argument == "--capabilities") {
+            options.mode = Mode::capabilities;
             continue;
         }
         if (argument == "--json") {
@@ -233,6 +241,149 @@ void print_sample(
     std::cout.flush();
 }
 
+std::string hex_id(std::uint32_t value)
+{
+    std::ostringstream output;
+    output << "0x" << std::hex << std::setw(4) << std::setfill('0') << (value & 0xffffU);
+    return output.str();
+}
+
+std::string board_profile_key(const rtxmon::BoardIdentity &board)
+{
+    const bool vbios_valid = (board.flags & RTXMON_BOARD_IDENTITY_VBIOS_VALID) != 0U;
+    std::ostringstream output;
+    output << std::hex << std::setw(4) << std::setfill('0') << (board.pci_vendor_id & 0xffffU)
+           << ':' << std::setw(4) << (board.pci_device_id & 0xffffU)
+           << '/' << std::setw(4) << (board.pci_subsystem_vendor_id & 0xffffU)
+           << ':' << std::setw(4) << (board.pci_subsystem_device_id & 0xffffU)
+           << '@' << (vbios_valid ? board.vbios_version : "unknown");
+    return output.str();
+}
+
+void print_nullable_temperature(bool valid, std::int32_t value)
+{
+    if (valid) {
+        std::cout << value;
+    } else {
+        std::cout << "null";
+    }
+}
+
+void print_capability_report_json(
+    const rtxmon::GpuInfo &gpu,
+    const rtxmon::BoardIdentity &board,
+    const rtxmon::ThermalReport &report)
+{
+    const bool pci_valid = (board.flags & RTXMON_BOARD_IDENTITY_PCI_VALID) != 0U;
+    const bool vbios_valid = (board.flags & RTXMON_BOARD_IDENTITY_VBIOS_VALID) != 0U;
+
+    std::cout
+        << "{\"schema_version\":2"
+        << ",\"gpu\":{\"index\":" << gpu.index
+        << ",\"name\":\"" << json_escape(gpu.name)
+        << "\",\"uuid\":\"" << json_escape(gpu.uuid)
+        << "\",\"driver_version\":\"" << json_escape(gpu.driver_version)
+        << "\",\"nvml_version\":\"" << json_escape(gpu.nvml_version) << "\"}"
+        << ",\"board\":{\"pci_identity_available\":" << (pci_valid ? "true" : "false")
+        << ",\"pci_bus_id\":\"" << json_escape(board.pci_bus_id)
+        << "\",\"pci_vendor_id\":\"" << hex_id(board.pci_vendor_id)
+        << "\",\"pci_device_id\":\"" << hex_id(board.pci_device_id)
+        << "\",\"pci_subsystem_vendor_id\":\"" << hex_id(board.pci_subsystem_vendor_id)
+        << "\",\"pci_subsystem_device_id\":\"" << hex_id(board.pci_subsystem_device_id)
+        << "\",\"vbios_available\":" << (vbios_valid ? "true" : "false")
+        << ",\"vbios_version\":";
+    if (vbios_valid) {
+        std::cout << '"' << json_escape(board.vbios_version) << '"';
+    } else {
+        std::cout << "null";
+    }
+    std::cout << ",\"profile_key\":\"" << json_escape(board_profile_key(board)) << "\"}"
+              << ",\"captured_at_unix_ms\":" << report.timestamp_unix_ms
+              << ",\"providers\":[";
+
+    for (std::size_t index = 0; index < report.providers.size(); ++index) {
+        const auto &provider = report.providers[index];
+        if (index != 0U) {
+            std::cout << ',';
+        }
+        std::cout
+            << "{\"provider\":\"" << json_escape(rtxmon::provider_name(provider.provider))
+            << "\",\"state\":\"" << json_escape(rtxmon::capability_state_name(provider.state))
+            << "\",\"native_status\":" << provider.native_status
+            << ",\"capability_count\":" << provider.capability_count << '}';
+    }
+
+    std::cout << "],\"thermal_capabilities\":[";
+    for (std::size_t index = 0; index < report.capabilities.size(); ++index) {
+        const auto &sensor = report.capabilities[index];
+        if (index != 0U) {
+            std::cout << ',';
+        }
+        std::cout
+            << "{\"provider\":\"" << json_escape(rtxmon::provider_name(sensor.provider))
+            << "\",\"provider_native_id\":" << sensor.provider_native_id
+            << ",\"target\":\"" << json_escape(rtxmon::thermal_target_name(sensor.target))
+            << "\",\"controller\":\"" << json_escape(rtxmon::thermal_controller_name(sensor.controller))
+            << "\",\"state\":\"" << json_escape(rtxmon::capability_state_name(sensor.state))
+            << "\",\"confidence\":\"" << json_escape(rtxmon::confidence_name(sensor.confidence))
+            << "\",\"current_temperature_c\":";
+        print_nullable_temperature(sensor.has_current_temperature(), sensor.current_temperature_c);
+        std::cout << ",\"default_min_temperature_c\":";
+        print_nullable_temperature(sensor.has_default_minimum(), sensor.default_min_temperature_c);
+        std::cout << ",\"default_max_temperature_c\":";
+        print_nullable_temperature(sensor.has_default_maximum(), sensor.default_max_temperature_c);
+        std::cout << ",\"native_status\":" << sensor.native_status << '}';
+    }
+
+    std::cout << "]}\n";
+}
+
+void print_capability_report_text(
+    const rtxmon::GpuInfo &gpu,
+    const rtxmon::BoardIdentity &board,
+    const rtxmon::ThermalReport &report)
+{
+    std::cout << "GPU " << gpu.index << "  " << gpu.name << '\n'
+              << "Driver " << gpu.driver_version << "  NVML " << gpu.nvml_version << '\n'
+              << "PCI " << board.pci_bus_id << "  "
+              << hex_id(board.pci_vendor_id) << ':' << hex_id(board.pci_device_id).substr(2)
+              << "  subsystem " << hex_id(board.pci_subsystem_vendor_id) << ':'
+              << hex_id(board.pci_subsystem_device_id).substr(2) << '\n'
+              << "VBIOS "
+              << (((board.flags & RTXMON_BOARD_IDENTITY_VBIOS_VALID) != 0U)
+                      ? board.vbios_version
+                      : "unavailable")
+              << "\n\nProviders:\n";
+
+    for (const auto &provider : report.providers) {
+        std::cout << "  " << rtxmon::provider_name(provider.provider)
+                  << " | " << rtxmon::capability_state_name(provider.state)
+                  << " | capabilities " << provider.capability_count
+                  << " | native status " << provider.native_status << '\n';
+    }
+
+    std::cout << "\nThermal capabilities:\n";
+    for (const auto &sensor : report.capabilities) {
+        std::cout << "  " << rtxmon::provider_name(sensor.provider)
+                  << '[' << sensor.provider_native_id << ']'
+                  << " | target " << rtxmon::thermal_target_name(sensor.target)
+                  << " | controller " << rtxmon::thermal_controller_name(sensor.controller)
+                  << " | " << rtxmon::capability_state_name(sensor.state)
+                  << " | " << rtxmon::confidence_name(sensor.confidence);
+        if (sensor.has_current_temperature()) {
+            std::cout << " | current " << sensor.current_temperature_c << " C";
+        }
+        if (sensor.has_default_minimum() && sensor.has_default_maximum()) {
+            std::cout << " | driver defaults " << sensor.default_min_temperature_c
+                      << ".." << sensor.default_max_temperature_c << " C";
+        }
+        std::cout << " | native status " << sensor.native_status << '\n';
+    }
+
+    std::cout
+        << "\nOnly public driver-reported channels are listed; unavailable hotspot, memory, or VRM readings are not inferred.\n";
+}
+
 int run(const Options &options)
 {
     rtxmon::Monitor monitor;
@@ -252,6 +403,16 @@ int run(const Options &options)
     }
 
     const auto gpu = monitor.gpu(options.gpu_index);
+    if (options.mode == Mode::capabilities) {
+        const auto board = monitor.board_identity(options.gpu_index);
+        const auto report = monitor.scan_thermal_capabilities(options.gpu_index);
+        if (options.json) {
+            print_capability_report_json(gpu, board, report);
+        } else {
+            print_capability_report_text(gpu, board, report);
+        }
+        return 0;
+    }
     if (options.mode == Mode::once) {
         print_sample(gpu, monitor.read_gpu_die_temperature(options.gpu_index), options.json);
         return 0;

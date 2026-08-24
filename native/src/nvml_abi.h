@@ -12,6 +12,8 @@
 typedef int nvmlReturn_t;
 typedef struct nvmlDevice_st *nvmlDevice_t;
 
+#define RTXMON_NVML_MAX_THERMAL_SENSORS 3U
+
 enum {
     NVML_SUCCESS = 0,
     NVML_ERROR_UNINITIALIZED = 1,
@@ -38,11 +40,103 @@ enum {
     NVML_TEMPERATURE_GPU = 0
 };
 
+enum {
+    RTXMON_NVML_THERMAL_TARGET_NONE = 0,
+    RTXMON_NVML_THERMAL_TARGET_GPU = 1,
+    RTXMON_NVML_THERMAL_TARGET_MEMORY = 2,
+    RTXMON_NVML_THERMAL_TARGET_POWER_SUPPLY = 4,
+    RTXMON_NVML_THERMAL_TARGET_BOARD = 8,
+    RTXMON_NVML_THERMAL_TARGET_VCD_BOARD = 9,
+    RTXMON_NVML_THERMAL_TARGET_VCD_INLET = 10,
+    RTXMON_NVML_THERMAL_TARGET_VCD_OUTLET = 11,
+    RTXMON_NVML_THERMAL_TARGET_ALL = 15,
+    RTXMON_NVML_THERMAL_TARGET_UNKNOWN = -1
+};
+
+enum {
+    RTXMON_NVML_THERMAL_CONTROLLER_NONE = 0,
+    RTXMON_NVML_THERMAL_CONTROLLER_GPU_INTERNAL = 1,
+    RTXMON_NVML_THERMAL_CONTROLLER_ADM1032 = 2,
+    RTXMON_NVML_THERMAL_CONTROLLER_ADT7461 = 3,
+    RTXMON_NVML_THERMAL_CONTROLLER_MAX6649 = 4,
+    RTXMON_NVML_THERMAL_CONTROLLER_MAX1617 = 5,
+    RTXMON_NVML_THERMAL_CONTROLLER_LM99 = 6,
+    RTXMON_NVML_THERMAL_CONTROLLER_LM89 = 7,
+    RTXMON_NVML_THERMAL_CONTROLLER_LM64 = 8,
+    RTXMON_NVML_THERMAL_CONTROLLER_G781 = 9,
+    RTXMON_NVML_THERMAL_CONTROLLER_ADT7473 = 10,
+    RTXMON_NVML_THERMAL_CONTROLLER_SBMAX6649 = 11,
+    RTXMON_NVML_THERMAL_CONTROLLER_VBIOSEVT = 12,
+    RTXMON_NVML_THERMAL_CONTROLLER_OS = 13,
+    RTXMON_NVML_THERMAL_CONTROLLER_NVSYSCON_CANOAS = 14,
+    RTXMON_NVML_THERMAL_CONTROLLER_NVSYSCON_E551 = 15,
+    RTXMON_NVML_THERMAL_CONTROLLER_MAX6649R = 16,
+    RTXMON_NVML_THERMAL_CONTROLLER_ADT7473S = 17,
+    RTXMON_NVML_THERMAL_CONTROLLER_UNKNOWN = -1
+};
+
+enum {
+    RTXMON_NVML_VALUE_TYPE_DOUBLE = 0,
+    RTXMON_NVML_VALUE_TYPE_UNSIGNED_INT = 1,
+    RTXMON_NVML_VALUE_TYPE_UNSIGNED_LONG = 2,
+    RTXMON_NVML_VALUE_TYPE_UNSIGNED_LONG_LONG = 3,
+    RTXMON_NVML_VALUE_TYPE_SIGNED_LONG_LONG = 4,
+    RTXMON_NVML_VALUE_TYPE_SIGNED_INT = 5,
+    RTXMON_NVML_VALUE_TYPE_UNSIGNED_SHORT = 6
+};
+
+enum {
+    RTXMON_NVML_FI_DEV_MEMORY_TEMP = 82
+};
+
 typedef struct rtxmon_nvml_temperature_v1 {
     uint32_t version;
     int sensor_type;
     int temperature;
 } rtxmon_nvml_temperature_v1_t;
+
+typedef struct rtxmon_nvml_pci_info {
+    char bus_id_legacy[16];
+    uint32_t domain;
+    uint32_t bus;
+    uint32_t device;
+    uint32_t pci_device_id;
+    uint32_t pci_subsystem_id;
+    char bus_id[32];
+} rtxmon_nvml_pci_info_t;
+
+typedef struct rtxmon_nvml_thermal_sensor {
+    int controller;
+    int default_min_temperature;
+    int default_max_temperature;
+    int current_temperature;
+    int target;
+} rtxmon_nvml_thermal_sensor_t;
+
+typedef struct rtxmon_nvml_thermal_settings {
+    uint32_t count;
+    rtxmon_nvml_thermal_sensor_t sensors[RTXMON_NVML_MAX_THERMAL_SENSORS];
+} rtxmon_nvml_thermal_settings_t;
+
+typedef union rtxmon_nvml_value {
+    double double_value;
+    int32_t signed_int_value;
+    uint32_t unsigned_int_value;
+    unsigned long unsigned_long_value;
+    uint64_t unsigned_long_long_value;
+    int64_t signed_long_long_value;
+    uint16_t unsigned_short_value;
+} rtxmon_nvml_value_t;
+
+typedef struct rtxmon_nvml_field_value {
+    uint32_t field_id;
+    uint32_t scope_id;
+    int64_t timestamp;
+    int64_t latency_usec;
+    int value_type;
+    nvmlReturn_t result;
+    rtxmon_nvml_value_t value;
+} rtxmon_nvml_field_value_t;
 
 #define RTXMON_NVML_TEMPERATURE_V1_VERSION \
     ((uint32_t)(sizeof(rtxmon_nvml_temperature_v1_t) | (1U << 24U)))
@@ -61,6 +155,13 @@ typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_uuid_fn)(
     nvmlDevice_t device,
     char *uuid,
     uint32_t length);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_pci_info_v3_fn)(
+    nvmlDevice_t device,
+    rtxmon_nvml_pci_info_t *pci_info);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_vbios_version_fn)(
+    nvmlDevice_t device,
+    char *version,
+    uint32_t length);
 typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_system_get_driver_version_fn)(
     char *version,
     uint32_t length);
@@ -74,6 +175,14 @@ typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_temperature_fn)(
     nvmlDevice_t device,
     int sensor_type,
     uint32_t *temperature);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_thermal_settings_fn)(
+    nvmlDevice_t device,
+    uint32_t sensor_index,
+    rtxmon_nvml_thermal_settings_t *settings);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_field_values_fn)(
+    nvmlDevice_t device,
+    int value_count,
+    rtxmon_nvml_field_value_t *values);
 typedef const char *(RTXMON_NVML_CALL *rtxmon_nvml_error_string_fn)(nvmlReturn_t result);
 
 #endif

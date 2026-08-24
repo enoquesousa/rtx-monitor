@@ -19,10 +19,14 @@ typedef struct rtxmon_nvml_api {
     rtxmon_nvml_device_get_handle_by_index_v2_fn device_get_handle_by_index_v2;
     rtxmon_nvml_device_get_name_fn device_get_name;
     rtxmon_nvml_device_get_uuid_fn device_get_uuid;
+    rtxmon_nvml_device_get_pci_info_v3_fn device_get_pci_info_v3;
+    rtxmon_nvml_device_get_vbios_version_fn device_get_vbios_version;
     rtxmon_nvml_system_get_driver_version_fn system_get_driver_version;
     rtxmon_nvml_system_get_nvml_version_fn system_get_nvml_version;
     rtxmon_nvml_device_get_temperature_v_fn device_get_temperature_v;
     rtxmon_nvml_device_get_temperature_fn device_get_temperature;
+    rtxmon_nvml_device_get_thermal_settings_fn device_get_thermal_settings;
+    rtxmon_nvml_device_get_field_values_fn device_get_field_values;
     rtxmon_nvml_error_string_fn error_string;
 } rtxmon_nvml_api_t;
 

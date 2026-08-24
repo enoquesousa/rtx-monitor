@@ -166,6 +166,16 @@ rtxmon_nvml_loader_status_t rtxmon_nvml_load(
 
     RTXMON_RESOLVE_OPTIONAL(
         api,
+        device_get_pci_info_v3,
+        rtxmon_nvml_device_get_pci_info_v3_fn,
+        "nvmlDeviceGetPciInfo_v3");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_vbios_version,
+        rtxmon_nvml_device_get_vbios_version_fn,
+        "nvmlDeviceGetVbiosVersion");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
         system_get_driver_version,
         rtxmon_nvml_system_get_driver_version_fn,
         "nvmlSystemGetDriverVersion");
@@ -184,6 +194,16 @@ rtxmon_nvml_loader_status_t rtxmon_nvml_load(
         device_get_temperature,
         rtxmon_nvml_device_get_temperature_fn,
         "nvmlDeviceGetTemperature");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_thermal_settings,
+        rtxmon_nvml_device_get_thermal_settings_fn,
+        "nvmlDeviceGetThermalSettings");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_field_values,
+        rtxmon_nvml_device_get_field_values_fn,
+        "nvmlDeviceGetFieldValues");
 
     if (api->device_get_temperature_v == NULL && api->device_get_temperature == NULL) {
         rtxmon_loader_error(

@@ -84,6 +84,98 @@ public sealed class NvidiaMonitor : IDisposable
             native.TimestampUnixMilliseconds);
     }
 
+    public BoardIdentity GetBoardIdentity(uint index)
+    {
+        ThrowIfDisposed();
+        NativeBoardIdentity native = NativeBoardIdentity.Create();
+        NativeStatus status = NativeMethods.rtxmon_get_board_identity(context, index, ref native);
+        if (status != NativeStatus.Ok)
+        {
+            Throw(status, $"Não foi possível obter a identidade da placa da GPU {index}");
+        }
+
+        return new BoardIdentity(
+            native.GpuIndex,
+            native.PciVendorId,
+            native.PciDeviceId,
+            native.PciSubsystemVendorId,
+            native.PciSubsystemDeviceId,
+            native.PciDomain,
+            native.PciBus,
+            native.PciDevice,
+            native.PciFunction,
+            (BoardIdentityFlags)native.Flags,
+            native.PciBusId,
+            native.VbiosVersion);
+    }
+
+    public ThermalReport ScanThermalCapabilities(uint index)
+    {
+        ThrowIfDisposed();
+        NativeThermalReport native = NativeThermalReport.Create();
+        NativeStatus status = NativeMethods.rtxmon_scan_thermal_capabilities(context, index, ref native);
+        if (status != NativeStatus.Ok)
+        {
+            Throw(status, $"Não foi possível inventariar as capacidades térmicas da GPU {index}");
+        }
+
+        if (native.ProviderCount > NativeMethods.MaxThermalProviders ||
+            native.CapabilityCount > NativeMethods.MaxThermalCapabilities)
+        {
+            throw new InvalidOperationException(
+                $"Relatório nativo excedeu os limites da ABI: providers={native.ProviderCount}, " +
+                $"capabilities={native.CapabilityCount}.");
+        }
+
+        var providers = new List<ThermalProviderResult>(checked((int)native.ProviderCount));
+        for (int providerIndex = 0; providerIndex < native.ProviderCount; providerIndex++)
+        {
+            NativeThermalProviderResult provider = native.Providers[providerIndex];
+            providers.Add(new ThermalProviderResult(
+                (ThermalProvider)provider.Provider,
+                NativeMethods.ProviderString(provider.Provider),
+                (CapabilityState)provider.State,
+                NativeMethods.CapabilityStateString(provider.State),
+                provider.NativeStatus,
+                provider.CapabilityCount));
+        }
+
+        var capabilities = new List<ThermalCapability>(checked((int)native.CapabilityCount));
+        for (int capabilityIndex = 0; capabilityIndex < native.CapabilityCount; capabilityIndex++)
+        {
+            NativeThermalCapability capability = native.Capabilities[capabilityIndex];
+            capabilities.Add(new ThermalCapability(
+                (ThermalProvider)capability.Provider,
+                NativeMethods.ProviderString(capability.Provider),
+                (ThermalTarget)capability.Target,
+                NativeMethods.ThermalTargetString(capability.Target),
+                (ThermalController)capability.Controller,
+                NativeMethods.ThermalControllerString(capability.Controller),
+                (CapabilityState)capability.State,
+                NativeMethods.CapabilityStateString(capability.State),
+                (SensorConfidence)capability.Confidence,
+                NativeMethods.SensorConfidenceString(capability.Confidence),
+                HasFlag(capability.ValueFlags, NativeMethods.ThermalValueCurrentValid)
+                    ? capability.CurrentTemperatureC
+                    : null,
+                HasFlag(capability.ValueFlags, NativeMethods.ThermalValueDefaultMinimumValid)
+                    ? capability.DefaultMinimumTemperatureC
+                    : null,
+                HasFlag(capability.ValueFlags, NativeMethods.ThermalValueDefaultMaximumValid)
+                    ? capability.DefaultMaximumTemperatureC
+                    : null,
+                capability.NativeStatus,
+                capability.ProviderNativeId));
+        }
+
+        return new ThermalReport(
+            native.GpuIndex,
+            DateTimeOffset.FromUnixTimeMilliseconds(checked((long)native.TimestampUnixMilliseconds)),
+            native.TimestampUnixMilliseconds,
+            providers,
+            capabilities);
+    }
+
     public void Dispose()
     {
         if (disposed)
@@ -107,12 +199,20 @@ public sealed class NvidiaMonitor : IDisposable
 
         int gpuInfoSize = Marshal.SizeOf<NativeGpuInfo>();
         int sampleSize = Marshal.SizeOf<NativeTemperatureSample>();
-        if (gpuInfoSize != 392 || sampleSize != 32)
+        int boardIdentitySize = Marshal.SizeOf<NativeBoardIdentity>();
+        int providerSize = Marshal.SizeOf<NativeThermalProviderResult>();
+        int capabilitySize = Marshal.SizeOf<NativeThermalCapability>();
+        int reportSize = Marshal.SizeOf<NativeThermalReport>();
+        if (gpuInfoSize != 392 || sampleSize != 32 || boardIdentitySize != 240 ||
+            providerSize != 16 || capabilitySize != 48 || reportSize != 456)
         {
             throw new InvalidOperationException(
-                $"Layout P/Invoke incompatível: gpu_info={gpuInfoSize}, sample={sampleSize}.");
+                $"Layout P/Invoke incompatível: gpu_info={gpuInfoSize}, sample={sampleSize}, " +
+                $"board={boardIdentitySize}, provider={providerSize}, capability={capabilitySize}, report={reportSize}.");
         }
     }
+
+    private static bool HasFlag(uint value, uint flag) => (value & flag) != 0;
 
     private static void Throw(NativeStatus status, string operation)
     {
