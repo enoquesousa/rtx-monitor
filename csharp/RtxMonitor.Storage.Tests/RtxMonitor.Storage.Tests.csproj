@@ -5,18 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <NativeLibraryDir Condition="'$(NativeLibraryDir)' == ''">$(MSBuildThisFileDirectory)..\..\build\windows-x64\bin\$(Configuration)</NativeLibraryDir>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.30" />
     <ProjectReference Include="..\RtxMonitor.Managed\RtxMonitor.Managed.csproj" />
     <ProjectReference Include="..\RtxMonitor.Storage\RtxMonitor.Storage.csproj" />
   </ItemGroup>
-
-  <Target Name="CopyNativeMonitorLibrary" AfterTargets="Build" Condition="Exists('$(NativeLibraryDir)\rtxmon_native.dll')">
-    <Copy
-      SourceFiles="$(NativeLibraryDir)\rtxmon_native.dll"
-      DestinationFolder="$(OutDir)"
-      SkipUnchangedFiles="true" />
-  </Target>
 </Project>

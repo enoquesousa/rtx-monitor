@@ -17,6 +17,7 @@ $csharpExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Confi
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
 $eventSchemaV1Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
 $eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
+$evidenceTempRoot = $null
 
 function Assert-LastExitCode {
     param([Parameter(Mandatory)][string]$Description)
@@ -324,6 +325,69 @@ try {
     Assert-AlertStream -Source 'C++ alert stream' -Events $cppAlertEvents -GpuUuid $cppSample.gpu_uuid
     Assert-AlertStream -Source 'C# alert stream' -Events $csharpAlertEvents -GpuUuid $cppSample.gpu_uuid
 
+    $evidenceTempRoot = Join-Path `
+        ([System.IO.Path]::GetTempPath()) `
+        ("rtxmon-verify-{0}" -f [Guid]::NewGuid().ToString('N'))
+    $null = New-Item -ItemType Directory -Path $evidenceTempRoot
+    $evidenceDatabase = Join-Path $evidenceTempRoot 'telemetry.db'
+
+    $storedEvents = @(& $csharpExecutable `
+        --watch `
+        --count 2 `
+        --interval 100 `
+        --events `
+        --database $evidenceDatabase) | ForEach-Object { $_ | ConvertFrom-Json }
+    Assert-LastExitCode -Description 'C# persisted event stream'
+    Assert-EventStream `
+        -Source 'C# persisted event stream' `
+        -Events $storedEvents `
+        -GpuUuid $cppSample.gpu_uuid
+
+    $history = @(& $csharpExecutable `
+        --history `
+        --database $evidenceDatabase `
+        --limit 10 `
+        --json) | ForEach-Object { $_ | ConvertFrom-Json }
+    Assert-LastExitCode -Description 'C# evidence history'
+    if ($history.Count -ne 2) {
+        throw "C# evidence history returned $($history.Count) records instead of 2."
+    }
+
+    $historyRunId = [string]$history[0].run.run_id
+    foreach ($record in $history) {
+        if ($record.evidence_schema_version -ne 1 -or
+            $record.store_schema_version -ne 1 -or
+            $record.event.schema_version -ne 2 -or
+            $record.run.run_id -ne $historyRunId -or
+            $record.run.application_version -ne '0.5.0' -or
+            $record.device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid -or
+            $record.device_snapshot.board.profile_key -ne $cppCapabilities.board.profile_key) {
+            throw 'A persisted evidence record did not preserve schema, run, version, GPU, or board provenance.'
+        }
+    }
+
+    $continuedHistory = @(& $csharpExecutable `
+        --history `
+        --database $evidenceDatabase `
+        --run-id $historyRunId `
+        --after-sequence 1 `
+        --limit 10 `
+        --json) | ForEach-Object { $_ | ConvertFrom-Json }
+    Assert-LastExitCode -Description 'C# evidence sequence query'
+    if ($continuedHistory.Count -ne 1 -or $continuedHistory[0].event.sequence -ne 2) {
+        throw 'C# evidence sequence query did not resume after sequence 1.'
+    }
+
+    $exportedHistory = @(& $csharpExecutable `
+        --export `
+        --database $evidenceDatabase) | ForEach-Object { $_ | ConvertFrom-Json }
+    Assert-LastExitCode -Description 'C# evidence export'
+    if ($exportedHistory.Count -ne 2 -or
+        $exportedHistory[0].event.sequence -ne 1 -or
+        $exportedHistory[1].event.sequence -ne 2) {
+        throw 'C# evidence export did not preserve the complete ordered stream.'
+    }
+
     Write-Host 'Verification passed.'
     Write-Host "GPU: $($cppSample.gpu_name)"
     Write-Host "UUID: $($cppSample.gpu_uuid)"
@@ -333,7 +397,26 @@ try {
     Write-Host "Thermal capability records: $($cppCapabilities.thermal_capabilities.Count)"
     Write-Host 'Resilient event streams: C++ and C# passed.'
     Write-Host 'Threshold alert streams: C++ and C# passed.'
+    Write-Host 'SQLite evidence history and export: passed.'
 }
 finally {
-    Pop-Location
+    try {
+        if ($null -ne $evidenceTempRoot -and (Test-Path -LiteralPath $evidenceTempRoot)) {
+            $resolvedEvidenceRoot = (Resolve-Path -LiteralPath $evidenceTempRoot).Path
+            $resolvedSystemTemp = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+            if (-not $resolvedEvidenceRoot.StartsWith(
+                    $resolvedSystemTemp,
+                    [StringComparison]::OrdinalIgnoreCase) -or
+                -not ([System.IO.Path]::GetFileName($resolvedEvidenceRoot)).StartsWith(
+                    'rtxmon-verify-',
+                    [StringComparison]::Ordinal)) {
+                throw "Refusing to remove unexpected verification directory: $resolvedEvidenceRoot"
+            }
+
+            Remove-Item -LiteralPath $resolvedEvidenceRoot -Recurse -Force
+        }
+    }
+    finally {
+        Pop-Location
+    }
 }

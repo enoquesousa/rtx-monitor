@@ -30,6 +30,7 @@ O programa não afirma acesso elétrico direto ao sensor. Registradores térmico
 | `alerts.cpp` / `alerts.hpp` | C++20 | Máquina de estados de limiar/histerese sobre a temperatura de cada amostra. |
 | `rtxmon` | C++20 | CLI de amostra, watch resiliente, GPUs, capabilities e alertas; JSON versionado. |
 | `RtxMonitor.Managed` | C#/.NET 8 | P/Invoke, `SafeHandle`, layouts verificados, sampler resiliente e avaliador de alertas equivalentes. |
+| `RtxMonitor.Storage` | C#/.NET 8 | SQLite, migrations, runs, snapshots de identidade, retenção, consultas e exportação de evidências. |
 | `RtxMonitor.Console` | C#/.NET 8 | Dashboard de terminal, eventos de disponibilidade, alertas, estatísticas e saída JSON. |
 
 ## Fluxo de uma leitura
@@ -87,6 +88,18 @@ A saída `--watch --json` permanece compatível com o schema de amostra v1 e env
 
 O avaliador não conhece sessão, GPU, thread ou relógio: é uma máquina de estados pura sobre um inteiro, testável sem `ResilientSampler` e sem GPU. O limiar é uma política escolhida por quem monitora, não um fato reportado pelo driver — ver [ADR 0004](adr/0004-threshold-alerts.md).
 
+## Fluxo da persistência
+
+1. `--watch --database PATH` abre ou cria o banco e aplica migrations conhecidas.
+2. WAL, foreign keys, timeout de bloqueio e `synchronous=NORMAL` são configurados antes da primeira gravação.
+3. A retenção remove dados fora da janela e um novo `run_id` registra configuração, versão e ambiente.
+4. Quando a GPU aparece, um snapshot preserva UUID, índice, driver, NVML, PCI, VBIOS e profile key. Uma falha de captura também é registrada, sem inventar os campos ausentes.
+5. Cada evento recebe a sequência global do stream e é confirmado em uma transação antes de ser apresentado ao consumidor.
+6. `(run_id, stream_sequence)` torna o retry idempotente; conteúdo diferente na mesma sequência é conflito, não atualização.
+7. Encerramento normal, `Ctrl+C` ou erro atualizam o run. A ausência de `completed_at_unix_ms` indica que nenhum encerramento foi confirmado.
+
+O banco mantém o evento original no schema v2 e colunas indexadas para consulta. `--history --json` e `--export` acrescentam o contexto do run e do snapshot conforme [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json). Um snapshot associado a uma lacuna é contexto anterior conhecido, não uma afirmação de que a GPU estava acessível naquele instante — ver [ADR 0005](adr/0005-sqlite-evidence-store.md).
+
 ## ABI C
 
 A fronteira nativa é C, não C++, porque nomes, exceptions e layouts C++ não formam uma ABI estável entre compiladores. Os contratos usam tipos de largura fixa e estruturas com `struct_size`:
@@ -110,6 +123,8 @@ O chamador inicializa `struct_size`; a DLL rejeita um layout menor. A ABI atual 
 ## Concorrência e ciclo de vida
 
 NVML é documentada como thread-safe. A tabela de símbolos no contexto é imutável depois da inicialização, e cada leitura usa apenas estado local. Diagnósticos ficam em armazenamento thread-local. Chamadas NVAPI são serializadas no processo porque o contrato público não oferece a mesma garantia de concorrência.
+
+Os objetos ADO.NET do SQLite não são compartilhados entre threads. `RtxMonitor.Storage` abre uma conexão curta por operação e usa pooling, WAL e transações. Assim, writers concorrentes disputam apenas a confirmação necessária e leitores não reutilizam um `SqliteConnection` global.
 
 Regras do contrato:
 
@@ -147,6 +162,8 @@ Falhas não são convertidas em zero grau nem em dados antigos. Cada camada prop
 - erro NVML preservado com texto e código.
 
 Nos modos `--once` e `--capabilities`, uma falha continua encerrando o comando. No modo watch, estados recuperáveis são convertidos em lacunas e novas tentativas com backoff. Estados que indicam erro de uso, permissão, falta de memória, sensor não suportado ou ABI incompatível continuam fatais.
+
+Persistência é opt-in. Sem `--database`, uma falha ou ausência do SQLite não participa da coleta. Com `--database`, gravar cada evento faz parte do contrato solicitado: uma falha encerra o monitor em vez de continuar enquanto perde evidências silenciosamente. Consultas não criam um banco ausente, schemas futuros são recusados e arquivos inválidos não são substituídos.
 
 O sampler nunca repete uma amostra anterior durante a indisponibilidade. Uma lacuna contém status, diagnóstico, quantidade de falhas consecutivas e atraso até a próxima tentativa. A sessão nativa é descartada para que a tentativa seguinte recarregue o contexto e resolva novamente o UUID.
 
@@ -192,16 +209,15 @@ O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-e
 
 O [`telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json) permanece publicado e imutável para validar streams históricos da v0.3.0.
 
-## Extensões seguras
+O armazenamento usa schema SQLite 1. A exportação usa [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json) e incorpora o evento v2 sem renomear campos. O envelope acrescenta `event_id`, horário de armazenamento, run, ambiente e snapshot da placa; essa proveniência não altera o fato observado no evento.
 
-Próximas camadas podem ser adicionadas sem alterar o coletor:
+## Evolução da arquitetura
 
-- persistência SQLite/Parquet alimentada pelo stream de eventos;
-- serviço Windows separado do frontend;
-- endpoint local HTTP/SSE ou OpenTelemetry;
-- alertas derivados de thresholds consultados do driver, complementando o limiar definido pelo usuário já suportado (ver [ADR 0004](adr/0004-threshold-alerts.md));
-- frontend desktop, mantendo `RtxMonitor.Managed` como fronteira;
-- base de perfis por `vendor:device/subvendor:subdevice@vbios`, sem converter correlação em fato físico;
-- modo experimental separado, somente se houver documentação por placa, validação cruzada e isolamento de risco.
+O [roadmap de engenharia](ROADMAP.md) separa a evolução em duas trilhas:
 
-Qualquer threshold deve ser rotulado como política ou limite fornecido pelo driver; não deve ser apresentado como propriedade universal de toda RTX.
+- **estável:** persistência SQLite já implementada, seguida por serviço local headless, ampliação das APIs documentadas e métricas calculadas;
+- **experimental:** laboratório reproduzível, aquisição privilegiada somente leitura, correlação e perfis validados por placa.
+
+A trilha experimental não entra nesta ABI por conveniência. Ela terá processo, protocolo e namespace próprios, com ativação explícita. Somente um resultado que atenda aos critérios de evidência do roadmap poderá ser oferecido como perfil experimental; a ausência de perfil exato deve falhar sem produzir valor.
+
+Qualquer threshold deve ser rotulado como política ou limite fornecido pelo driver; qualquer fórmula deve ser rotulada como cálculo; e qualquer leitura não documentada deve preservar o valor bruto e seu estágio de evidência. Nenhum deles deve ser apresentado como propriedade universal de toda RTX.

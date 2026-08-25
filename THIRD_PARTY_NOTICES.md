@@ -15,3 +15,15 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ## NVIDIA Management Library
 
 This project declares only the minimal public NVML ABI needed for runtime interoperability. It does not redistribute NVIDIA's NVML header, import library, binary, or driver. The authoritative API contract is the [official NVML documentation](https://docs.nvidia.com/deploy/nvml-api/).
+
+## Microsoft.Data.Sqlite
+
+The `RtxMonitor.Storage` project uses [Microsoft.Data.Sqlite](https://www.nuget.org/packages/Microsoft.Data.Sqlite), distributed under the MIT License. The package is used only by the optional C# persistence layer and is not linked into `rtxmon_native`.
+
+## SQLitePCLRaw
+
+`Microsoft.Data.Sqlite` brings the [SQLitePCLRaw](https://www.nuget.org/packages/SQLitePCLRaw.bundle_e_sqlite3) packages as transitive dependencies. SQLitePCLRaw is distributed under the Apache License 2.0.
+
+## SQLite
+
+The bundled native SQLite library is part of the [SQLite project](https://www.sqlite.org/copyright.html). SQLite's deliverable source and documentation have been dedicated to the public domain by their authors.
