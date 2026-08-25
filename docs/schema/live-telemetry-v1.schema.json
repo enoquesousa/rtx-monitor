@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/enoquesousa/rtx-monitor/main/docs/schema/live-telemetry-v1.schema.json",
+  "title": "RTX Monitor live telemetry envelope",
+  "description": "Payload of a telemetry event sent by the local service over SSE.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "run_id",
+    "gpu_uuid",
+    "published_at_unix_ms",
+    "event"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "event_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "gpu_uuid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "published_at_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "event": {
+      "$ref": "telemetry-event-v2.schema.json"
+    }
+  }
+}

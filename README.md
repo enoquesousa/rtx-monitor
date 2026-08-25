@@ -147,6 +147,59 @@ Filtros podem ser combinados:
 
 O formato está em [evidence-record-v1.schema.json](docs/schema/evidence-record-v1.schema.json). Consultar um caminho inexistente falha sem criar um banco vazio; um arquivo inválido não é sobrescrito.
 
+## Execute como serviço local
+
+`RtxMonitor.Service` mantém a coleta ativa sem terminal e oferece uma API somente no próprio computador. Ele cria um coletor por UUID, grava cada evento no SQLite e só então o entrega aos clientes ao vivo.
+
+Depois de compilar, execute em modo console:
+
+```powershell
+.\csharp\RtxMonitor.Service\bin\Release\net8.0-windows\win-x64\RtxMonitor.Service.exe `
+  --RtxMonitor:DatabasePath .\rtx-monitor-service.db `
+  --RtxMonitor:Port 5136
+```
+
+Consulte os endpoints:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5136/health
+Invoke-RestMethod http://127.0.0.1:5136/api/v1/gpus
+Invoke-RestMethod 'http://127.0.0.1:5136/api/v1/history?limit=100'
+curl.exe -N http://127.0.0.1:5136/api/v1/events
+```
+
+| Endpoint | Retorno |
+| --- | --- |
+| `GET /health` | Saúde do processo, SQLite, discovery, coletores e SSE |
+| `GET /api/v1/gpus` | GPUs conhecidas e último estado de cada coletor |
+| `GET /api/v1/gpus/{uuid}/capabilities` | Último inventário térmico público |
+| `GET /api/v1/events` | Eventos persistidos ao vivo por Server-Sent Events |
+| `GET /api/v1/history` | Histórico limitado com filtros equivalentes ao CLI |
+
+O endereço é fixado em `127.0.0.1`; `--urls` não amplia a exposição. A API de GPUs chama uma leitura anterior de `last_sample_temperature_c` e informa seu horário — durante uma lacuna, ela não é apresentada como temperatura atual.
+
+Cada cliente SSE possui uma fila limitada. Se um cliente ficar lento, a aquisição continua e o stream envia `stream_gap`; os eventos ausentes permanecem no SQLite e podem ser recuperados pelo endpoint indicado no próprio aviso.
+
+Para publicar a pasta e instalar o mesmo executável como Windows Service:
+
+```powershell
+.\scripts\publish-service.ps1 -Configuration Release
+
+# Abra outro PowerShell como Administrador:
+.\scripts\install-service.ps1 -Start
+Get-Service RtxMonitorService
+```
+
+Essa publicação é dependente do framework: a máquina de destino precisa do **ASP.NET Core Runtime 8 x64** (o SDK .NET 8 já o inclui no ambiente de desenvolvimento).
+
+O banco padrão do Windows Service fica em `%ProgramData%\RtxMonitor\telemetry.db`. Configurações podem ser ajustadas no `appsettings.json` publicado antes da instalação. Para remover apenas o registro do serviço, preservando binários e banco:
+
+```powershell
+.\scripts\uninstall-service.ps1
+```
+
+O contrato completo está em [service-v1.openapi.json](docs/openapi/service-v1.openapi.json), e a decisão de engenharia está no [ADR 0006](docs/adr/0006-loopback-headless-service.md).
+
 ## Descubra quais sensores estão disponíveis
 
 Use o inventário térmico antes de assumir que uma GPU oferece memória, hotspot ou VRM:
@@ -246,14 +299,13 @@ sensores e firmware da GPU
       |            |
       v            v
  núcleo C++    biblioteca C#
- sampler +     sampler +
- buffer        buffer
-      |            |
-      v            v
- rtxmon.exe    camada SQLite
-                   |
-                   v
-               console C#
+ sampler +     sampler resiliente
+ buffer             |
+      |        +----+-----+
+      v        |          |
+ rtxmon.exe  console   serviço headless
+                         |
+                    SQLite + HTTP/SSE
 ```
 
 Cada linguagem tem uma responsabilidade clara:
@@ -262,7 +314,7 @@ Cada linguagem tem uma responsabilidade clara:
 | --- | --- |
 | **C** | Carrega NVML/NVAPI, consulta o driver e expõe uma ABI — o contrato binário usado pelas outras linguagens |
 | **C++** | Organiza os dados, mantém o sampler resiliente e fornece o CLI `rtxmon.exe` |
-| **C#** | Consome a ABI C por P/Invoke, oferece o sampler .NET e mantém persistência SQLite opcional |
+| **C#** | Consome a ABI C por P/Invoke, mantém SQLite e executa o serviço local HTTP/SSE |
 
 A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura principal por NVML continua funcionando.
 
@@ -279,6 +331,8 @@ A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura p
 | Estudar o avaliador de alertas em C++ | [cpp/include/rtxmon/alerts.hpp](cpp/include/rtxmon/alerts.hpp) |
 | Estudar o avaliador de alertas em C# | [csharp/RtxMonitor.Managed/Alerts.cs](csharp/RtxMonitor.Managed/Alerts.cs) |
 | Entender o banco de evidências | [csharp/RtxMonitor.Storage/SqliteTelemetryStore.cs](csharp/RtxMonitor.Storage/SqliteTelemetryStore.cs) |
+| Entender o supervisor do serviço | [csharp/RtxMonitor.Service/GpuMonitoringWorker.cs](csharp/RtxMonitor.Service/GpuMonitoringWorker.cs) |
+| Entender os endpoints HTTP/SSE | [csharp/RtxMonitor.Service/ServiceEndpoints.cs](csharp/RtxMonitor.Service/ServiceEndpoints.cs) |
 | Conhecer as decisões de arquitetura | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | Ver o caminho até a engenharia reversa | [docs/ROADMAP.md](docs/ROADMAP.md) |
 
@@ -299,6 +353,7 @@ A verificação:
 - confirma que C, C++ e C# observam o mesmo dispositivo;
 - testa seleção por UUID, inventário de capacidades e streams contínuos.
 - testa migrations, reinício, concorrência, retenção e arquivos SQLite inválidos sem GPU.
+- testa API local, backpressure SSE, instância única por GPU, desligamento e recuperação do serviço sem GPU.
 
 O GitHub Actions usa `scripts/verify-ci.ps1`, que não exige GPU. A validação física continua separada em `scripts/verify.ps1`.
 
@@ -308,8 +363,8 @@ A prioridade agora é construir evidência, não uma interface gráfica. Cada et
 
 | Versão | Foco |
 | --- | --- |
-| **v0.5.0** | Persistir eventos e identidade da placa em SQLite |
-| **v0.6.0** | Executar a coleta como serviço local headless |
+| **v0.5.0** | Persistência SQLite concluída |
+| **v0.6.0** | Serviço local headless, HTTP/SSE e Windows Service concluídos |
 | **v0.7.0** | Ampliar dados públicos e criar métricas calculadas rastreáveis |
 | **v0.8.0** | Montar um laboratório reproduzível de captura e correlação |
 | **v0.9.0** | Adicionar aquisição experimental, privilegiada e somente leitura |
@@ -335,6 +390,7 @@ O plano futuro inclui engenharia reversa, mas ela será um modo experimental sep
 ## Documentação técnica
 
 - [Arquitetura e contratos](docs/ARCHITECTURE.md)
+- [Operação do serviço local](docs/SERVICE.md)
 - [Roadmap de engenharia reversa](docs/ROADMAP.md)
 - [Procedimento de validação](docs/VALIDATION.md)
 - [ADR 0001 — uso da NVML](docs/adr/0001-use-nvml.md)
@@ -342,10 +398,14 @@ O plano futuro inclui engenharia reversa, mas ela será um modo experimental sep
 - [ADR 0003 — monitoramento resiliente](docs/adr/0003-resilient-sampling.md)
 - [ADR 0004 — alertas de limiar](docs/adr/0004-threshold-alerts.md)
 - [ADR 0005 — armazenamento SQLite de evidências](docs/adr/0005-sqlite-evidence-store.md)
+- [ADR 0006 — serviço local headless](docs/adr/0006-loopback-headless-service.md)
+- [OpenAPI do serviço local — v1](docs/openapi/service-v1.openapi.json)
 - [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
 - [Schema JSON de eventos atual — v2](docs/schema/telemetry-event-v2.schema.json)
 - [Schema JSON histórico de eventos — v1](docs/schema/telemetry-event-v1.schema.json)
 - [Schema JSON de evidências — v1](docs/schema/evidence-record-v1.schema.json)
+- [Schema JSON de telemetria ao vivo — v1](docs/schema/live-telemetry-v1.schema.json)
+- [Schema JSON de lacuna SSE — v1](docs/schema/stream-gap-v1.schema.json)
 - [Avisos de componentes de terceiros](THIRD_PARTY_NOTICES.md)
 
 ## Referências oficiais

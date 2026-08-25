@@ -27,3 +27,7 @@ The `RtxMonitor.Storage` project uses [Microsoft.Data.Sqlite](https://www.nuget.
 ## SQLite
 
 The bundled native SQLite library is part of the [SQLite project](https://www.sqlite.org/copyright.html). SQLite's deliverable source and documentation have been dedicated to the public domain by their authors.
+
+## Microsoft.Extensions.Hosting.WindowsServices
+
+`RtxMonitor.Service` uses [Microsoft.Extensions.Hosting.WindowsServices](https://www.nuget.org/packages/Microsoft.Extensions.Hosting.WindowsServices/8.0.1) to integrate the .NET host with the Windows Service Control Manager. The package is distributed under the MIT License.

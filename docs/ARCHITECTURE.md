@@ -32,6 +32,7 @@ O programa não afirma acesso elétrico direto ao sensor. Registradores térmico
 | `RtxMonitor.Managed` | C#/.NET 8 | P/Invoke, `SafeHandle`, layouts verificados, sampler resiliente e avaliador de alertas equivalentes. |
 | `RtxMonitor.Storage` | C#/.NET 8 | SQLite, migrations, runs, snapshots de identidade, retenção, consultas e exportação de evidências. |
 | `RtxMonitor.Console` | C#/.NET 8 | Dashboard de terminal, eventos de disponibilidade, alertas, estatísticas e saída JSON. |
+| `RtxMonitor.Service` | C#/.NET 8 | Supervisor headless, um coletor por UUID, Windows Service, HTTP local, SSE e saúde. |
 
 ## Fluxo de uma leitura
 
@@ -100,6 +101,21 @@ O avaliador não conhece sessão, GPU, thread ou relógio: é uma máquina de es
 
 O banco mantém o evento original no schema v2 e colunas indexadas para consulta. `--history --json` e `--export` acrescentam o contexto do run e do snapshot conforme [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json). Um snapshot associado a uma lacuna é contexto anterior conhecido, não uma afirmação de que a GPU estava acessível naquele instante — ver [ADR 0005](adr/0005-sqlite-evidence-store.md).
 
+## Fluxo do serviço local
+
+1. O host abre o SQLite, verifica integridade, aplica retenção e publica o estado em `/health`.
+2. O discovery enumera GPUs e captura identidade e capabilities. Falhas de driver permanecem explícitas e são tentadas novamente.
+3. Um dicionário por UUID inicia no máximo um `ResilientSampler` para cada GPU observada.
+4. Cada coletor cria seu próprio run, snapshot de placa e sequência lógica.
+5. O evento é confirmado no SQLite antes de ser publicado ao broker SSE.
+6. `/api/v1/gpus` e `/capabilities` leem snapshots imutáveis; não iniciam sessões nativas por requisição.
+7. `/api/v1/history` executa consultas limitadas no mesmo armazenamento WAL.
+8. Cada assinante de `/api/v1/events` recebe uma fila privada e limitada. `TryWrite` nunca bloqueia o coletor.
+9. Quando a fila enche, o serviço preserva o evento no banco, mantém as entregas seguintes na mesma lacuna e envia `stream_gap` ao cliente lento antes de reabrir sua fila.
+10. No desligamento, todos os coletores são cancelados e seus runs recebem `service_stopped` antes do host encerrar.
+
+Kestrel escuta HTTP/1.1 apenas em `127.0.0.1`. O `event_id` confirmado pelo SQLite também é o `id` do SSE, permitindo recuperar uma lacuna em `/api/v1/history?order=asc&after_event_id=...`. O contrato está em [`service-v1.openapi.json`](openapi/service-v1.openapi.json) e a decisão completa no [ADR 0006](adr/0006-loopback-headless-service.md).
+
 ## ABI C
 
 A fronteira nativa é C, não C++, porque nomes, exceptions e layouts C++ não formam uma ABI estável entre compiladores. Os contratos usam tipos de largura fixa e estruturas com `struct_size`:
@@ -133,6 +149,9 @@ Regras do contrato:
 - C++ controla o contexto por RAII;
 - C# controla o ponteiro por `SafeHandle`;
 - cada instância do sampler tem um único proprietário e não deve receber chamadas `poll` concorrentes;
+- o supervisor do serviço mantém no máximo um coletor ativo por UUID;
+- a fila SSE pertence ao cliente e nunca é compartilhada como buffer autoritativo;
+- publicação SSE ocorre somente depois da confirmação do evento no SQLite;
 - toda criação bem-sucedida corresponde a um `nvmlShutdown`;
 - toda inicialização NVAPI bem-sucedida corresponde a `NvAPI_Unload`.
 
@@ -146,6 +165,8 @@ O projeto não carrega DLLs NVIDIA do diretório atual nem de um `PATH` arbitrá
 NVAPI é carregada exclusivamente como `%SystemRoot%\System32\nvapi64.dll` (ou `nvapi.dll` em 32 bits).
 
 Não há API para escrever clocks, fan, tensão, power limit ou configuração do driver. Também não há transação I2C, mapeamento MMIO, leitura de ROM ou driver kernel próprio. Não há execução de shell na biblioteca ou nos aplicativos. `nvidia-smi` aparece apenas no script de verificação como referência externa independente.
+
+O serviço cria seu endpoint por código em `127.0.0.1`. Argumentos `--urls` e variáveis `ASPNETCORE_URLS` não substituem esse bind. A v0.6.0 não habilita CORS, proxy reverso, endpoint de escrita, autenticação remota ou exposição em `0.0.0.0`. HTTP sem TLS é restrito ao loopback; qualquer acesso de rede exigirá autenticação, TLS e um ADR próprio.
 
 ## Modelo de falhas
 
@@ -164,6 +185,8 @@ Falhas não são convertidas em zero grau nem em dados antigos. Cada camada prop
 Nos modos `--once` e `--capabilities`, uma falha continua encerrando o comando. No modo watch, estados recuperáveis são convertidos em lacunas e novas tentativas com backoff. Estados que indicam erro de uso, permissão, falta de memória, sensor não suportado ou ABI incompatível continuam fatais.
 
 Persistência é opt-in. Sem `--database`, uma falha ou ausência do SQLite não participa da coleta. Com `--database`, gravar cada evento faz parte do contrato solicitado: uma falha encerra o monitor em vez de continuar enquanto perde evidências silenciosamente. Consultas não criam um banco ausente, schemas futuros são recusados e arquivos inválidos não são substituídos.
+
+No serviço, a persistência é obrigatória. Se o SQLite não abrir ou uma confirmação falhar, os coletores são interrompidos para impedir emissão sem evidência. O processo HTTP continua ativo, `/health` retorna `503` enquanto o banco não está pronto e o supervisor tenta recuperá-lo em intervalos limitados. Uma falha de discovery deixa o serviço pronto para histórico, mas com estado `degraded` e diagnóstico do driver.
 
 O sampler nunca repete uma amostra anterior durante a indisponibilidade. Uma lacuna contém status, diagnóstico, quantidade de falhas consecutivas e atraso até a próxima tentativa. A sessão nativa é descartada para que a tentativa seguinte recarregue o contexto e resolva novamente o UUID.
 
@@ -211,11 +234,13 @@ O [`telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json) perm
 
 O armazenamento usa schema SQLite 1. A exportação usa [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json) e incorpora o evento v2 sem renomear campos. O envelope acrescenta `event_id`, horário de armazenamento, run, ambiente e snapshot da placa; essa proveniência não altera o fato observado no evento.
 
+O serviço usa API schema 1. Respostas HTTP são documentadas no OpenAPI; eventos SSE `telemetry` usam [`live-telemetry-v1.schema.json`](schema/live-telemetry-v1.schema.json), e descartes de entrega para clientes lentos usam [`stream-gap-v1.schema.json`](schema/stream-gap-v1.schema.json). A lista de GPUs expõe somente `last_sample_temperature_c` com o horário da amostra; esse campo não é renomeado para temperatura atual durante uma lacuna.
+
 ## Evolução da arquitetura
 
 O [roadmap de engenharia](ROADMAP.md) separa a evolução em duas trilhas:
 
-- **estável:** persistência SQLite já implementada, seguida por serviço local headless, ampliação das APIs documentadas e métricas calculadas;
+- **estável:** persistência SQLite e serviço local headless já implementados, seguidos pela ampliação das APIs documentadas e métricas calculadas;
 - **experimental:** laboratório reproduzível, aquisição privilegiada somente leitura, correlação e perfis validados por placa.
 
 A trilha experimental não entra nesta ABI por conveniência. Ela terá processo, protocolo e namespace próprios, com ativação explícita. Somente um resultado que atenda aos critérios de evidência do roadmap poderá ser oferecido como perfil experimental; a ausência de perfil exato deve falhar sem produzir valor.

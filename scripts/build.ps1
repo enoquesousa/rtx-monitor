@@ -10,6 +10,7 @@ $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $configurationLower = $Configuration.ToLowerInvariant()
 $nativeOutput = Join-Path $projectRoot "build\windows-x64\bin\$Configuration"
 $managedProject = Join-Path $projectRoot 'csharp\RtxMonitor.Console\RtxMonitor.Console.csproj'
+$serviceProject = Join-Path $projectRoot 'csharp\RtxMonitor.Service\RtxMonitor.Service.csproj'
 
 function Invoke-Checked {
     param(
@@ -43,9 +44,17 @@ try {
             "-p:NativeLibraryDir=$nativeOutput"
     }
 
+    Invoke-Checked -Description '.NET service build' -Command {
+        & dotnet build $serviceProject `
+            --configuration $Configuration `
+            --nologo `
+            "-p:NativeLibraryDir=$nativeOutput"
+    }
+
     Write-Host "Build completed: $Configuration"
     Write-Host "C/C++: $nativeOutput"
     Write-Host "C#: $(Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Configuration\net8.0")"
+    Write-Host "Service: $(Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64")"
 }
 finally {
     Pop-Location

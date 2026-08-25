@@ -1,0 +1,1000 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RTX Monitor local service API",
+    "version": "1.0.0",
+    "description": "Loopback-only API for health, NVIDIA GPU discovery, public thermal capabilities, live events, and persisted history."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:5136",
+      "description": "Default loopback endpoint"
+    }
+  ],
+  "security": [],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Service and dependency health",
+        "responses": {
+          "200": {
+            "description": "Service is ready; hardware may still be degraded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/health"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The persistent store or initial discovery is not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gpus": {
+      "get": {
+        "operationId": "listGpus",
+        "summary": "Known NVIDIA GPUs and collector state",
+        "responses": {
+          "200": {
+            "description": "Current runtime snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/gpuList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gpus/{gpu_uuid}/capabilities": {
+      "get": {
+        "operationId": "getGpuCapabilities",
+        "summary": "Latest public thermal capability inventory",
+        "parameters": [
+          {
+            "name": "gpu_uuid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest inventory with per-provider states",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/capabilities"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/badRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/notFound"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "streamEvents",
+        "summary": "Live persisted telemetry over Server-Sent Events",
+        "description": "Each telemetry event uses its persisted event_id as the SSE id. A stream_gap event tells a slow client to recover from the bounded history endpoint.",
+        "parameters": [
+          {
+            "name": "gpu_uuid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream; event types are telemetry and stream_gap",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "examples": {
+                  "telemetry": {
+                    "value": "id: 42\nevent: telemetry\ndata: {\"schema_version\":1,...}\n\n"
+                  }
+                }
+              }
+            },
+            "x-sse-events": {
+              "telemetry": {
+                "$ref": "../schema/live-telemetry-v1.schema.json"
+              },
+              "stream_gap": {
+                "$ref": "../schema/stream-gap-v1.schema.json"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/badRequest"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/history": {
+      "get": {
+        "operationId": "queryHistory",
+        "summary": "Bounded persisted history query",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/queryGpuUuid"
+          },
+          {
+            "$ref": "#/components/parameters/queryRunId"
+          },
+          {
+            "$ref": "#/components/parameters/queryEventType"
+          },
+          {
+            "$ref": "#/components/parameters/queryFrom"
+          },
+          {
+            "$ref": "#/components/parameters/queryTo"
+          },
+          {
+            "$ref": "#/components/parameters/queryAfterSequence"
+          },
+          {
+            "$ref": "#/components/parameters/queryAfterEventId"
+          },
+          {
+            "$ref": "#/components/parameters/queryOrder"
+          },
+          {
+            "$ref": "#/components/parameters/queryLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded evidence records",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/history"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/badRequest"
+          },
+          "503": {
+            "$ref": "#/components/responses/unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "health": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "status",
+          "ready",
+          "service_version",
+          "started_at_unix_ms",
+          "uptime_ms",
+          "storage",
+          "discovery",
+          "collectors",
+          "sse"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "status": {
+            "enum": [
+              "starting",
+              "healthy",
+              "degraded",
+              "unavailable",
+              "stopped"
+            ]
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "service_version": {
+            "type": "string"
+          },
+          "started_at_unix_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uptime_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "storage": {
+            "$ref": "#/components/schemas/storageHealth"
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/discoveryHealth"
+          },
+          "collectors": {
+            "$ref": "#/components/schemas/collectorSummary"
+          },
+          "sse": {
+            "$ref": "#/components/schemas/sseSummary"
+          }
+        }
+      },
+      "storageHealth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "database_path",
+          "schema_version",
+          "changed_at_unix_ms",
+          "last_error"
+        ],
+        "properties": {
+          "state": {
+            "enum": [
+              "starting",
+              "available",
+              "unavailable",
+              "stopped"
+            ]
+          },
+          "database_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "schema_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "changed_at_unix_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "discoveryHealth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "last_attempt_at_unix_ms",
+          "last_success_at_unix_ms",
+          "last_error"
+        ],
+        "properties": {
+          "state": {
+            "enum": [
+              "starting",
+              "available",
+              "unavailable"
+            ]
+          },
+          "last_attempt_at_unix_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "last_success_at_unix_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "collectorSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "active",
+          "known_gpus"
+        ],
+        "properties": {
+          "active": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "known_gpus": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "sseSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "connected_clients",
+          "maximum_clients",
+          "queue_capacity"
+        ],
+        "properties": {
+          "connected_clients": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maximum_clients": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          },
+          "queue_capacity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192
+          }
+        }
+      },
+      "gpuList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "discovery_state",
+          "count",
+          "gpus"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "discovery_state": {
+            "enum": [
+              "starting",
+              "available",
+              "unavailable"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gpus": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/gpuRuntime"
+            }
+          }
+        }
+      },
+      "gpuRuntime": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "name",
+          "uuid",
+          "driver_version",
+          "nvml_version",
+          "present",
+          "collector_state",
+          "run_id",
+          "profile_key",
+          "board_capture_state",
+          "board_capture_error",
+          "last_event_type",
+          "last_event_at_unix_ms",
+          "last_sample_temperature_c",
+          "last_sample_at_unix_ms",
+          "consecutive_failures",
+          "last_error"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "name": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string",
+            "minLength": 1
+          },
+          "driver_version": {
+            "type": "string"
+          },
+          "nvml_version": {
+            "type": "string"
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "collector_state": {
+            "enum": [
+              "starting",
+              "running",
+              "degraded",
+              "failed",
+              "stopped"
+            ]
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "profile_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "board_capture_state": {
+            "enum": [
+              "not_attempted",
+              "available",
+              "query_failed"
+            ]
+          },
+          "board_capture_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_event_type": {
+            "enum": [
+              "sample",
+              "gap",
+              "recovered",
+              "alert_raised",
+              "alert_cleared",
+              null
+            ]
+          },
+          "last_event_at_unix_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "last_sample_temperature_c": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_sample_at_unix_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "capabilities": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "captured_at_unix_ms",
+          "gpu",
+          "board",
+          "board_capture_state",
+          "board_capture_error",
+          "thermal_scan_error",
+          "providers",
+          "thermal_capabilities"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "captured_at_unix_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gpu": {
+            "$ref": "#/components/schemas/gpuIdentity"
+          },
+          "board": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/board"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "board_capture_state": {
+            "enum": [
+              "not_attempted",
+              "available",
+              "query_failed"
+            ]
+          },
+          "board_capture_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "thermal_scan_error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/thermalProvider"
+            }
+          },
+          "thermal_capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/thermalCapability"
+            }
+          }
+        }
+      },
+      "gpuIdentity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "index",
+          "name",
+          "uuid",
+          "driver_version",
+          "nvml_version"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "name": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string",
+            "minLength": 1
+          },
+          "driver_version": {
+            "type": "string"
+          },
+          "nvml_version": {
+            "type": "string"
+          }
+        }
+      },
+      "board": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "flags",
+          "pci_identity_available",
+          "pci_bus_id",
+          "pci_vendor_id",
+          "pci_device_id",
+          "pci_subsystem_vendor_id",
+          "pci_subsystem_device_id",
+          "pci_domain",
+          "pci_bus",
+          "pci_device",
+          "pci_function",
+          "vbios_available",
+          "vbios_version",
+          "profile_key"
+        ],
+        "properties": {
+          "flags": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "pci_identity_available": {
+            "type": "boolean"
+          },
+          "pci_bus_id": {
+            "type": "string"
+          },
+          "pci_vendor_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "pci_device_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "pci_subsystem_vendor_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "pci_subsystem_device_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "pci_domain": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "pci_bus": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "pci_device": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "pci_function": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "vbios_available": {
+            "type": "boolean"
+          },
+          "vbios_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "thermalProvider": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "state",
+          "native_status",
+          "capability_count"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "native_status": {
+            "type": "integer"
+          },
+          "capability_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
+        }
+      },
+      "thermalCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "provider_native_id",
+          "target",
+          "controller",
+          "state",
+          "confidence",
+          "current_temperature_c",
+          "default_minimum_temperature_c",
+          "default_maximum_temperature_c",
+          "native_status"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "provider_native_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "target": {
+            "type": "string"
+          },
+          "controller": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "current_temperature_c": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "default_minimum_temperature_c": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "default_maximum_temperature_c": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "native_status": {
+            "type": "integer"
+          }
+        }
+      },
+      "history": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "count",
+          "limit",
+          "order",
+          "last_event_id",
+          "items"
+        ],
+        "properties": {
+          "schema_version": {
+            "const": 1
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "order": {
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "last_event_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "../schema/evidence-record-v1.schema.json"
+            }
+          }
+        }
+      },
+      "problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "parameters": {
+      "queryGpuUuid": {
+        "name": "gpu_uuid",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "queryRunId": {
+        "name": "run_id",
+        "in": "query",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "queryEventType": {
+        "name": "event_type",
+        "in": "query",
+        "schema": {
+          "enum": [
+            "sample",
+            "gap",
+            "recovered",
+            "alert_raised",
+            "alert_cleared"
+          ]
+        }
+      },
+      "queryFrom": {
+        "name": "from_unix_ms",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "queryTo": {
+        "name": "to_unix_ms",
+        "in": "query",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "queryAfterSequence": {
+        "name": "after_sequence",
+        "in": "query",
+        "description": "Requires run_id.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "queryAfterEventId": {
+        "name": "after_event_id",
+        "in": "query",
+        "description": "Use with order=asc to recover an SSE gap.",
+        "schema": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "queryOrder": {
+        "name": "order",
+        "in": "query",
+        "schema": {
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "default": "desc"
+        }
+      },
+      "queryLimit": {
+        "name": "limit",
+        "in": "query",
+        "description": "The runtime default maximum is 1000 and can be configured up to the hard limit below.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 100
+        }
+      }
+    },
+    "responses": {
+      "badRequest": {
+        "description": "Invalid query",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/problem"
+            }
+          }
+        }
+      },
+      "notFound": {
+        "description": "The requested GPU has not been observed",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/problem"
+            }
+          }
+        }
+      },
+      "unavailable": {
+        "description": "A dependency, inventory, or bounded service resource is unavailable",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/problem"
+            }
+          }
+        }
+      }
+    }
+  }
+}

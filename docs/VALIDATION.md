@@ -26,7 +26,14 @@ Uma entrega é considerada válida quando:
 20. o schema de evidências declara versões 1 para o envelope e para o banco e incorpora o evento v2;
 21. migrations, reabertura, retry idempotente, conflito de sequência, filtros, retenção e writers concorrentes passam sem GPU;
 22. arquivo inválido e schema futuro são recusados sem sobrescrita, e uma consulta não cria um banco ausente;
-23. uma execução física persiste, consulta e exporta o stream mantendo UUID, run, versão, PCI, VBIOS e profile key.
+23. uma execução física persiste, consulta e exporta o stream mantendo UUID, run, versão, PCI, VBIOS e profile key;
+24. o serviço cria no máximo um coletor ativo para cada UUID mesmo após múltiplos ciclos de discovery;
+25. saúde, GPUs, capabilities, histórico e SSE possuem contratos HTTP testados sem GPU;
+26. um cliente SSE lento não bloqueia o produtor, recebe uma lacuna explícita e pode recuperar pelo `event_id` persistido;
+27. SQLite indisponível mantém o host diagnóstico ativo e a coleta só recomeça depois da recuperação do banco;
+28. desligamento gracioso confirma `completed_at` e `completion_reason=service_stopped` para cada run;
+29. uma execução física do serviço publica somente em loopback e preserva UUID, profile key e versão 0.6.0 no histórico;
+30. a instalação real no Windows confirma configuração do SCM, ações de recuperação, ciclo stop/start, encerramento persistido do run e stream SSE crescente.
 
 Execute:
 
@@ -40,7 +47,7 @@ Para a verificação independente de hardware usada no CI:
 .\scripts\verify-ci.ps1 -Configuration Release
 ```
 
-`verify-ci.ps1` compila com avisos como erros, executa os testes de ABI, sampler, alertas e armazenamento SQLite, verifica a formatação C# e analisa os quatro schemas publicados. `verify.ps1` acrescenta as leituras reais da GPU, a comparação independente com `nvidia-smi` e um ciclo físico de persistência, consulta e exportação.
+`verify-ci.ps1` compila com avisos como erros, executa os testes de ABI, sampler, alertas, armazenamento SQLite e serviço local, verifica a formatação C# e analisa schemas e OpenAPI publicados. `verify.ps1` acrescenta as leituras reais da GPU, a comparação independente com `nvidia-smi` e ciclos físicos do CLI persistente e do serviço HTTP.
 
 ## Snapshot local inicial
 
@@ -128,3 +135,38 @@ Em 2026-08-25, a validação Release confirmou:
 - `dotnet format --verify-no-changes` foi aprovado nos cinco projetos C#.
 
 O banco usado no teste físico foi criado em um diretório temporário exclusivo e removido após a validação. A v0.5.0 permanece headless: ela adiciona evidência persistente, não serviço nem interface gráfica.
+
+## Snapshot do serviço local v0.6.0
+
+Em 2026-08-25, as validações Debug e Release confirmaram:
+
+- C/C++, os projetos C# existentes e os novos projetos do serviço compilaram sem avisos;
+- três testes CTest e as suítes gerenciadas de sampler, alertas, SQLite e serviço foram aprovados;
+- o host real respondeu em loopback aos contratos de saúde, GPUs, capabilities, histórico e SSE;
+- um cliente SSE lento não bloqueou o produtor, recebeu `stream_gap` e preservou o `event_id` necessário para recuperar o intervalo pelo histórico;
+- múltiplos ciclos de discovery mantiveram apenas um coletor ativo por UUID;
+- banco inválido deixou o serviço `unavailable` sem encerrar o host e a coleta retomou automaticamente depois da recuperação do arquivo;
+- desligamento gracioso persistiu `completed_at` e `completion_reason=service_stopped`;
+- schemas do SSE e o contrato OpenAPI v1 foram analisados durante a verificação;
+- CMake, projetos .NET, assemblies e respostas HTTP declararam a versão 0.6.0;
+- na RTX 3060 física, o serviço foi iniciado em `127.0.0.1:14286`, descobriu o mesmo UUID e preservou o perfil `10de:2504/10de:1536@94.06.25.00.fc` no histórico;
+- C, C++, C#, serviço local e `nvidia-smi` reportaram 33 °C na execução registrada, usando o backend `nvmlDeviceGetTemperatureV`;
+- `dotnet format --verify-no-changes` foi aprovado em todos os projetos C#.
+
+O banco físico dessa verificação também foi criado em diretório temporário exclusivo e removido ao final. A porta 14286 foi escolhida somente para o ensaio; a configuração padrão do serviço continua documentada em `docs/SERVICE.md`.
+
+### Instalação física no Windows
+
+No mesmo equipamento, o pacote publicado foi instalado e validado como serviço real do Windows:
+
+- serviço `RtxMonitorService` em execução, com inicialização automática e conta `LocalSystem`;
+- executável instalado em `C:\Program Files\RtxMonitor\0.6.0\RtxMonitor.Service.exe`;
+- endpoint saudável em `http://127.0.0.1:5136`, sem listener exposto fora do loopback;
+- banco persistente em `C:\ProgramData\RtxMonitor\telemetry.db`;
+- ciclo stop/start fechou a porta durante a parada, criou um novo run na retomada e marcou o run anterior com `completion_reason=service_stopped`;
+- SCM configurado para reiniciar após 5, 15 e 60 segundos, com período de reset de 24 horas;
+- SHA-256 do assembly implantado idêntico ao pacote publicado;
+- stream SSE real entregou quatro eventos consecutivos, de `event_id` 162 a 165, com sequência estritamente crescente;
+- saúde, versão 0.6.0, identidade da RTX 3060 e leitura de 33 °C foram confirmadas após a instalação.
+
+Ao final da validação, o serviço permaneceu instalado e em execução para uso local.
