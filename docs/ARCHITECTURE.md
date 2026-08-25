@@ -26,9 +26,10 @@ O programa não afirma acesso elétrico direto ao sensor. Registradores térmico
 | `thermal_scan.c` | C11 | Provedores térmicos, correlação PCI NVML/NVAPI e montagem do snapshot de capabilities. |
 | `rtxmon.h` | ABI C | Contrato binário versionado compartilhado por qualquer consumidor. |
 | `rtxmon_core` | C++20 | RAII, exceções tipadas, modelos de GPU/amostra e conversão de tempo. |
-| `rtxmon` | C++20 | CLI de amostra, watch, GPUs e capabilities; JSON versionado. |
-| `RtxMonitor.Managed` | C#/.NET 8 | P/Invoke, `SafeHandle`, layouts verificados e modelos gerenciados equivalentes. |
-| `RtxMonitor.Console` | C#/.NET 8 | Dashboard de terminal, estatísticas da sessão e saída JSON. |
+| `sampler.cpp` / `sampler.hpp` | C++20 | Seleção por UUID, eventos, backoff, reconexão e buffer circular limitado. |
+| `rtxmon` | C++20 | CLI de amostra, watch resiliente, GPUs e capabilities; JSON versionado. |
+| `RtxMonitor.Managed` | C#/.NET 8 | P/Invoke, `SafeHandle`, layouts verificados e sampler resiliente equivalente. |
+| `RtxMonitor.Console` | C#/.NET 8 | Dashboard de terminal, eventos de disponibilidade, estatísticas e saída JSON. |
 
 ## Fluxo de uma leitura
 
@@ -55,6 +56,24 @@ Buscar o handle em cada amostra evita manter um handle opaco além de um reset d
 7. Alvo e controlador são normalizados, mas fonte, índice e código nativo permanecem no relatório.
 
 Não há deduplicação semântica: duas APIs que reportam o mesmo die continuam como duas observações independentes. Isso permite comparar as fontes e evita alegar que sensores com nomes parecidos são fisicamente idênticos.
+
+## Fluxo do monitoramento resiliente
+
+1. O CLI resolve o índice inicial para UUID, ou recebe `--gpu-uuid` diretamente.
+2. O sampler abre uma sessão curta de monitoramento e enumera as GPUs.
+3. O alvo é localizado por comparação de UUID sem distinção de maiúsculas e minúsculas.
+4. Uma leitura válida produz `sample` e zera o contador de falhas.
+5. Uma falha recuperável produz `gap`, descarta a sessão e não conserva temperatura atual.
+6. A próxima tentativa espera 250 ms; falhas sucessivas dobram o intervalo até o limite de 5 s.
+7. Uma nova sessão enumera novamente as placas e pode encontrar o UUID em outro índice.
+8. O primeiro sucesso após falhas produz `recovered` seguido por `sample`.
+9. Cada evento recebe sequência crescente e entra em um buffer circular de capacidade fixa.
+
+`--count` conta somente amostras bem-sucedidas. O buffer padrão mantém os 256 eventos mais recentes e pode ser configurado entre 1 e 65536. Ele não é persistência em disco.
+
+A fábrica de sessões é injetável em C++ e C#. Os testes usam sessões simuladas para reproduzir perda da GPU, driver indisponível, mudança de índice e recuperação sem carregar NVML ou exigir hardware NVIDIA.
+
+A saída `--watch --json` permanece compatível com o schema de amostra v1 e envia diagnósticos de lacuna para `stderr`. O modo opt-in `--watch --events` envia todos os eventos em JSON Lines.
 
 ## ABI C
 
@@ -86,6 +105,7 @@ Regras do contrato:
 - o contexto não pode ser destruído enquanto houver uma chamada em andamento;
 - C++ controla o contexto por RAII;
 - C# controla o ponteiro por `SafeHandle`;
+- cada instância do sampler tem um único proprietário e não deve receber chamadas `poll` concorrentes;
 - toda criação bem-sucedida corresponde a um `nvmlShutdown`;
 - toda inicialização NVAPI bem-sucedida corresponde a `NvAPI_Unload`.
 
@@ -114,7 +134,9 @@ Falhas não são convertidas em zero grau nem em dados antigos. Cada camada prop
 - ABI incompatível;
 - erro NVML preservado com texto e código.
 
-O modo watch termina com erro se a leitura falhar. Uma futura política de reconexão deve ser adicionada acima da camada C, com backoff e sinalização de lacuna; ela não deve ocultar amostras perdidas.
+Nos modos `--once` e `--capabilities`, uma falha continua encerrando o comando. No modo watch, estados recuperáveis são convertidos em lacunas e novas tentativas com backoff. Estados que indicam erro de uso, permissão, falta de memória, sensor não suportado ou ABI incompatível continuam fatais.
+
+O sampler nunca repete uma amostra anterior durante a indisponibilidade. Uma lacuna contém status, diagnóstico, quantidade de falhas consecutivas e atraso até a próxima tentativa. A sessão nativa é descartada para que a tentativa seguinte recarregue o contexto e resolva novamente o UUID.
 
 O inventário tem uma política diferente: uma falha individual de provedor não invalida o relatório inteiro. O snapshot retorna com o estado e o código nativo da falha para permitir diagnóstico e comparação entre máquinas.
 
@@ -146,15 +168,23 @@ O comando `--capabilities --json` usa `schema_version: 2` e separa:
 
 O contrato serializado é formalizado em [`docs/schema/capabilities-v2.schema.json`](schema/capabilities-v2.schema.json).
 
+O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json). Cada envelope contém:
+
+- `event_type`: `sample`, `gap` ou `recovered`;
+- `sequence` e horário observado;
+- UUID persistente e índice atual anulável;
+- status normalizado, código e diagnóstico;
+- contagem de falhas e próximo backoff;
+- amostra anulável, presente somente em `sample`.
+
 ## Extensões seguras
 
 Próximas camadas podem ser adicionadas sem alterar o coletor:
 
-- buffer circular e persistência SQLite/Parquet;
+- persistência SQLite/Parquet alimentada pelo stream de eventos;
 - serviço Windows separado do frontend;
 - endpoint local HTTP/SSE ou OpenTelemetry;
 - alertas baseados em thresholds configuráveis ou thresholds consultados do driver;
-- seleção persistente por UUID em vez de índice;
 - frontend desktop, mantendo `RtxMonitor.Managed` como fronteira;
 - base de perfis por `vendor:device/subvendor:subdevice@vbios`, sem converter correlação em fato físico;
 - modo experimental separado, somente se houver documentação por placa, validação cruzada e isolamento de risco.

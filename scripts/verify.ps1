@@ -15,6 +15,7 @@ $cppExecutable = Join-Path $nativeOutput 'rtxmon.exe'
 $cExecutable = Join-Path $nativeOutput 'rtxmon-c.exe'
 $csharpExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Configuration\net8.0\RtxMonitor.Console.exe"
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
+$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
 
 function Assert-LastExitCode {
     param([Parameter(Mandatory)][string]$Description)
@@ -35,15 +36,43 @@ function Assert-Temperature {
     }
 }
 
+function Assert-EventStream {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][object[]]$Events,
+        [Parameter(Mandatory)][string]$GpuUuid
+    )
+
+    if ($Events.Count -ne 2) {
+        throw "$Source produced $($Events.Count) events instead of 2."
+    }
+
+    foreach ($event in $Events) {
+        if ($event.schema_version -ne 1 -or $event.event_type -ne 'sample') {
+            throw "$Source emitted an unexpected event envelope."
+        }
+        if ($event.target_gpu_uuid -ne $GpuUuid -or
+            $event.sample.sensor -ne 'gpu_die' -or
+            $null -eq $event.sample.temperature_c) {
+            throw "$Source did not preserve the selected GPU and sensor reading."
+        }
+    }
+}
+
 Push-Location -LiteralPath $projectRoot
 try {
     if (-not $SkipBuild) {
-        & (Join-Path $PSScriptRoot 'build.ps1') -Configuration $Configuration
+        & (Join-Path $PSScriptRoot 'verify-ci.ps1') -Configuration $Configuration
     }
 
     $capabilitySchema = Get-Content -Raw -LiteralPath $capabilitySchemaPath | ConvertFrom-Json
     if ($capabilitySchema.properties.schema_version.const -ne 2) {
         throw 'The capability JSON Schema is missing schema_version const 2.'
+    }
+
+    $eventSchema = Get-Content -Raw -LiteralPath $eventSchemaPath | ConvertFrom-Json
+    if ($eventSchema.properties.schema_version.const -ne 1) {
+        throw 'The telemetry event JSON Schema is missing schema_version const 1.'
     }
 
     & ctest --preset "windows-x64-$configurationLower"
@@ -216,6 +245,34 @@ try {
         throw "C# watch mode produced $($csharpWatch.Count) samples instead of 2."
     }
 
+    $cppUuidSample = (& $cppExecutable `
+        --once `
+        --gpu-uuid $cppSample.gpu_uuid `
+        --json | Out-String).Trim() | ConvertFrom-Json
+    Assert-LastExitCode -Description 'C++ UUID selection'
+
+    $csharpUuidSample = (& $csharpExecutable `
+        --once `
+        --gpu-uuid ($cppSample.gpu_uuid.ToLowerInvariant()) `
+        --json | Out-String).Trim() | ConvertFrom-Json
+    Assert-LastExitCode -Description 'C# UUID selection'
+
+    if ($cppUuidSample.gpu_uuid -ne $cppSample.gpu_uuid -or
+        $csharpUuidSample.gpu_uuid -ne $cppSample.gpu_uuid) {
+        throw 'UUID selection did not resolve the expected GPU.'
+    }
+
+    $cppEvents = @(& $cppExecutable --watch --count 2 --interval 100 --events) |
+        ForEach-Object { $_ | ConvertFrom-Json }
+    Assert-LastExitCode -Description 'C++ resilient event stream'
+
+    $csharpEvents = @(& $csharpExecutable --watch --count 2 --interval 100 --events) |
+        ForEach-Object { $_ | ConvertFrom-Json }
+    Assert-LastExitCode -Description 'C# resilient event stream'
+
+    Assert-EventStream -Source 'C++ resilient stream' -Events $cppEvents -GpuUuid $cppSample.gpu_uuid
+    Assert-EventStream -Source 'C# resilient stream' -Events $csharpEvents -GpuUuid $cppSample.gpu_uuid
+
     Write-Host 'Verification passed.'
     Write-Host "GPU: $($cppSample.gpu_name)"
     Write-Host "UUID: $($cppSample.gpu_uuid)"
@@ -223,6 +280,7 @@ try {
     Write-Host "Backend: $($cppSample.backend)"
     Write-Host "Board profile: $($cppCapabilities.board.profile_key)"
     Write-Host "Thermal capability records: $($cppCapabilities.thermal_capabilities.Count)"
+    Write-Host 'Resilient event streams: C++ and C# passed.'
 }
 finally {
     Pop-Location

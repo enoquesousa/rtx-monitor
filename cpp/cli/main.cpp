@@ -1,5 +1,7 @@
 #include <rtxmon/monitor.hpp>
+#include <rtxmon/sampler.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <chrono>
@@ -9,6 +11,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -29,9 +32,13 @@ enum class Mode {
 struct Options {
     Mode mode{Mode::once};
     std::uint32_t gpu_index{0};
+    bool gpu_index_set{false};
+    std::string gpu_uuid;
     std::uint32_t interval_ms{1000};
     std::uint64_t count{0};
+    std::size_t buffer_capacity{256U};
     bool json{false};
+    bool events{false};
 };
 
 void on_interrupt(int)
@@ -62,19 +69,23 @@ void print_help()
     std::cout
         << "rtxmon - NVIDIA GPU die temperature monitor\n\n"
         << "Usage:\n"
-        << "  rtxmon [--once] [--gpu INDEX] [--json]\n"
-        << "  rtxmon --watch [--gpu INDEX] [--interval MS] [--count N] [--json]\n"
+        << "  rtxmon [--once] [--gpu INDEX | --gpu-uuid UUID] [--json]\n"
+        << "  rtxmon --watch [--gpu INDEX | --gpu-uuid UUID] [--interval MS] [--count N] [--json]\n"
+        << "  rtxmon --watch --events [--gpu INDEX | --gpu-uuid UUID] [--interval MS] [--count N]\n"
         << "  rtxmon --list [--json]\n"
-        << "  rtxmon --capabilities [--gpu INDEX] [--json]\n\n"
+        << "  rtxmon --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]\n\n"
         << "Options:\n"
         << "  --once          Read one sample (default)\n"
         << "  --watch         Read continuously until Ctrl+C\n"
         << "  --list          List NVIDIA GPUs\n"
         << "  --capabilities  Inventory public thermal capabilities and provider states\n"
         << "  --gpu INDEX     Select the zero-based GPU index\n"
+        << "  --gpu-uuid UUID Select a stable GPU UUID; mutually exclusive with --gpu\n"
         << "  --interval MS   Poll interval, 100 to 60000 ms (default: 1000)\n"
         << "  --count N       Stop watch mode after N samples; 0 means unlimited\n"
-        << "  --json          Emit JSON (JSON Lines in watch mode)\n"
+        << "  --buffer N      Retain the most recent 1 to 65536 events (default: 256)\n"
+        << "  --json          Emit JSON (sample schema v1 in watch mode)\n"
+        << "  --events        Emit sample, gap, and recovered events as JSON Lines\n"
         << "  --help          Show this help\n";
 }
 
@@ -109,18 +120,32 @@ Options parse_options(int argc, char **argv)
             options.json = true;
             continue;
         }
+        if (argument == "--events") {
+            options.events = true;
+            continue;
+        }
 
-        if (argument == "--gpu" || argument == "--interval" || argument == "--count") {
+        if (argument == "--gpu" || argument == "--gpu-uuid" ||
+            argument == "--interval" || argument == "--count" ||
+            argument == "--buffer") {
             if (index + 1 >= argc) {
                 usage_error(std::string{"missing value for "} + std::string{argument});
             }
             const std::string_view value{argv[++index]};
             if (argument == "--gpu") {
                 options.gpu_index = parse_unsigned<std::uint32_t>(value, "--gpu");
+                options.gpu_index_set = true;
+            } else if (argument == "--gpu-uuid") {
+                if (value.empty()) {
+                    usage_error("--gpu-uuid must not be empty");
+                }
+                options.gpu_uuid = value;
             } else if (argument == "--interval") {
                 options.interval_ms = parse_unsigned<std::uint32_t>(value, "--interval");
-            } else {
+            } else if (argument == "--count") {
                 options.count = parse_unsigned<std::uint64_t>(value, "--count");
+            } else {
+                options.buffer_capacity = parse_unsigned<std::size_t>(value, "--buffer");
             }
             continue;
         }
@@ -130,6 +155,15 @@ Options parse_options(int argc, char **argv)
 
     if (options.interval_ms < 100 || options.interval_ms > 60000) {
         usage_error("--interval must be between 100 and 60000 ms");
+    }
+    if (options.buffer_capacity == 0U || options.buffer_capacity > 65536U) {
+        usage_error("--buffer must be between 1 and 65536 events");
+    }
+    if (options.gpu_index_set && !options.gpu_uuid.empty()) {
+        usage_error("--gpu and --gpu-uuid are mutually exclusive");
+    }
+    if (options.events && options.mode != Mode::watch) {
+        usage_error("--events requires --watch");
     }
 
     return options;
@@ -239,6 +273,106 @@ void print_sample(
     }
 
     std::cout.flush();
+}
+
+rtxmon::GpuInfo resolve_gpu(const rtxmon::Monitor &monitor, const Options &options)
+{
+    return options.gpu_uuid.empty()
+        ? monitor.gpu(options.gpu_index)
+        : monitor.gpu_by_uuid(options.gpu_uuid);
+}
+
+void print_event_json(const rtxmon::TelemetryEvent &event)
+{
+    std::cout
+        << "{\"schema_version\":1"
+        << ",\"event_type\":\"" << rtxmon::telemetry_event_kind_name(event.kind)
+        << "\",\"sequence\":" << event.sequence
+        << ",\"target_gpu_uuid\":\"" << json_escape(event.target_gpu_uuid)
+        << "\",\"gpu_index\":";
+    if (event.gpu.has_value()) {
+        std::cout << event.gpu->index;
+    } else {
+        std::cout << "null";
+    }
+    std::cout << ",\"gpu_name\":";
+    if (event.gpu.has_value()) {
+        std::cout << '"' << json_escape(event.gpu->name) << '"';
+    } else {
+        std::cout << "null";
+    }
+    std::cout
+        << ",\"observed_at_unix_ms\":" << event.observed_at_unix_ms
+        << ",\"status\":\"" << json_escape(rtxmon_status_string(event.status))
+        << "\",\"status_code\":" << static_cast<std::int32_t>(event.status)
+        << ",\"message\":\"" << json_escape(event.message)
+        << "\",\"consecutive_failures\":" << event.consecutive_failures
+        << ",\"retry_after_ms\":" << event.retry_after_ms
+        << ",\"sample\":";
+    if (event.sample.has_value()) {
+        std::cout
+            << "{\"temperature_c\":" << event.sample->temperature_c
+            << ",\"sensor\":\"gpu_die\""
+            << ",\"backend\":\""
+            << json_escape(rtxmon::backend_name(event.sample->backend))
+            << "\",\"timestamp_unix_ms\":" << event.sample->timestamp_unix_ms
+            << '}';
+    } else {
+        std::cout << "null";
+    }
+    std::cout << "}\n";
+    std::cout.flush();
+}
+
+void print_event_text(const rtxmon::TelemetryEvent &event)
+{
+    if (event.kind == rtxmon::TelemetryEventKind::sample &&
+        event.gpu.has_value() && event.sample.has_value()) {
+        print_sample(*event.gpu, *event.sample, false);
+        return;
+    }
+
+    if (event.kind == rtxmon::TelemetryEventKind::gap) {
+        std::cerr << iso_utc(event.observed_at_unix_ms)
+                  << " | GPU " << event.target_gpu_uuid
+                  << " | gap | " << rtxmon_status_string(event.status)
+                  << " | retry in " << event.retry_after_ms << " ms"
+                  << " | " << event.message << '\n';
+        return;
+    }
+
+    std::cerr << iso_utc(event.observed_at_unix_ms)
+              << " | GPU " << event.target_gpu_uuid
+              << " | monitoring recovered after " << event.consecutive_failures
+              << (event.consecutive_failures == 1U ? " failure" : " failures")
+              << '\n';
+}
+
+void print_watch_event(const rtxmon::TelemetryEvent &event, const Options &options)
+{
+    if (options.events) {
+        print_event_json(event);
+        return;
+    }
+
+    if (event.kind == rtxmon::TelemetryEventKind::sample &&
+        event.gpu.has_value() && event.sample.has_value()) {
+        print_sample(*event.gpu, *event.sample, options.json);
+        return;
+    }
+
+    print_event_text(event);
+}
+
+void interruptible_sleep(std::uint32_t delay_ms)
+{
+    constexpr std::uint32_t slice_ms = 50U;
+    std::uint32_t remaining = delay_ms;
+    while (running.load() && remaining > 0U) {
+        const auto current = std::min(remaining, slice_ms);
+        std::this_thread::sleep_for(std::chrono::milliseconds{current});
+        remaining -= current;
+    }
 }
 
 std::string hex_id(std::uint32_t value)
@@ -384,8 +518,44 @@ void print_capability_report_text(
         << "\nOnly public driver-reported channels are listed; unavailable hotspot, memory, or VRM readings are not inferred.\n";
 }
 
+int run_watch(const Options &options)
+{
+    std::string target_uuid = options.gpu_uuid;
+    if (target_uuid.empty()) {
+        const rtxmon::Monitor monitor;
+        target_uuid = resolve_gpu(monitor, options).uuid;
+    }
+
+    rtxmon::ResilientSampler sampler{
+        target_uuid,
+        rtxmon::SamplerOptions{options.buffer_capacity, 250U, 5000U}};
+
+    running.store(true);
+    std::signal(SIGINT, on_interrupt);
+    std::uint64_t samples = 0U;
+    while (running.load() && (options.count == 0U || samples < options.count)) {
+        const auto events = sampler.poll();
+        for (const auto &event : events) {
+            print_watch_event(event, options);
+            if (event.kind == rtxmon::TelemetryEventKind::sample) {
+                ++samples;
+            }
+        }
+
+        if (running.load() && (options.count == 0U || samples < options.count)) {
+            interruptible_sleep(sampler.next_delay_ms(options.interval_ms));
+        }
+    }
+
+    return 0;
+}
+
 int run(const Options &options)
 {
+    if (options.mode == Mode::watch) {
+        return run_watch(options);
+    }
+
     rtxmon::Monitor monitor;
 
     if (options.mode == Mode::list) {
@@ -402,10 +572,10 @@ int run(const Options &options)
         return 0;
     }
 
-    const auto gpu = monitor.gpu(options.gpu_index);
+    const auto gpu = resolve_gpu(monitor, options);
     if (options.mode == Mode::capabilities) {
-        const auto board = monitor.board_identity(options.gpu_index);
-        const auto report = monitor.scan_thermal_capabilities(options.gpu_index);
+        const auto board = monitor.board_identity(gpu.index);
+        const auto report = monitor.scan_thermal_capabilities(gpu.index);
         if (options.json) {
             print_capability_report_json(gpu, board, report);
         } else {
@@ -414,21 +584,11 @@ int run(const Options &options)
         return 0;
     }
     if (options.mode == Mode::once) {
-        print_sample(gpu, monitor.read_gpu_die_temperature(options.gpu_index), options.json);
+        print_sample(gpu, monitor.read_gpu_die_temperature(gpu.index), options.json);
         return 0;
     }
 
-    std::signal(SIGINT, on_interrupt);
-    std::uint64_t samples = 0;
-    while (running.load() && (options.count == 0 || samples < options.count)) {
-        print_sample(gpu, monitor.read_gpu_die_temperature(options.gpu_index), options.json);
-        ++samples;
-        if (running.load() && (options.count == 0 || samples < options.count)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds{options.interval_ms});
-        }
-    }
-
-    return 0;
+    throw std::logic_error("unhandled run mode");
 }
 
 } // namespace

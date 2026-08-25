@@ -16,9 +16,12 @@ internal enum RunMode
 internal sealed record Options(
     RunMode Mode,
     uint GpuIndex,
+    string? GpuUuid,
     int IntervalMilliseconds,
     long Count,
-    bool Json);
+    int BufferCapacity,
+    bool Json,
+    bool Events);
 
 internal sealed class RunningStatistics
 {
@@ -49,6 +52,25 @@ internal static class Program
         {
             Console.OutputEncoding = Encoding.UTF8;
             Options options = ParseOptions(args);
+
+            if (options.Mode == RunMode.Watch)
+            {
+                GpuInfo? target = null;
+                string targetUuid;
+                if (options.GpuUuid is not null)
+                {
+                    targetUuid = options.GpuUuid;
+                }
+                else
+                {
+                    using NvidiaMonitor initialMonitor = NvidiaMonitor.Open();
+                    target = ResolveGpu(initialMonitor, options);
+                    targetUuid = target.Uuid;
+                }
+
+                return await WatchAsync(targetUuid, target, options).ConfigureAwait(false);
+            }
+
             using NvidiaMonitor monitor = NvidiaMonitor.Open();
 
             if (options.Mode == RunMode.List)
@@ -57,23 +79,23 @@ internal static class Program
                 return 0;
             }
 
-            GpuInfo gpu = monitor.GetGpu(options.GpuIndex);
+            GpuInfo gpu = ResolveGpu(monitor, options);
             if (options.Mode == RunMode.Capabilities)
             {
-                BoardIdentity board = monitor.GetBoardIdentity(options.GpuIndex);
-                ThermalReport report = monitor.ScanThermalCapabilities(options.GpuIndex);
+                BoardIdentity board = monitor.GetBoardIdentity(gpu.Index);
+                ThermalReport report = monitor.ScanThermalCapabilities(gpu.Index);
                 PrintCapabilities(gpu, board, report, options.Json);
                 return 0;
             }
 
             if (options.Mode == RunMode.Once)
             {
-                TemperatureSample sample = monitor.ReadGpuDieTemperature(options.GpuIndex);
+                TemperatureSample sample = monitor.ReadGpuDieTemperature(gpu.Index);
                 PrintSample(gpu, sample, options.Json);
                 return 0;
             }
 
-            return await WatchAsync(monitor, gpu, options).ConfigureAwait(false);
+            throw new InvalidOperationException("Modo de execução não tratado.");
         }
         catch (ArgumentException error)
         {
@@ -110,9 +132,13 @@ internal static class Program
     {
         RunMode mode = RunMode.Watch;
         uint gpuIndex = 0;
+        bool gpuIndexSet = false;
+        string? gpuUuid = null;
         int interval = 1000;
         long count = 0;
+        int bufferCapacity = 256;
         bool json = false;
+        bool events = false;
 
         for (int index = 0; index < args.Length; index++)
         {
@@ -139,14 +165,28 @@ internal static class Program
                 case "--json":
                     json = true;
                     break;
+                case "--events":
+                    events = true;
+                    break;
                 case "--gpu":
                     gpuIndex = ParseUInt32(NextValue(args, ref index, argument), argument);
+                    gpuIndexSet = true;
+                    break;
+                case "--gpu-uuid":
+                    gpuUuid = NextValue(args, ref index, argument);
+                    if (string.IsNullOrWhiteSpace(gpuUuid))
+                    {
+                        throw new ArgumentException("--gpu-uuid não pode estar vazio");
+                    }
                     break;
                 case "--interval":
                     interval = ParseInt32(NextValue(args, ref index, argument), argument);
                     break;
                 case "--count":
                     count = ParseInt64(NextValue(args, ref index, argument), argument);
+                    break;
+                case "--buffer":
+                    bufferCapacity = ParseInt32(NextValue(args, ref index, argument), argument);
                     break;
                 default:
                     throw new ArgumentException($"opção desconhecida: {argument}; use --help");
@@ -162,8 +202,28 @@ internal static class Program
         {
             throw new ArgumentException("--count não pode ser negativo");
         }
+        if (bufferCapacity is < 1 or > 65536)
+        {
+            throw new ArgumentException("--buffer deve estar entre 1 e 65536 eventos");
+        }
+        if (gpuIndexSet && gpuUuid is not null)
+        {
+            throw new ArgumentException("--gpu e --gpu-uuid são mutuamente exclusivos");
+        }
+        if (events && mode != RunMode.Watch)
+        {
+            throw new ArgumentException("--events exige --watch");
+        }
 
-        return new Options(mode, gpuIndex, interval, count, json);
+        return new Options(
+            mode,
+            gpuIndex,
+            gpuUuid,
+            interval,
+            count,
+            bufferCapacity,
+            json,
+            events);
     }
 
     private static string NextValue(string[] args, ref int index, string option)
@@ -198,10 +258,11 @@ internal static class Program
             RtxMonitor.Console - monitor do sensor térmico do die NVIDIA
 
             Uso:
-              dotnet RtxMonitor.Console.dll [--watch] [--gpu INDEX] [--interval MS]
-              dotnet RtxMonitor.Console.dll --once [--gpu INDEX] [--json]
+              dotnet RtxMonitor.Console.dll [--watch] [--gpu INDEX | --gpu-uuid UUID] [--interval MS]
+              dotnet RtxMonitor.Console.dll --watch --events [--gpu INDEX | --gpu-uuid UUID]
+              dotnet RtxMonitor.Console.dll --once [--gpu INDEX | --gpu-uuid UUID] [--json]
               dotnet RtxMonitor.Console.dll --list [--json]
-              dotnet RtxMonitor.Console.dll --capabilities [--gpu INDEX] [--json]
+              dotnet RtxMonitor.Console.dll --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]
 
             Opções:
               --watch         Monitor contínuo (padrão)
@@ -209,9 +270,12 @@ internal static class Program
               --list          Lista as GPUs NVIDIA
               --capabilities Inventaria capabilities térmicas públicas e o estado das fontes
               --gpu INDEX     Índice da GPU, começando em zero
+              --gpu-uuid UUID Seleciona a GPU por UUID persistente; não use junto com --gpu
               --interval MS   Intervalo de 100 a 60000 ms (padrão: 1000)
               --count N       Encerra após N amostras; zero é ilimitado
-              --json          JSON; em watch, uma amostra por linha
+              --buffer N      Retém de 1 a 65536 eventos recentes (padrão: 256)
+              --json          JSON; em watch, mantém o schema de amostra v1
+              --events        Emite sample, gap e recovered como JSON Lines
               --help          Mostra esta ajuda
             """);
     }
@@ -238,6 +302,11 @@ internal static class Program
                 $"[{gpu.Index}] {gpu.Name} | {gpu.Uuid} | driver {gpu.DriverVersion} | NVML {gpu.NvmlVersion}");
         }
     }
+
+    private static GpuInfo ResolveGpu(NvidiaMonitor monitor, Options options) =>
+        options.GpuUuid is null
+            ? monitor.GetGpu(options.GpuIndex)
+            : monitor.GetGpuByUuid(options.GpuUuid);
 
     private static void PrintSample(GpuInfo gpu, TemperatureSample sample, bool json)
     {
@@ -366,8 +435,8 @@ internal static class Program
         (board.HasVbiosVersion ? board.VbiosVersion : "unknown");
 
     private static async Task<int> WatchAsync(
-        NvidiaMonitor monitor,
-        GpuInfo gpu,
+        string targetUuid,
+        GpuInfo? initialGpu,
         Options options)
     {
         using var cancellation = new CancellationTokenSource();
@@ -377,7 +446,10 @@ internal static class Program
             cancellation.Cancel();
         };
 
-        bool dashboard = !options.Json && !Console.IsOutputRedirected;
+        using var sampler = new ResilientSampler(
+            targetUuid,
+            new SamplingOptions(options.BufferCapacity, 250, 5000));
+        bool dashboard = !options.Json && !options.Events && !Console.IsOutputRedirected;
         var statistics = new RunningStatistics();
         long samples = 0;
 
@@ -386,19 +458,40 @@ internal static class Program
             Console.Write("\u001b[2J");
         }
 
-        while (!cancellation.IsCancellationRequested && (options.Count == 0 || samples < options.Count))
+        while (!cancellation.IsCancellationRequested &&
+               (options.Count == 0 || samples < options.Count))
         {
-            TemperatureSample sample = monitor.ReadGpuDieTemperature(options.GpuIndex);
-            statistics.Add(sample.TemperatureC);
-            samples++;
+            IReadOnlyList<TelemetryEvent> events = sampler.Poll();
+            foreach (TelemetryEvent telemetryEvent in events)
+            {
+                if (telemetryEvent.Sample is TemperatureSample sample)
+                {
+                    statistics.Add(sample.TemperatureC);
+                    samples++;
+                }
 
-            if (dashboard)
-            {
-                RenderDashboard(gpu, sample, statistics, options.IntervalMilliseconds);
-            }
-            else
-            {
-                PrintSample(gpu, sample, options.Json);
+                if (dashboard)
+                {
+                    RenderDashboard(
+                        targetUuid,
+                        initialGpu,
+                        telemetryEvent,
+                        statistics,
+                        options.IntervalMilliseconds);
+                }
+                else if (options.Events)
+                {
+                    PrintTelemetryEvent(telemetryEvent);
+                }
+                else if (telemetryEvent.Sample is TemperatureSample current &&
+                         telemetryEvent.Gpu is GpuInfo gpu)
+                {
+                    PrintSample(gpu, current, options.Json);
+                }
+                else
+                {
+                    PrintTelemetryDiagnostic(telemetryEvent);
+                }
             }
 
             if (options.Count != 0 && samples >= options.Count)
@@ -408,7 +501,10 @@ internal static class Program
 
             try
             {
-                await Task.Delay(options.IntervalMilliseconds, cancellation.Token).ConfigureAwait(false);
+                uint delay = sampler.NextDelayMilliseconds(
+                    checked((uint)options.IntervalMilliseconds));
+                await Task.Delay(TimeSpan.FromMilliseconds(delay), cancellation.Token)
+                    .ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -424,28 +520,100 @@ internal static class Program
         return 0;
     }
 
+    private static void PrintTelemetryEvent(TelemetryEvent telemetryEvent)
+    {
+        object? sample = telemetryEvent.Sample is TemperatureSample current
+            ? new
+            {
+                temperature_c = current.TemperatureC,
+                sensor = "gpu_die",
+                backend = current.BackendName,
+                timestamp_unix_ms = current.TimestampUnixMilliseconds,
+            }
+            : null;
+
+        var payload = new
+        {
+            schema_version = 1,
+            event_type = telemetryEvent.KindName,
+            sequence = telemetryEvent.Sequence,
+            target_gpu_uuid = telemetryEvent.TargetGpuUuid,
+            gpu_index = telemetryEvent.Gpu?.Index,
+            gpu_name = telemetryEvent.Gpu?.Name,
+            observed_at_unix_ms = telemetryEvent.ObservedAtUnixMilliseconds,
+            status = telemetryEvent.StatusName,
+            status_code = (int)telemetryEvent.Status,
+            message = telemetryEvent.Message,
+            consecutive_failures = telemetryEvent.ConsecutiveFailures,
+            retry_after_ms = telemetryEvent.RetryAfterMilliseconds,
+            sample,
+        };
+        Console.WriteLine(JsonSerializer.Serialize(payload));
+    }
+
+    private static void PrintTelemetryDiagnostic(TelemetryEvent telemetryEvent)
+    {
+        if (telemetryEvent.Kind == TelemetryEventKind.Gap)
+        {
+            Console.Error.WriteLine(
+                $"{telemetryEvent.ObservedAt:O} | GPU {telemetryEvent.TargetGpuUuid} | gap | " +
+                $"{telemetryEvent.StatusName} | nova tentativa em " +
+                $"{telemetryEvent.RetryAfterMilliseconds} ms | {telemetryEvent.Message}");
+            return;
+        }
+
+        Console.Error.WriteLine(
+            $"{telemetryEvent.ObservedAt:O} | GPU {telemetryEvent.TargetGpuUuid} | " +
+            $"monitoramento recuperado após {telemetryEvent.ConsecutiveFailures} falha(s)");
+    }
+
     private static void RenderDashboard(
-        GpuInfo gpu,
-        TemperatureSample sample,
+        string targetUuid,
+        GpuInfo? initialGpu,
+        TelemetryEvent telemetryEvent,
         RunningStatistics statistics,
         int intervalMilliseconds)
     {
         int width = Math.Max(40, Console.WindowWidth - 1);
+        GpuInfo? gpu = telemetryEvent.Gpu ?? initialGpu;
+        string gpuDescription = gpu is null
+            ? "aguardando disponibilidade"
+            : $"[{gpu.Index}] {gpu.Name}";
+        string driverDescription = gpu is null
+            ? "indisponível"
+            : $"{gpu.DriverVersion}    NVML {gpu.NvmlVersion}";
+        string temperature = telemetryEvent.Sample is TemperatureSample sample
+            ? $"{sample.TemperatureC,3} °C"
+            : "--- °C";
+        string sessionStatistics = statistics.Count == 0
+            ? "sem amostras válidas"
+            : $"mín {statistics.Minimum,3} °C | média {statistics.Average,5:F1} °C | máx {statistics.Maximum,3} °C";
+        string status = telemetryEvent.Kind switch
+        {
+            TelemetryEventKind.Sample => "leitura disponível",
+            TelemetryEventKind.Gap =>
+                $"lacuna: {telemetryEvent.StatusName}; nova tentativa em {telemetryEvent.RetryAfterMilliseconds} ms",
+            TelemetryEventKind.Recovered =>
+                $"recuperado após {telemetryEvent.ConsecutiveFailures} falha(s)",
+            _ => "estado desconhecido",
+        };
+        string source = telemetryEvent.Sample?.BackendName ?? "nenhuma leitura atual";
 
         string[] lines =
         [
-            "RTX MONITOR — leitura térmica do die",
+            "RTX MONITOR — leitura térmica resiliente",
             string.Empty,
-            $"GPU       [{gpu.Index}] {gpu.Name}",
-            $"UUID      {gpu.Uuid}",
-            $"Driver    {gpu.DriverVersion}    NVML {gpu.NvmlVersion}",
+            $"GPU       {gpuDescription}",
+            $"UUID      {targetUuid}",
+            $"Driver    {driverDescription}",
             string.Empty,
-            $"DIE       {sample.TemperatureC,3} °C",
-            $"SESSÃO    mín {statistics.Minimum,3} °C | média {statistics.Average,5:F1} °C | máx {statistics.Maximum,3} °C",
-            $"AMOSTRA   {sample.CapturedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | intervalo {intervalMilliseconds} ms",
-            $"FONTE     {sample.BackendName}",
+            $"DIE       {temperature}",
+            $"SESSÃO    {sessionStatistics}",
+            $"ESTADO    {status}",
+            $"EVENTO    {telemetryEvent.ObservedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | intervalo {intervalMilliseconds} ms",
+            $"FONTE     {source}",
             string.Empty,
-            "Valor inteiro reportado pelo driver; a aplicação não interpola nem estima a temperatura.",
+            "Uma lacuna nunca reutiliza a última temperatura como se fosse atual.",
             "Ctrl+C para encerrar.",
         ];
 
