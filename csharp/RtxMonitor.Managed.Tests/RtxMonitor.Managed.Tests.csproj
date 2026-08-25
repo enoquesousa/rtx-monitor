@@ -5,9 +5,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NativeLibraryDir Condition="'$(NativeLibraryDir)' == ''">$(MSBuildThisFileDirectory)..\..\build\windows-x64\bin\$(Configuration)</NativeLibraryDir>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\RtxMonitor.Managed\RtxMonitor.Managed.csproj" />
   </ItemGroup>
+
+  <Target Name="CopyNativeMonitorLibrary" AfterTargets="Build" Condition="Exists('$(NativeLibraryDir)\rtxmon_native.dll')">
+    <Copy
+      SourceFiles="$(NativeLibraryDir)\rtxmon_native.dll"
+      DestinationFolder="$(OutDir)"
+      SkipUnchangedFiles="true" />
+  </Target>
 </Project>

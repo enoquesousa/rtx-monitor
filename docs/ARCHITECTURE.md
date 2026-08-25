@@ -24,10 +24,12 @@ O programa não afirma acesso elétrico direto ao sensor. Registradores térmico
 |---|---|---|
 | `rtxmon_native` / `rtxmon.c` | C11 | Ciclo de vida, ABI pública, identidade da GPU/placa e leitura principal do die. |
 | `thermal_scan.c` | C11 | Provedores térmicos, correlação PCI NVML/NVAPI e montagem do snapshot de capabilities. |
+| `public_telemetry.c` | C11 | Catálogo fechado de campos documentados, consulta e estado por campo. |
 | `rtxmon.h` | ABI C | Contrato binário versionado compartilhado por qualquer consumidor. |
 | `rtxmon_core` | C++20 | RAII, exceções tipadas, modelos de GPU/amostra e conversão de tempo. |
 | `sampler.cpp` / `sampler.hpp` | C++20 | Seleção por UUID, eventos, backoff, reconexão e buffer circular limitado. |
 | `alerts.cpp` / `alerts.hpp` | C++20 | Máquina de estados de limiar/histerese sobre a temperatura de cada amostra. |
+| `metrics.cpp` / `metrics.hpp` | C++20 | Janela limitada e métricas calculadas com fórmula, entradas e estado. |
 | `rtxmon` | C++20 | CLI de amostra, watch resiliente, GPUs, capabilities e alertas; JSON versionado. |
 | `RtxMonitor.Managed` | C#/.NET 8 | P/Invoke, `SafeHandle`, layouts verificados, sampler resiliente e avaliador de alertas equivalentes. |
 | `RtxMonitor.Storage` | C#/.NET 8 | SQLite, migrations, runs, snapshots de identidade, retenção, consultas e exportação de evidências. |
@@ -59,6 +61,18 @@ Buscar o handle em cada amostra evita manter um handle opaco além de um reset d
 7. Alvo e controlador são normalizados, mas fonte, índice e código nativo permanecem no relatório.
 
 Não há deduplicação semântica: duas APIs que reportam o mesmo die continuam como duas observações independentes. Isso permite comparar as fontes e evita alegar que sensores com nomes parecidos são fisicamente idênticos.
+
+## Fluxo da telemetria pública
+
+1. O consumidor solicita `rtxmon_read_public_telemetry` para um índice validado.
+2. A camada C monta um snapshot com timestamp e consulta apenas a allowlist documentada.
+3. Campos 82, 83, 185–190 e 192–196 são enviados a `nvmlDeviceGetFieldValues`; as outras métricas usam funções NVML específicas.
+4. Cada fan recebe um registro próprio quando a função v2 fornece o número e o índice dos fans.
+5. Cada consulta preserva provedor exato, ID/seletor, tipo, unidade, código nativo e estado. Ausência mantém valores nulos.
+6. O motor C++ recebe o snapshot, atualiza uma janela limitada e produz quatro métricas rotuladas como `computed`.
+7. C++ e C# emitem o mesmo catálogo em `--telemetry`; o sampler incorpora os dois relatórios no evento `sample` v3.
+
+O catálogo tem 31 campos semânticos e capacidade para 48 registros por causa de fans repetíveis. A especificação completa está em [`PUBLIC_TELEMETRY.md`](PUBLIC_TELEMETRY.md), e a decisão em [ADR 0007](adr/0007-public-telemetry-and-computed-metrics.md).
 
 ## Fluxo do monitoramento resiliente
 
@@ -99,7 +113,7 @@ O avaliador não conhece sessão, GPU, thread ou relógio: é uma máquina de es
 6. `(run_id, stream_sequence)` torna o retry idempotente; conteúdo diferente na mesma sequência é conflito, não atualização.
 7. Encerramento normal, `Ctrl+C` ou erro atualizam o run. A ausência de `completed_at_unix_ms` indica que nenhum encerramento foi confirmado.
 
-O banco mantém o evento original no schema v2 e colunas indexadas para consulta. `--history --json` e `--export` acrescentam o contexto do run e do snapshot conforme [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json). Um snapshot associado a uma lacuna é contexto anterior conhecido, não uma afirmação de que a GPU estava acessível naquele instante — ver [ADR 0005](adr/0005-sqlite-evidence-store.md).
+O banco mantém o evento original no schema v3 e colunas indexadas para consulta. O schema SQLite permanece 1 porque o JSON já é armazenado integralmente; runs históricos v2 continuam legíveis. `--history --json` e `--export` acrescentam o contexto do run e do snapshot conforme [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json). Um snapshot associado a uma lacuna é contexto anterior conhecido, não uma afirmação de que a GPU estava acessível naquele instante — ver [ADR 0005](adr/0005-sqlite-evidence-store.md).
 
 ## Fluxo do serviço local
 
@@ -108,7 +122,7 @@ O banco mantém o evento original no schema v2 e colunas indexadas para consulta
 3. Um dicionário por UUID inicia no máximo um `ResilientSampler` para cada GPU observada.
 4. Cada coletor cria seu próprio run, snapshot de placa e sequência lógica.
 5. O evento é confirmado no SQLite antes de ser publicado ao broker SSE.
-6. `/api/v1/gpus` e `/capabilities` leem snapshots imutáveis; não iniciam sessões nativas por requisição.
+6. `/api/v1/gpus`, `/capabilities` e `/telemetry` leem snapshots imutáveis; não iniciam sessões nativas por requisição.
 7. `/api/v1/history` executa consultas limitadas no mesmo armazenamento WAL.
 8. Cada assinante de `/api/v1/events` recebe uma fila privada e limitada. `TryWrite` nunca bloqueia o coletor.
 9. Quando a fila enche, o serviço preserva o evento no banco, mantém as entregas seguintes na mesma lacuna e envia `stream_gap` ao cliente lento antes de reabrir sua fila.
@@ -126,9 +140,14 @@ A fronteira nativa é C, não C++, porque nomes, exceptions e layouts C++ não f
 - `rtxmon_thermal_provider_result_t`: disponibilidade da superfície de API e código nativo;
 - `rtxmon_thermal_capability_t`: fonte, ID nativo do provedor, alvo, controlador, valores válidos, estado e confiança;
 - `rtxmon_thermal_report_t`: snapshot fixo de três provedores e até oito registros;
+- `rtxmon_public_field_value_t`: valor bruto, provedor, ID, estado, origem, tipo, unidade e timestamp;
+- `rtxmon_public_telemetry_report_t`: até 48 registros para 31 campos semânticos e fans repetíveis;
+- `rtxmon_metrics_options_t`: janela, limiar e limite de amostras;
+- `rtxmon_computed_metric_t`: fórmula identificada, estado, valor, janela e entradas;
+- `rtxmon_computed_metrics_report_t`: quatro métricas calculadas no mesmo timestamp do snapshot;
 - `rtxmon_status_t`: erros de argumento, backend, driver, permissão, suporte, GPU perdida e incompatibilidade de ABI.
 
-O chamador inicializa `struct_size`; a DLL rejeita um layout menor. A ABI atual é `RTXMON_ABI_VERSION = 2`. Os layouts são testados em C e novamente medidos pelo runtime .NET antes da abertura do contexto.
+O chamador inicializa `struct_size`; a DLL rejeita um layout menor. A ABI atual é `RTXMON_ABI_VERSION = 3`. Os layouts são testados em C e novamente medidos pelo runtime .NET antes da abertura do contexto.
 
 ### Semântica de disponibilidade
 
@@ -166,7 +185,7 @@ NVAPI é carregada exclusivamente como `%SystemRoot%\System32\nvapi64.dll` (ou `
 
 Não há API para escrever clocks, fan, tensão, power limit ou configuração do driver. Também não há transação I2C, mapeamento MMIO, leitura de ROM ou driver kernel próprio. Não há execução de shell na biblioteca ou nos aplicativos. `nvidia-smi` aparece apenas no script de verificação como referência externa independente.
 
-O serviço cria seu endpoint por código em `127.0.0.1`. Argumentos `--urls` e variáveis `ASPNETCORE_URLS` não substituem esse bind. A v0.6.0 não habilita CORS, proxy reverso, endpoint de escrita, autenticação remota ou exposição em `0.0.0.0`. HTTP sem TLS é restrito ao loopback; qualquer acesso de rede exigirá autenticação, TLS e um ADR próprio.
+O serviço cria seu endpoint por código em `127.0.0.1`. Argumentos `--urls` e variáveis `ASPNETCORE_URLS` não substituem esse bind. O serviço atual não habilita CORS, proxy reverso, endpoint de escrita, autenticação remota ou exposição em `0.0.0.0`. HTTP sem TLS é restrito ao loopback; qualquer acesso de rede exigirá autenticação, TLS e um ADR próprio.
 
 ## Modelo de falhas
 
@@ -182,7 +201,7 @@ Falhas não são convertidas em zero grau nem em dados antigos. Cada camada prop
 - ABI incompatível;
 - erro NVML preservado com texto e código.
 
-Nos modos `--once` e `--capabilities`, uma falha continua encerrando o comando. No modo watch, estados recuperáveis são convertidos em lacunas e novas tentativas com backoff. Estados que indicam erro de uso, permissão, falta de memória, sensor não suportado ou ABI incompatível continuam fatais.
+Nos modos `--once`, `--capabilities` e `--telemetry`, uma falha do relatório inteiro continua encerrando o comando. Falhas individuais dentro do catálogo permanecem no relatório. No modo watch, estados recuperáveis são convertidos em lacunas e novas tentativas com backoff. Estados que indicam erro de uso, permissão, falta de memória, sensor não suportado ou ABI incompatível continuam fatais.
 
 Persistência é opt-in. Sem `--database`, uma falha ou ausência do SQLite não participa da coleta. Com `--database`, gravar cada evento faz parte do contrato solicitado: uma falha encerra o monitor em vez de continuar enquanto perde evidências silenciosamente. Consultas não criam um banco ausente, schemas futuros são recusados e arquivos inválidos não são substituídos.
 
@@ -220,7 +239,7 @@ O comando `--capabilities --json` usa `schema_version: 2` e separa:
 
 O contrato serializado é formalizado em [`docs/schema/capabilities-v2.schema.json`](schema/capabilities-v2.schema.json).
 
-O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v2.schema.json`](schema/telemetry-event-v2.schema.json). Cada envelope contém:
+O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v3.schema.json`](schema/telemetry-event-v3.schema.json). Cada envelope contém:
 
 - `event_type`: `sample`, `gap`, `recovered`, `alert_raised` ou `alert_cleared`;
 - `sequence` global e crescente dentro de um processo, além do horário observado;
@@ -229,18 +248,20 @@ O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-e
 - contagem de falhas e próximo backoff;
 - amostra anulável, presente em `sample`, `alert_raised` e `alert_cleared`;
 - `alert_threshold_c`/`alert_hysteresis_c`, anuláveis, presentes somente nos dois tipos de alerta.
+- `public_telemetry`, com cobertura e valores brutos, presente nas amostras quando o provedor suporta o catálogo;
+- `computed_metrics`, com quatro fórmulas rastreáveis, presente junto do relatório público.
 
-O [`telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json) permanece publicado e imutável para validar streams históricos da v0.3.0.
+Os schemas [`telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json) e [`telemetry-event-v2.schema.json`](schema/telemetry-event-v2.schema.json) permanecem publicados e imutáveis para validar streams históricos.
 
-O armazenamento usa schema SQLite 1. A exportação usa [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json) e incorpora o evento v2 sem renomear campos. O envelope acrescenta `event_id`, horário de armazenamento, run, ambiente e snapshot da placa; essa proveniência não altera o fato observado no evento.
+O armazenamento usa schema SQLite 1. A exportação usa [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json) e aceita eventos v2 ou v3 sem renomear campos. O envelope acrescenta `event_id`, horário de armazenamento, run, ambiente e snapshot da placa; essa proveniência não altera o fato observado no evento.
 
-O serviço usa API schema 1. Respostas HTTP são documentadas no OpenAPI; eventos SSE `telemetry` usam [`live-telemetry-v1.schema.json`](schema/live-telemetry-v1.schema.json), e descartes de entrega para clientes lentos usam [`stream-gap-v1.schema.json`](schema/stream-gap-v1.schema.json). A lista de GPUs expõe somente `last_sample_temperature_c` com o horário da amostra; esse campo não é renomeado para temperatura atual durante uma lacuna.
+O serviço usa API schema 1. Respostas HTTP são documentadas no OpenAPI; `/telemetry` expõe o último relatório confirmado, eventos SSE `telemetry` usam [`live-telemetry-v1.schema.json`](schema/live-telemetry-v1.schema.json), e descartes de entrega para clientes lentos usam [`stream-gap-v1.schema.json`](schema/stream-gap-v1.schema.json). A lista de GPUs expõe somente `last_sample_temperature_c` com o horário da amostra; esse campo não é renomeado para temperatura atual durante uma lacuna.
 
 ## Evolução da arquitetura
 
 O [roadmap de engenharia](ROADMAP.md) separa a evolução em duas trilhas:
 
-- **estável:** persistência SQLite e serviço local headless já implementados, seguidos pela ampliação das APIs documentadas e métricas calculadas;
+- **estável:** persistência SQLite, serviço local, telemetria documentada e métricas calculadas já implementados;
 - **experimental:** laboratório reproduzível, aquisição privilegiada somente leitura, correlação e perfis validados por placa.
 
 A trilha experimental não entra nesta ABI por conveniência. Ela terá processo, protocolo e namespace próprios, com ativação explícita. Somente um resultado que atenda aos critérios de evidência do roadmap poderá ser oferecido como perfil experimental; a ausência de perfil exato deve falhar sem produzir valor.

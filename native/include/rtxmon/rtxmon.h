@@ -19,12 +19,16 @@
 extern "C" {
 #endif
 
-#define RTXMON_ABI_VERSION 2U
+#define RTXMON_ABI_VERSION 3U
 #define RTXMON_TEXT_CAPACITY 96U
 #define RTXMON_MAX_THERMAL_PROVIDERS 3U
 #define RTXMON_MAX_THERMAL_CAPABILITIES 8U
+#define RTXMON_MAX_PUBLIC_FIELDS 48U
+#define RTXMON_MAX_COMPUTED_METRICS 4U
+#define RTXMON_MAX_METRIC_INPUTS 2U
 
 typedef struct rtxmon_context rtxmon_context_t;
+typedef struct rtxmon_metrics_context rtxmon_metrics_context_t;
 
 typedef enum rtxmon_status {
     RTXMON_STATUS_OK = 0,
@@ -103,6 +107,102 @@ typedef enum rtxmon_sensor_confidence {
     RTXMON_CONFIDENCE_DRIVER_REPORTED = 1,
     RTXMON_CONFIDENCE_EXPERIMENTAL = 2
 } rtxmon_sensor_confidence_t;
+
+typedef enum rtxmon_data_origin {
+    RTXMON_ORIGIN_UNKNOWN = 0,
+    RTXMON_ORIGIN_DRIVER_REPORTED = 1,
+    RTXMON_ORIGIN_COMPUTED = 2,
+    RTXMON_ORIGIN_EXPERIMENTAL = 3
+} rtxmon_data_origin_t;
+
+typedef enum rtxmon_public_field {
+    RTXMON_PUBLIC_FIELD_GPU_DIE_TEMPERATURE_C = 1,
+    RTXMON_PUBLIC_FIELD_MEMORY_TEMPERATURE_C = 2,
+    RTXMON_PUBLIC_FIELD_TOTAL_ENERGY_MJ = 3,
+    RTXMON_PUBLIC_FIELD_POWER_AVERAGE_MW = 4,
+    RTXMON_PUBLIC_FIELD_POWER_INSTANT_MW = 5,
+    RTXMON_PUBLIC_FIELD_POWER_LIMIT_MIN_MW = 6,
+    RTXMON_PUBLIC_FIELD_POWER_LIMIT_MAX_MW = 7,
+    RTXMON_PUBLIC_FIELD_POWER_LIMIT_DEFAULT_MW = 8,
+    RTXMON_PUBLIC_FIELD_POWER_LIMIT_CURRENT_MW = 9,
+    RTXMON_PUBLIC_FIELD_POWER_LIMIT_REQUESTED_MW = 10,
+    RTXMON_PUBLIC_FIELD_TEMPERATURE_SHUTDOWN_C = 11,
+    RTXMON_PUBLIC_FIELD_TEMPERATURE_SLOWDOWN_C = 12,
+    RTXMON_PUBLIC_FIELD_TEMPERATURE_MEMORY_MAX_C = 13,
+    RTXMON_PUBLIC_FIELD_TEMPERATURE_GPU_MAX_C = 14,
+    RTXMON_PUBLIC_FIELD_CLOCK_GRAPHICS_MHZ = 15,
+    RTXMON_PUBLIC_FIELD_CLOCK_SM_MHZ = 16,
+    RTXMON_PUBLIC_FIELD_CLOCK_MEMORY_MHZ = 17,
+    RTXMON_PUBLIC_FIELD_CLOCK_VIDEO_MHZ = 18,
+    RTXMON_PUBLIC_FIELD_UTILIZATION_GPU_PERCENT = 19,
+    RTXMON_PUBLIC_FIELD_UTILIZATION_MEMORY_PERCENT = 20,
+    RTXMON_PUBLIC_FIELD_MEMORY_TOTAL_BYTES = 21,
+    RTXMON_PUBLIC_FIELD_MEMORY_FREE_BYTES = 22,
+    RTXMON_PUBLIC_FIELD_MEMORY_USED_BYTES = 23,
+    RTXMON_PUBLIC_FIELD_FAN_SPEED_PERCENT = 24,
+    RTXMON_PUBLIC_FIELD_PERFORMANCE_STATE = 25,
+    RTXMON_PUBLIC_FIELD_CLOCK_EVENT_REASONS_CURRENT = 26,
+    RTXMON_PUBLIC_FIELD_CLOCK_EVENT_REASONS_SUPPORTED = 27,
+    RTXMON_PUBLIC_FIELD_ENCODER_UTILIZATION_PERCENT = 28,
+    RTXMON_PUBLIC_FIELD_ENCODER_SAMPLING_PERIOD_US = 29,
+    RTXMON_PUBLIC_FIELD_DECODER_UTILIZATION_PERCENT = 30,
+    RTXMON_PUBLIC_FIELD_DECODER_SAMPLING_PERIOD_US = 31
+} rtxmon_public_field_t;
+
+typedef enum rtxmon_public_provider {
+    RTXMON_PUBLIC_PROVIDER_NVML_TEMPERATURE_V1 = 1,
+    RTXMON_PUBLIC_PROVIDER_NVML_TEMPERATURE_LEGACY = 2,
+    RTXMON_PUBLIC_PROVIDER_NVML_FIELD_VALUES = 3,
+    RTXMON_PUBLIC_PROVIDER_NVML_CLOCK_INFO = 4,
+    RTXMON_PUBLIC_PROVIDER_NVML_UTILIZATION_RATES = 5,
+    RTXMON_PUBLIC_PROVIDER_NVML_MEMORY_INFO = 6,
+    RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_V2 = 7,
+    RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_LEGACY = 8,
+    RTXMON_PUBLIC_PROVIDER_NVML_PERFORMANCE_STATE = 9,
+    RTXMON_PUBLIC_PROVIDER_NVML_CLOCK_EVENT_REASONS = 10,
+    RTXMON_PUBLIC_PROVIDER_NVML_CLOCK_THROTTLE_REASONS_LEGACY = 11,
+    RTXMON_PUBLIC_PROVIDER_NVML_ENCODER_UTILIZATION = 12,
+    RTXMON_PUBLIC_PROVIDER_NVML_DECODER_UTILIZATION = 13,
+    RTXMON_PUBLIC_PROVIDER_NVML_SUPPORTED_CLOCK_EVENT_REASONS = 14,
+    RTXMON_PUBLIC_PROVIDER_NVML_SUPPORTED_CLOCK_THROTTLE_REASONS_LEGACY = 15
+} rtxmon_public_provider_t;
+
+typedef enum rtxmon_value_type {
+    RTXMON_VALUE_TYPE_UNKNOWN = 0,
+    RTXMON_VALUE_TYPE_UNSIGNED_INTEGER = 1,
+    RTXMON_VALUE_TYPE_SIGNED_INTEGER = 2,
+    RTXMON_VALUE_TYPE_DOUBLE = 3,
+    RTXMON_VALUE_TYPE_BITMASK = 4
+} rtxmon_value_type_t;
+
+typedef enum rtxmon_unit {
+    RTXMON_UNIT_UNKNOWN = 0,
+    RTXMON_UNIT_CELSIUS = 1,
+    RTXMON_UNIT_MILLIWATT = 2,
+    RTXMON_UNIT_MILLIJOULE = 3,
+    RTXMON_UNIT_MEGAHERTZ = 4,
+    RTXMON_UNIT_PERCENT = 5,
+    RTXMON_UNIT_BYTES = 6,
+    RTXMON_UNIT_PSTATE = 7,
+    RTXMON_UNIT_BITMASK = 8,
+    RTXMON_UNIT_MICROSECONDS = 9,
+    RTXMON_UNIT_CELSIUS_PER_SECOND = 10,
+    RTXMON_UNIT_SECONDS = 11
+} rtxmon_unit_t;
+
+typedef enum rtxmon_computed_metric_kind {
+    RTXMON_METRIC_GPU_TEMPERATURE_WINDOW_AVERAGE = 1,
+    RTXMON_METRIC_GPU_TEMPERATURE_SLOPE = 2,
+    RTXMON_METRIC_GPU_TEMPERATURE_TIME_ABOVE_THRESHOLD = 3,
+    RTXMON_METRIC_GPU_MEMORY_TEMPERATURE_DELTA = 4
+} rtxmon_computed_metric_kind_t;
+
+typedef enum rtxmon_metric_state {
+    RTXMON_METRIC_STATE_UNKNOWN = 0,
+    RTXMON_METRIC_STATE_AVAILABLE = 1,
+    RTXMON_METRIC_STATE_INSUFFICIENT_DATA = 2,
+    RTXMON_METRIC_STATE_INPUT_UNAVAILABLE = 3
+} rtxmon_metric_state_t;
 
 enum {
     RTXMON_THERMAL_VALUE_CURRENT_VALID = 1U << 0U,
@@ -185,6 +285,61 @@ typedef struct rtxmon_thermal_report {
     rtxmon_thermal_capability_t capabilities[RTXMON_MAX_THERMAL_CAPABILITIES];
 } rtxmon_thermal_report_t;
 
+typedef struct rtxmon_public_field_value {
+    uint32_t field;
+    uint32_t provider;
+    uint32_t state;
+    uint32_t origin;
+    uint32_t value_type;
+    uint32_t unit;
+    int32_t native_status;
+    uint32_t provider_native_id;
+    uint64_t value_u64;
+    int64_t value_i64;
+    double value_f64;
+    uint64_t timestamp_unix_ms;
+} rtxmon_public_field_value_t;
+
+typedef struct rtxmon_public_telemetry_report {
+    uint32_t struct_size;
+    uint32_t gpu_index;
+    uint32_t field_count;
+    uint32_t reserved;
+    uint64_t timestamp_unix_ms;
+    rtxmon_public_field_value_t fields[RTXMON_MAX_PUBLIC_FIELDS];
+} rtxmon_public_telemetry_report_t;
+
+typedef struct rtxmon_metrics_options {
+    uint32_t struct_size;
+    uint32_t window_ms;
+    int32_t temperature_threshold_c;
+    uint32_t maximum_samples;
+} rtxmon_metrics_options_t;
+
+typedef struct rtxmon_computed_metric {
+    uint32_t metric;
+    uint32_t state;
+    uint32_t origin;
+    uint32_t unit;
+    double value;
+    uint64_t timestamp_unix_ms;
+    uint64_t window_ms;
+    uint32_t sample_count;
+    uint32_t input_count;
+    int32_t temperature_threshold_c;
+    uint32_t reserved;
+    uint32_t input_fields[RTXMON_MAX_METRIC_INPUTS];
+} rtxmon_computed_metric_t;
+
+typedef struct rtxmon_computed_metrics_report {
+    uint32_t struct_size;
+    uint32_t gpu_index;
+    uint32_t metric_count;
+    uint32_t reserved;
+    uint64_t timestamp_unix_ms;
+    rtxmon_computed_metric_t metrics[RTXMON_MAX_COMPUTED_METRICS];
+} rtxmon_computed_metrics_report_t;
+
 RTXMON_API uint32_t RTXMON_CALL rtxmon_abi_version(void);
 RTXMON_API const char *RTXMON_CALL rtxmon_status_string(rtxmon_status_t status);
 RTXMON_API const char *RTXMON_CALL rtxmon_temperature_backend_string(uint32_t backend);
@@ -193,6 +348,14 @@ RTXMON_API const char *RTXMON_CALL rtxmon_capability_state_string(uint32_t state
 RTXMON_API const char *RTXMON_CALL rtxmon_thermal_target_string(uint32_t target);
 RTXMON_API const char *RTXMON_CALL rtxmon_thermal_controller_string(uint32_t controller);
 RTXMON_API const char *RTXMON_CALL rtxmon_sensor_confidence_string(uint32_t confidence);
+RTXMON_API const char *RTXMON_CALL rtxmon_data_origin_string(uint32_t origin);
+RTXMON_API const char *RTXMON_CALL rtxmon_public_field_string(uint32_t field);
+RTXMON_API const char *RTXMON_CALL rtxmon_public_provider_string(uint32_t provider);
+RTXMON_API const char *RTXMON_CALL rtxmon_value_type_string(uint32_t value_type);
+RTXMON_API const char *RTXMON_CALL rtxmon_unit_string(uint32_t unit);
+RTXMON_API const char *RTXMON_CALL rtxmon_computed_metric_string(uint32_t metric);
+RTXMON_API const char *RTXMON_CALL rtxmon_computed_metric_formula(uint32_t metric);
+RTXMON_API const char *RTXMON_CALL rtxmon_metric_state_string(uint32_t state);
 
 /*
  * Returns a thread-local diagnostic for the most recent API call on the
@@ -237,6 +400,35 @@ rtxmon_scan_thermal_capabilities(
     rtxmon_context_t *context,
     uint32_t gpu_index,
     rtxmon_thermal_report_t *out_report);
+
+/* Set out_report->struct_size to sizeof(rtxmon_public_telemetry_report_t). */
+RTXMON_API rtxmon_status_t RTXMON_CALL
+rtxmon_read_public_telemetry(
+    rtxmon_context_t *context,
+    uint32_t gpu_index,
+    rtxmon_public_telemetry_report_t *out_report);
+
+/*
+ * Creates a bounded, per-GPU metric window. Options are copied by the callee.
+ * The context is independent from rtxmon_context_t and never touches hardware.
+ */
+RTXMON_API rtxmon_status_t RTXMON_CALL
+rtxmon_metrics_context_create(
+    const rtxmon_metrics_options_t *options,
+    rtxmon_metrics_context_t **out_context);
+
+RTXMON_API void RTXMON_CALL
+rtxmon_metrics_context_destroy(rtxmon_metrics_context_t *context);
+
+RTXMON_API void RTXMON_CALL
+rtxmon_metrics_context_reset(rtxmon_metrics_context_t *context);
+
+/* Set out_report->struct_size to sizeof(rtxmon_computed_metrics_report_t). */
+RTXMON_API rtxmon_status_t RTXMON_CALL
+rtxmon_metrics_observe(
+    rtxmon_metrics_context_t *context,
+    const rtxmon_public_telemetry_report_t *telemetry,
+    rtxmon_computed_metrics_report_t *out_report);
 
 #ifdef __cplusplus
 }

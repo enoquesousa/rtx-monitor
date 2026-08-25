@@ -281,7 +281,13 @@ public sealed class GpuMonitoringWorker : BackgroundService
             string currentFingerprint = GpuFingerprint(discovered.Gpu);
             using ITelemetrySampler sampler = backend.CreateSampler(
                 discovered.Gpu.Uuid,
-                new SamplingOptions(options.BufferCapacity, 250, 5000));
+                new SamplingOptions(
+                    options.BufferCapacity,
+                    250,
+                    5000,
+                    checked((uint)options.MetricWindowMilliseconds),
+                    options.MetricTemperatureThresholdC,
+                    checked((uint)options.MetricMaximumSamples)));
             AlertEvaluator? alertEvaluator = options.AlertThresholdC is int threshold
                 ? new AlertEvaluator(new AlertOptions(threshold, options.AlertHysteresisC))
                 : null;
@@ -332,6 +338,8 @@ public sealed class GpuMonitoringWorker : BackgroundService
                                 Kind = kind,
                                 AlertThresholdC = alertEvaluator.Options.ThresholdC,
                                 AlertHysteresisC = alertEvaluator.Options.HysteresisC,
+                                PublicTelemetry = null,
+                                ComputedMetrics = null,
                                 Message = AlertMessage(
                                     kind,
                                     sample.TemperatureC,

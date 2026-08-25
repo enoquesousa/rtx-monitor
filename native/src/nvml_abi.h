@@ -41,6 +41,13 @@ enum {
 };
 
 enum {
+    RTXMON_NVML_CLOCK_GRAPHICS = 0,
+    RTXMON_NVML_CLOCK_SM = 1,
+    RTXMON_NVML_CLOCK_MEMORY = 2,
+    RTXMON_NVML_CLOCK_VIDEO = 3
+};
+
+enum {
     RTXMON_NVML_THERMAL_TARGET_NONE = 0,
     RTXMON_NVML_THERMAL_TARGET_GPU = 1,
     RTXMON_NVML_THERMAL_TARGET_MEMORY = 2,
@@ -86,7 +93,19 @@ enum {
 };
 
 enum {
-    RTXMON_NVML_FI_DEV_MEMORY_TEMP = 82
+    RTXMON_NVML_FI_DEV_MEMORY_TEMP = 82,
+    RTXMON_NVML_FI_DEV_TOTAL_ENERGY_CONSUMPTION = 83,
+    RTXMON_NVML_FI_DEV_POWER_AVERAGE = 185,
+    RTXMON_NVML_FI_DEV_POWER_INSTANT = 186,
+    RTXMON_NVML_FI_DEV_POWER_MIN_LIMIT = 187,
+    RTXMON_NVML_FI_DEV_POWER_MAX_LIMIT = 188,
+    RTXMON_NVML_FI_DEV_POWER_DEFAULT_LIMIT = 189,
+    RTXMON_NVML_FI_DEV_POWER_CURRENT_LIMIT = 190,
+    RTXMON_NVML_FI_DEV_POWER_REQUESTED_LIMIT = 192,
+    RTXMON_NVML_FI_DEV_TEMPERATURE_SHUTDOWN_TLIMIT = 193,
+    RTXMON_NVML_FI_DEV_TEMPERATURE_SLOWDOWN_TLIMIT = 194,
+    RTXMON_NVML_FI_DEV_TEMPERATURE_MEM_MAX_TLIMIT = 195,
+    RTXMON_NVML_FI_DEV_TEMPERATURE_GPU_MAX_TLIMIT = 196
 };
 
 typedef struct rtxmon_nvml_temperature_v1 {
@@ -117,6 +136,17 @@ typedef struct rtxmon_nvml_thermal_settings {
     uint32_t count;
     rtxmon_nvml_thermal_sensor_t sensors[RTXMON_NVML_MAX_THERMAL_SENSORS];
 } rtxmon_nvml_thermal_settings_t;
+
+typedef struct rtxmon_nvml_utilization {
+    uint32_t gpu;
+    uint32_t memory;
+} rtxmon_nvml_utilization_t;
+
+typedef struct rtxmon_nvml_memory {
+    uint64_t total;
+    uint64_t free;
+    uint64_t used;
+} rtxmon_nvml_memory_t;
 
 typedef union rtxmon_nvml_value {
     double double_value;
@@ -183,6 +213,36 @@ typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_field_values_fn)(
     nvmlDevice_t device,
     int value_count,
     rtxmon_nvml_field_value_t *values);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_clock_info_fn)(
+    nvmlDevice_t device,
+    int clock_type,
+    uint32_t *clock_mhz);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_utilization_rates_fn)(
+    nvmlDevice_t device,
+    rtxmon_nvml_utilization_t *utilization);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_memory_info_fn)(
+    nvmlDevice_t device,
+    rtxmon_nvml_memory_t *memory);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_num_fans_fn)(
+    nvmlDevice_t device,
+    uint32_t *fan_count);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_fan_speed_v2_fn)(
+    nvmlDevice_t device,
+    uint32_t fan_index,
+    uint32_t *speed_percent);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_fan_speed_fn)(
+    nvmlDevice_t device,
+    uint32_t *speed_percent);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_performance_state_fn)(
+    nvmlDevice_t device,
+    int *performance_state);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_clock_reasons_fn)(
+    nvmlDevice_t device,
+    uint64_t *reasons);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_engine_utilization_fn)(
+    nvmlDevice_t device,
+    uint32_t *utilization,
+    uint32_t *sampling_period_us);
 typedef const char *(RTXMON_NVML_CALL *rtxmon_nvml_error_string_fn)(nvmlReturn_t result);
 
 #endif

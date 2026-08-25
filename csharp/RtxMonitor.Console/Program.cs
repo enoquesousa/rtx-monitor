@@ -12,6 +12,7 @@ internal enum RunMode
     Once,
     List,
     Capabilities,
+    Telemetry,
     History,
     Export,
 }
@@ -110,6 +111,16 @@ internal static class Program
                 return 0;
             }
 
+            if (options.Mode == RunMode.Telemetry)
+            {
+                BoardIdentity board = monitor.GetBoardIdentity(gpu.Index);
+                PublicTelemetryReport report = monitor.ReadPublicTelemetry(gpu.Index);
+                using var metrics = new ComputedMetricsEngine();
+                ComputedMetricsReport computed = metrics.Observe(report);
+                PrintPublicTelemetry(gpu, board, report, computed, options.Json);
+                return 0;
+            }
+
             if (options.Mode == RunMode.Once)
             {
                 TemperatureSample sample = monitor.ReadGpuDieTemperature(gpu.Index);
@@ -199,6 +210,9 @@ internal static class Program
                     break;
                 case "--capabilities":
                     mode = RunMode.Capabilities;
+                    break;
+                case "--telemetry":
+                    mode = RunMode.Telemetry;
                     break;
                 case "--history":
                     mode = RunMode.History;
@@ -457,6 +471,7 @@ internal static class Program
               dotnet RtxMonitor.Console.dll --once [--gpu INDEX | --gpu-uuid UUID] [--json]
               dotnet RtxMonitor.Console.dll --list [--json]
               dotnet RtxMonitor.Console.dll --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]
+              dotnet RtxMonitor.Console.dll --telemetry [--gpu INDEX | --gpu-uuid UUID] [--json]
               dotnet RtxMonitor.Console.dll --history --database PATH [filtros] [--json]
               dotnet RtxMonitor.Console.dll --export --database PATH [filtros]
 
@@ -465,13 +480,14 @@ internal static class Program
               --once          Lê uma amostra e encerra
               --list          Lista as GPUs NVIDIA
               --capabilities Inventaria capabilities térmicas públicas e o estado das fontes
+              --telemetry    Lê o catálogo público documentado e as métricas calculadas
               --gpu INDEX     Índice da GPU, começando em zero
               --gpu-uuid UUID Seleciona a GPU por UUID persistente; não use junto com --gpu
               --interval MS   Intervalo de 100 a 60000 ms (padrão: 1000)
               --count N       Encerra após N amostras; zero é ilimitado
               --buffer N      Retém de 1 a 65536 eventos recentes (padrão: 256)
               --json          JSON; em watch, mantém o schema de amostra v1
-              --events        Emite o stream completo de eventos (schema v2) como JSON Lines
+              --events        Emite o stream completo de eventos (schema v3) como JSON Lines
               --alert-threshold C   Dispara um alerta durante --watch ao atingir C °C (0-500)
               --alert-hysteresis C  Limpa em limiar-C; com 0, somente abaixo do limiar
               --database PATH Persiste --watch em SQLite ou seleciona o banco de uma consulta
@@ -732,6 +748,95 @@ internal static class Program
             "Somente canais públicos reportados pelo driver são listados; leituras indisponíveis de hotspot, memória ou VRM não são inferidas.");
     }
 
+    private static void PrintPublicTelemetry(
+        GpuInfo gpu,
+        BoardIdentity board,
+        PublicTelemetryReport report,
+        ComputedMetricsReport computed,
+        bool json)
+    {
+        if (json)
+        {
+            PublicTelemetryCoverage coverage = report.Coverage;
+            var payload = new
+            {
+                schema_version = 1,
+                gpu = new
+                {
+                    index = gpu.Index,
+                    name = gpu.Name,
+                    uuid = gpu.Uuid,
+                    driver_version = gpu.DriverVersion,
+                    nvml_version = gpu.NvmlVersion,
+                },
+                profile_key = BoardProfileKey(board),
+                captured_at_unix_ms = report.TimestampUnixMilliseconds,
+                coverage = new
+                {
+                    total = coverage.Total,
+                    available = coverage.Available,
+                    not_supported = coverage.NotSupported,
+                    provider_unavailable = coverage.ProviderUnavailable,
+                    query_failed = coverage.QueryFailed,
+                },
+                fields = report.Fields.Select(field => new
+                {
+                    field = field.FieldName,
+                    provider = field.ProviderName,
+                    provider_native_id = field.ProviderNativeId,
+                    state = field.StateName,
+                    origin = field.OriginName,
+                    value_type = field.ValueTypeName,
+                    unit = field.UnitName,
+                    value_u64 = field.UnsignedValue,
+                    value_i64 = field.SignedValue,
+                    value_f64 = field.DoubleValue,
+                    native_status = field.NativeStatus,
+                    timestamp_unix_ms = field.TimestampUnixMilliseconds,
+                }),
+                computed_metrics = computed.Metrics.Select(metric => new
+                {
+                    metric = metric.KindName,
+                    state = metric.StateName,
+                    origin = metric.OriginName,
+                    unit = metric.UnitName,
+                    formula = metric.Formula,
+                    value = metric.Value,
+                    window_ms = metric.WindowMilliseconds,
+                    sample_count = metric.SampleCount,
+                    temperature_threshold_c = metric.TemperatureThresholdC,
+                    inputs = metric.InputNames,
+                }),
+            };
+            Console.WriteLine(JsonSerializer.Serialize(payload));
+            return;
+        }
+
+        Console.WriteLine($"GPU {gpu.Index}  {gpu.Name}");
+        Console.WriteLine($"Perfil {BoardProfileKey(board)}");
+        Console.WriteLine($"Capturado {report.CapturedAt:O}");
+        Console.WriteLine();
+        Console.WriteLine("Campos documentados:");
+        foreach (PublicTelemetryValue field in report.Fields)
+        {
+            string value = field.NumericValue?.ToString(CultureInfo.InvariantCulture) ?? "indisponível";
+            Console.WriteLine(
+                $"  {field.FieldName} | {field.StateName} | " +
+                $"{field.ProviderName}[{field.ProviderNativeId}] | {value} {field.UnitName} | " +
+                $"status nativo {field.NativeStatus}");
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("Métricas calculadas:");
+        foreach (ComputedMetric metric in computed.Metrics)
+        {
+            string value = metric.Value?.ToString("G12", CultureInfo.InvariantCulture) ?? "indisponível";
+            Console.WriteLine(
+                $"  {metric.KindName} | {metric.StateName} | {value} {metric.UnitName} | " +
+                $"janela {metric.WindowMilliseconds} ms | amostras {metric.SampleCount} | {metric.Formula}");
+        }
+    }
+
     private static string HexId(uint value) => $"0x{value & 0xffffU:x4}";
 
     private static string BoardProfileKey(BoardIdentity board) =>
@@ -871,6 +976,8 @@ internal static class Program
                                 Kind = kind,
                                 AlertThresholdC = alertEvaluator.Options.ThresholdC,
                                 AlertHysteresisC = alertEvaluator.Options.HysteresisC,
+                                PublicTelemetry = null,
+                                ComputedMetrics = null,
                                 Message = AlertMessage(
                                     kind,
                                     sampleForAlert.TemperatureC,

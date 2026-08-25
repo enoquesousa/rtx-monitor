@@ -133,6 +133,8 @@ Critério de saída:
 
 ### v0.7.0 — telemetria documentada e métricas calculadas
 
+Estado: implementada no código atual.
+
 Objetivo: esgotar as fontes públicas antes de procurar registradores privados.
 
 Entregas:

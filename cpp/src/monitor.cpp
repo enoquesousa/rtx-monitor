@@ -273,6 +273,73 @@ ThermalReport Monitor::scan_thermal_capabilities(std::uint32_t index) const
     return report;
 }
 
+PublicTelemetryReport Monitor::read_public_telemetry(std::uint32_t index) const
+{
+    rtxmon_public_telemetry_report_t native_report{};
+    native_report.struct_size = sizeof(native_report);
+
+    const auto status = rtxmon_read_public_telemetry(context_, index, &native_report);
+    if (status != RTXMON_STATUS_OK) {
+        throw_for_status(status, "Could not read documented NVIDIA telemetry");
+    }
+    if (native_report.field_count > RTXMON_MAX_PUBLIC_FIELDS) {
+        throw MonitorError(
+            RTXMON_STATUS_ABI_MISMATCH,
+            "Public telemetry field count exceeds the ABI limit");
+    }
+
+    PublicTelemetryReport report{
+        native_report.gpu_index,
+        std::chrono::system_clock::time_point{
+            std::chrono::milliseconds{native_report.timestamp_unix_ms}},
+        native_report.timestamp_unix_ms,
+        {},
+    };
+    report.fields.reserve(native_report.field_count);
+
+    for (std::uint32_t index_value = 0U;
+         index_value < native_report.field_count;
+         ++index_value) {
+        const auto &field = native_report.fields[index_value];
+        std::optional<std::uint64_t> unsigned_value;
+        std::optional<std::int64_t> signed_value;
+        std::optional<double> double_value;
+        if (field.state == RTXMON_CAPABILITY_AVAILABLE) {
+            switch (field.value_type) {
+            case RTXMON_VALUE_TYPE_UNSIGNED_INTEGER:
+            case RTXMON_VALUE_TYPE_BITMASK:
+                unsigned_value = field.value_u64;
+                break;
+            case RTXMON_VALUE_TYPE_SIGNED_INTEGER:
+                signed_value = field.value_i64;
+                break;
+            case RTXMON_VALUE_TYPE_DOUBLE:
+                double_value = field.value_f64;
+                break;
+            default:
+                break;
+            }
+        }
+
+        report.fields.push_back(PublicFieldValue{
+            static_cast<rtxmon_public_field_t>(field.field),
+            static_cast<rtxmon_public_provider_t>(field.provider),
+            static_cast<rtxmon_capability_state_t>(field.state),
+            static_cast<rtxmon_data_origin_t>(field.origin),
+            static_cast<rtxmon_value_type_t>(field.value_type),
+            static_cast<rtxmon_unit_t>(field.unit),
+            field.native_status,
+            field.provider_native_id,
+            unsigned_value,
+            signed_value,
+            double_value,
+            field.timestamp_unix_ms,
+        });
+    }
+
+    return report;
+}
+
 const char *backend_name(rtxmon_temperature_backend_t backend) noexcept
 {
     return rtxmon_temperature_backend_string(static_cast<std::uint32_t>(backend));
@@ -301,6 +368,31 @@ const char *thermal_controller_name(rtxmon_thermal_controller_t controller) noex
 const char *confidence_name(rtxmon_sensor_confidence_t confidence) noexcept
 {
     return rtxmon_sensor_confidence_string(static_cast<std::uint32_t>(confidence));
+}
+
+const char *origin_name(rtxmon_data_origin_t origin) noexcept
+{
+    return rtxmon_data_origin_string(static_cast<std::uint32_t>(origin));
+}
+
+const char *public_field_name(rtxmon_public_field_t field) noexcept
+{
+    return rtxmon_public_field_string(static_cast<std::uint32_t>(field));
+}
+
+const char *public_provider_name(rtxmon_public_provider_t provider) noexcept
+{
+    return rtxmon_public_provider_string(static_cast<std::uint32_t>(provider));
+}
+
+const char *value_type_name(rtxmon_value_type_t value_type) noexcept
+{
+    return rtxmon_value_type_string(static_cast<std::uint32_t>(value_type));
+}
+
+const char *unit_name(rtxmon_unit_t unit) noexcept
+{
+    return rtxmon_unit_string(static_cast<std::uint32_t>(unit));
 }
 
 } // namespace rtxmon

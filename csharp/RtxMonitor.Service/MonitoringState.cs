@@ -182,6 +182,8 @@ public sealed class MonitoringState : IMonitoringSnapshotSource
                 LastError = telemetryEvent.Kind == TelemetryEventKind.Gap
                     ? telemetryEvent.Message
                     : null,
+                PublicTelemetry = telemetryEvent.PublicTelemetry ?? current.PublicTelemetry,
+                ComputedMetrics = telemetryEvent.ComputedMetrics ?? current.ComputedMetrics,
             });
     }
 

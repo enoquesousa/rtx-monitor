@@ -15,7 +15,10 @@ public sealed record RtxMonitorServiceOptions(
     TimeSpan SseHeartbeatInterval,
     int HistoryMaximumLimit,
     int? AlertThresholdC,
-    int AlertHysteresisC)
+    int AlertHysteresisC,
+    int MetricWindowMilliseconds = 5000,
+    int MetricTemperatureThresholdC = 80,
+    int MetricMaximumSamples = 1024)
 {
     public const string SectionName = "RtxMonitor";
 
@@ -45,7 +48,10 @@ public sealed record RtxMonitorServiceOptions(
             TimeSpan.FromSeconds(ReadInt32(section, "SseHeartbeatSeconds", 15)),
             ReadInt32(section, "HistoryMaximumLimit", 1000),
             ReadNullableInt32(section, "AlertThresholdC"),
-            ReadInt32(section, "AlertHysteresisC", 0));
+            ReadInt32(section, "AlertHysteresisC", 0),
+            ReadInt32(section, "MetricWindowMilliseconds", 5000),
+            ReadInt32(section, "MetricTemperatureThresholdC", 80),
+            ReadInt32(section, "MetricMaximumSamples", 1024));
 
         options.Validate();
         return options;
@@ -103,6 +109,21 @@ public sealed record RtxMonitorServiceOptions(
         {
             throw new InvalidOperationException(
                 "RtxMonitor:AlertHysteresisC deve estar entre 0 e o limiar.");
+        }
+        if (MetricWindowMilliseconds is < 100 or > 3_600_000)
+        {
+            throw new InvalidOperationException(
+                "RtxMonitor:MetricWindowMilliseconds deve estar entre 100 e 3600000.");
+        }
+        if (MetricTemperatureThresholdC is < 0 or > 500)
+        {
+            throw new InvalidOperationException(
+                "RtxMonitor:MetricTemperatureThresholdC deve estar entre 0 e 500.");
+        }
+        if (MetricMaximumSamples is < 2 or > 65_536)
+        {
+            throw new InvalidOperationException(
+                "RtxMonitor:MetricMaximumSamples deve estar entre 2 e 65536.");
         }
     }
 

@@ -111,6 +111,55 @@ public sealed record ThermalCapabilityResponse(
     int? DefaultMaximumTemperatureC,
     int NativeStatus);
 
+public sealed record PublicTelemetryResponse(
+    int SchemaVersion,
+    long CapturedAtUnixMs,
+    GpuIdentityResponse Gpu,
+    BoardResponse? Board,
+    string BoardCaptureState,
+    string? BoardCaptureError,
+    string CollectorState,
+    PublicTelemetryCoverageResponse Coverage,
+    IReadOnlyList<PublicTelemetryFieldResponse> Fields,
+    ComputedMetricsResponse? ComputedMetrics);
+
+public sealed record PublicTelemetryCoverageResponse(
+    int Total,
+    int Available,
+    int NotSupported,
+    int ProviderUnavailable,
+    int QueryFailed);
+
+public sealed record PublicTelemetryFieldResponse(
+    string Field,
+    string Provider,
+    uint ProviderNativeId,
+    string State,
+    string Origin,
+    string ValueType,
+    string Unit,
+    ulong? ValueU64,
+    long? ValueI64,
+    double? ValueF64,
+    int NativeStatus,
+    long TimestampUnixMs);
+
+public sealed record ComputedMetricsResponse(
+    long TimestampUnixMs,
+    IReadOnlyList<ComputedMetricResponse> Metrics);
+
+public sealed record ComputedMetricResponse(
+    string Metric,
+    string State,
+    string Origin,
+    string Unit,
+    string Formula,
+    double? Value,
+    long WindowMs,
+    uint SampleCount,
+    int? TemperatureThresholdC,
+    IReadOnlyList<string> Inputs);
+
 public sealed record HistoryResponse(
     int SchemaVersion,
     int Count,

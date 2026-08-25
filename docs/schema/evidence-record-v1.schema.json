@@ -43,7 +43,10 @@
       ]
     },
     "event": {
-      "$ref": "telemetry-event-v2.schema.json"
+      "oneOf": [
+        { "$ref": "telemetry-event-v2.schema.json" },
+        { "$ref": "telemetry-event-v3.schema.json" }
+      ]
     }
   },
   "$defs": {
@@ -85,7 +88,7 @@
           "format": "uuid"
         },
         "event_schema_version": {
-          "const": 2
+          "enum": [2, 3]
         },
         "started_at_unix_ms": {
           "type": "integer",

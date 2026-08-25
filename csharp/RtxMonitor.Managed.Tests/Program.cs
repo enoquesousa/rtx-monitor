@@ -1,3 +1,4 @@
+using System.Text.Json;
 using RtxMonitor.Managed;
 
 namespace RtxMonitor.Managed.Tests;
@@ -65,6 +66,8 @@ internal static class Program
         TestAlertRaisesAndClearsWithoutHysteresis();
         TestAlertHysteresisPreventsFlapping();
         TestAlertInvalidOptionsAreRejected();
+        TestComputedMetricsAreReproducible();
+        TestTelemetryJsonV3PreservesProvenance();
 
         if (failures == 0)
         {
@@ -222,6 +225,145 @@ internal static class Program
             Throws<ArgumentOutOfRangeException>(() => new AlertEvaluator(new AlertOptions(80, 81))),
             "histerese acima do limiar deve ser rejeitada");
     }
+
+    private static void TestComputedMetricsAreReproducible()
+    {
+        using var engine = new ComputedMetricsEngine(new ComputedMetricOptions(5000, 45, 16));
+
+        ComputedMetricsReport first = engine.Observe(Telemetry(1000, 40, 35));
+        Check(first.Metrics.Count == 4, "quantidade de métricas calculadas");
+        Check(first.Metrics[0].Value == 40, "média com uma amostra");
+        Check(
+            first.Metrics[1].State == ComputedMetricState.InsufficientData,
+            "inclinação exige duas amostras");
+        Check(first.Metrics[3].Value == 5, "delta térmico entre canais conhecidos");
+
+        ComputedMetricsReport second = engine.Observe(Telemetry(2000, 50, null));
+        Check(second.Metrics[0].Value == 45, "média móvel reproduzível");
+        Check(second.Metrics[1].Value == 10, "inclinação reproduzível");
+        Check(second.Metrics[2].Value == 0, "zero legítimo não vira indisponível");
+        Check(
+            second.Metrics[3].State == ComputedMetricState.InputUnavailable,
+            "canal de memória ausente não vira zero");
+
+        ComputedMetricsReport third = engine.Observe(Telemetry(3000, 60, 37));
+        Check(third.Metrics[0].Value == 50, "média de três amostras");
+        Check(third.Metrics[1].Value == 10, "inclinação de três amostras");
+        Check(third.Metrics[2].Value == 1, "tempo acima do limiar");
+        Check(
+            third.Metrics[2].Formula.Contains("threshold_c", StringComparison.Ordinal),
+            "fórmula acompanha a métrica");
+        Check(
+            third.Metrics[2].InputNames.SequenceEqual(["gpu_die_temperature_c"]),
+            "entradas acompanham a métrica");
+
+        engine.Reset();
+        ComputedMetricsReport reset = engine.Observe(Telemetry(4000, 55, 38));
+        Check(
+            reset.Metrics[1].State == ComputedMetricState.InsufficientData,
+            "reset limpa a janela histórica");
+    }
+
+    private static void TestTelemetryJsonV3PreservesProvenance()
+    {
+        const ulong timestamp = 1_700_000_000_000;
+        GpuInfo gpu = Gpu(2, "GPU-JSON");
+        PublicTelemetryReport telemetry = Telemetry(timestamp, 40, null);
+        using var engine = new ComputedMetricsEngine(new ComputedMetricOptions(5000, 80, 16));
+        ComputedMetricsReport computed = engine.Observe(telemetry);
+        var sample = new TemperatureSample(
+            gpu.Index,
+            40,
+            TemperatureBackend.NvmlTemperatureV1,
+            "NVML fake",
+            DateTimeOffset.FromUnixTimeMilliseconds(checked((long)timestamp)),
+            timestamp);
+        var telemetryEvent = new TelemetryEvent(
+            1,
+            TelemetryEventKind.Sample,
+            gpu.Uuid,
+            gpu,
+            sample,
+            sample.CapturedAt,
+            timestamp,
+            MonitoringStatus.Ok,
+            "ok",
+            string.Empty,
+            0,
+            0,
+            PublicTelemetry: telemetry,
+            ComputedMetrics: computed);
+
+        using JsonDocument document = JsonDocument.Parse(TelemetryJson.Serialize(telemetryEvent));
+        JsonElement root = document.RootElement;
+        Check(root.GetProperty("schema_version").GetInt32() == 3, "evento enriquecido usa schema 3");
+        JsonElement field = root.GetProperty("public_telemetry").GetProperty("fields")[0];
+        Check(field.GetProperty("provider").GetString() == "NVML fake", "provedor é persistido");
+        Check(field.GetProperty("origin").GetString() == "driver_reported", "origem é persistida");
+        Check(field.GetProperty("value_i64").GetInt64() == 40, "valor bruto é persistido");
+        JsonElement metric = root.GetProperty("computed_metrics").GetProperty("metrics")[0];
+        Check(metric.GetProperty("formula").GetString()!.Length > 0, "fórmula é persistida");
+        Check(metric.GetProperty("inputs").GetArrayLength() == 1, "entradas são persistidas");
+    }
+
+    private static PublicTelemetryReport Telemetry(
+        ulong timestampUnixMilliseconds,
+        long gpuTemperatureC,
+        long? memoryTemperatureC)
+    {
+        var fields = new List<PublicTelemetryValue>
+        {
+            TelemetryValue(
+                PublicTelemetryField.GpuDieTemperatureC,
+                "gpu_die_temperature_c",
+                PublicTelemetryProvider.NvmlTemperatureV1,
+                0,
+                gpuTemperatureC,
+                timestampUnixMilliseconds),
+        };
+        if (memoryTemperatureC is long memory)
+        {
+            fields.Add(TelemetryValue(
+                PublicTelemetryField.MemoryTemperatureC,
+                "memory_temperature_c",
+                PublicTelemetryProvider.NvmlFieldValues,
+                82,
+                memory,
+                timestampUnixMilliseconds));
+        }
+
+        return new PublicTelemetryReport(
+            2,
+            DateTimeOffset.FromUnixTimeMilliseconds(checked((long)timestampUnixMilliseconds)),
+            timestampUnixMilliseconds,
+            fields);
+    }
+
+    private static PublicTelemetryValue TelemetryValue(
+        PublicTelemetryField field,
+        string fieldName,
+        PublicTelemetryProvider provider,
+        uint providerNativeId,
+        long value,
+        ulong timestampUnixMilliseconds) => new(
+            field,
+            fieldName,
+            provider,
+            "NVML fake",
+            CapabilityState.Available,
+            "available",
+            DataOrigin.DriverReported,
+            "driver_reported",
+            TelemetryValueType.SignedInteger,
+            "signed_integer",
+            TelemetryUnit.Celsius,
+            "celsius",
+            0,
+            providerNativeId,
+            null,
+            value,
+            null,
+            timestampUnixMilliseconds);
 
     private static bool Throws<TException>(Action action) where TException : Exception
     {

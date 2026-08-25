@@ -27,6 +27,19 @@ typedef struct rtxmon_nvml_api {
     rtxmon_nvml_device_get_temperature_fn device_get_temperature;
     rtxmon_nvml_device_get_thermal_settings_fn device_get_thermal_settings;
     rtxmon_nvml_device_get_field_values_fn device_get_field_values;
+    rtxmon_nvml_device_get_clock_info_fn device_get_clock_info;
+    rtxmon_nvml_device_get_utilization_rates_fn device_get_utilization_rates;
+    rtxmon_nvml_device_get_memory_info_fn device_get_memory_info;
+    rtxmon_nvml_device_get_num_fans_fn device_get_num_fans;
+    rtxmon_nvml_device_get_fan_speed_v2_fn device_get_fan_speed_v2;
+    rtxmon_nvml_device_get_fan_speed_fn device_get_fan_speed;
+    rtxmon_nvml_device_get_performance_state_fn device_get_performance_state;
+    rtxmon_nvml_device_get_clock_reasons_fn device_get_current_clocks_event_reasons;
+    rtxmon_nvml_device_get_clock_reasons_fn device_get_current_clocks_throttle_reasons;
+    rtxmon_nvml_device_get_clock_reasons_fn device_get_supported_clocks_event_reasons;
+    rtxmon_nvml_device_get_clock_reasons_fn device_get_supported_clocks_throttle_reasons;
+    rtxmon_nvml_device_get_engine_utilization_fn device_get_encoder_utilization;
+    rtxmon_nvml_device_get_engine_utilization_fn device_get_decoder_utilization;
     rtxmon_nvml_error_string_fn error_string;
 } rtxmon_nvml_api_t;
 

@@ -28,7 +28,10 @@ public enum TelemetryEventKind
 public sealed record SamplingOptions(
     int BufferCapacity = 256,
     uint InitialBackoffMilliseconds = 250,
-    uint MaximumBackoffMilliseconds = 5000);
+    uint MaximumBackoffMilliseconds = 5000,
+    uint MetricWindowMilliseconds = 5000,
+    int MetricTemperatureThresholdC = 80,
+    uint MetricMaximumSamples = 1024);
 
 public sealed record TelemetryEvent(
     ulong Sequence,
@@ -44,7 +47,9 @@ public sealed record TelemetryEvent(
     uint ConsecutiveFailures,
     uint RetryAfterMilliseconds,
     int? AlertThresholdC = null,
-    int? AlertHysteresisC = null)
+    int? AlertHysteresisC = null,
+    PublicTelemetryReport? PublicTelemetry = null,
+    ComputedMetricsReport? ComputedMetrics = null)
 {
     public string KindName => Kind switch
     {
@@ -64,6 +69,11 @@ public interface ITemperatureSession : IDisposable
     TemperatureSample ReadGpuDieTemperature(uint index);
 }
 
+public interface IPublicTelemetrySession : ITemperatureSession
+{
+    PublicTelemetryReport ReadPublicTelemetry(uint index);
+}
+
 public sealed class ResilientSampler : IDisposable
 {
     private readonly string targetGpuUuid;
@@ -76,6 +86,7 @@ public sealed class ResilientSampler : IDisposable
     private uint consecutiveFailures;
     private uint nextBackoffMilliseconds;
     private uint pendingRetryMilliseconds;
+    private ComputedMetricsEngine? metricsEngine;
     private bool disposed;
 
     public ResilientSampler(
@@ -104,6 +115,24 @@ public sealed class ResilientSampler : IDisposable
                 nameof(options),
                 "O backoff máximo deve ser maior ou igual ao inicial.");
         }
+        if (this.options.MetricWindowMilliseconds is < 100 or > 3_600_000)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "A janela de métricas deve estar entre 100 e 3.600.000 ms.");
+        }
+        if (this.options.MetricTemperatureThresholdC is < 0 or > 500)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "O limiar das métricas deve estar entre 0 e 500 °C.");
+        }
+        if (this.options.MetricMaximumSamples is < 2 or > 65_536)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                "O limite da janela deve estar entre 2 e 65.536 amostras.");
+        }
 
         this.targetGpuUuid = targetGpuUuid;
         this.sessionFactory = sessionFactory ?? NvidiaMonitor.Open;
@@ -131,6 +160,18 @@ public sealed class ResilientSampler : IDisposable
                     "A amostra de temperatura pertence a outro índice de GPU.");
             }
 
+            PublicTelemetryReport? publicTelemetry = null;
+            ComputedMetricsReport? computedMetrics = null;
+            if (session is IPublicTelemetrySession publicSession)
+            {
+                publicTelemetry = publicSession.ReadPublicTelemetry(currentGpu.Index);
+                metricsEngine ??= new ComputedMetricsEngine(new ComputedMetricOptions(
+                    options.MetricWindowMilliseconds,
+                    options.MetricTemperatureThresholdC,
+                    options.MetricMaximumSamples));
+                computedMetrics = metricsEngine.Observe(publicTelemetry);
+            }
+
             if (consecutiveFailures > 0)
             {
                 uint recoveredFailures = consecutiveFailures;
@@ -154,6 +195,8 @@ public sealed class ResilientSampler : IDisposable
                 ObservedAt = sample.CapturedAt,
                 ObservedAtUnixMilliseconds = sample.TimestampUnixMilliseconds,
                 ConsecutiveFailures = 0,
+                PublicTelemetry = publicTelemetry,
+                ComputedMetrics = computedMetrics,
             };
             Record(sampleEvent, emitted);
         }
@@ -198,7 +241,9 @@ public sealed class ResilientSampler : IDisposable
         }
 
         session?.Dispose();
+        metricsEngine?.Dispose();
         session = null;
+        metricsEngine = null;
         currentGpu = null;
         disposed = true;
         GC.SuppressFinalize(this);
@@ -260,6 +305,7 @@ public sealed class ResilientSampler : IDisposable
         session?.Dispose();
         session = null;
         currentGpu = null;
+        metricsEngine?.Reset();
     }
 
     private TelemetryEvent CreateBaseEvent(TelemetryEventKind kind)

@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -87,6 +88,28 @@ struct ThermalReport {
     std::vector<ThermalCapability> capabilities;
 };
 
+struct PublicFieldValue {
+    rtxmon_public_field_t field;
+    rtxmon_public_provider_t provider;
+    rtxmon_capability_state_t state;
+    rtxmon_data_origin_t origin;
+    rtxmon_value_type_t value_type;
+    rtxmon_unit_t unit;
+    std::int32_t native_status;
+    std::uint32_t provider_native_id;
+    std::optional<std::uint64_t> unsigned_value;
+    std::optional<std::int64_t> signed_value;
+    std::optional<double> double_value;
+    std::uint64_t timestamp_unix_ms;
+};
+
+struct PublicTelemetryReport {
+    std::uint32_t gpu_index;
+    std::chrono::system_clock::time_point captured_at;
+    std::uint64_t timestamp_unix_ms;
+    std::vector<PublicFieldValue> fields;
+};
+
 class Monitor final {
 public:
     Monitor();
@@ -104,6 +127,7 @@ public:
     [[nodiscard]] BoardIdentity board_identity(std::uint32_t index) const;
     [[nodiscard]] TemperatureSample read_gpu_die_temperature(std::uint32_t index) const;
     [[nodiscard]] ThermalReport scan_thermal_capabilities(std::uint32_t index) const;
+    [[nodiscard]] PublicTelemetryReport read_public_telemetry(std::uint32_t index) const;
 
 private:
     rtxmon_context_t *context_{nullptr};
@@ -115,6 +139,11 @@ private:
 [[nodiscard]] const char *thermal_target_name(rtxmon_thermal_target_t target) noexcept;
 [[nodiscard]] const char *thermal_controller_name(rtxmon_thermal_controller_t controller) noexcept;
 [[nodiscard]] const char *confidence_name(rtxmon_sensor_confidence_t confidence) noexcept;
+[[nodiscard]] const char *origin_name(rtxmon_data_origin_t origin) noexcept;
+[[nodiscard]] const char *public_field_name(rtxmon_public_field_t field) noexcept;
+[[nodiscard]] const char *public_provider_name(rtxmon_public_provider_t provider) noexcept;
+[[nodiscard]] const char *value_type_name(rtxmon_value_type_t value_type) noexcept;
+[[nodiscard]] const char *unit_name(rtxmon_unit_t unit) noexcept;
 
 } // namespace rtxmon
 
