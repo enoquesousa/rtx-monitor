@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/enoquesousa/rtx-monitor/main/docs/schema/stream-gap-v1.schema.json",
+  "title": "RTX Monitor SSE stream gap",
+  "description": "Notification that a slow SSE client exceeded its private bounded queue.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dropped_events",
+    "after_event_id",
+    "latest_dropped_event_id",
+    "recovery_endpoint"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "dropped_events": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "after_event_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "latest_dropped_event_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "recovery_endpoint": {
+      "type": "string",
+      "pattern": "^/api/v1/history\\?"
+    }
+  }
+}

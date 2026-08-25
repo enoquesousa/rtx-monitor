@@ -111,6 +111,8 @@ Critério de saída:
 
 ### v0.6.0 — serviço local headless
 
+Estado: implementada no código atual.
+
 Objetivo: executar coleta e persistência continuamente, sem interface gráfica.
 
 Entregas:

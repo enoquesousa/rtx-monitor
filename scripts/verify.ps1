@@ -14,10 +14,12 @@ $nativeOutput = Join-Path $projectRoot "build\windows-x64\bin\$Configuration"
 $cppExecutable = Join-Path $nativeOutput 'rtxmon.exe'
 $cExecutable = Join-Path $nativeOutput 'rtxmon-c.exe'
 $csharpExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Configuration\net8.0\RtxMonitor.Console.exe"
+$serviceExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64\RtxMonitor.Service.exe"
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
 $eventSchemaV1Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
 $eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
 $evidenceTempRoot = $null
+$serviceProcess = $null
 
 function Assert-LastExitCode {
     param([Parameter(Mandatory)][string]$Description)
@@ -359,7 +361,7 @@ try {
             $record.store_schema_version -ne 1 -or
             $record.event.schema_version -ne 2 -or
             $record.run.run_id -ne $historyRunId -or
-            $record.run.application_version -ne '0.5.0' -or
+            $record.run.application_version -ne '0.6.0' -or
             $record.device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid -or
             $record.device_snapshot.board.profile_key -ne $cppCapabilities.board.profile_key) {
             throw 'A persisted evidence record did not preserve schema, run, version, GPU, or board provenance.'
@@ -388,19 +390,131 @@ try {
         throw 'C# evidence export did not preserve the complete ordered stream.'
     }
 
+    if (-not (Test-Path -LiteralPath $serviceExecutable -PathType Leaf)) {
+        throw "Service executable is missing: $serviceExecutable"
+    }
+
+    $portProbe = [System.Net.Sockets.TcpListener]::new(
+        [System.Net.IPAddress]::Loopback,
+        0)
+    $portProbe.Start()
+    $servicePort = ([System.Net.IPEndPoint]$portProbe.LocalEndpoint).Port
+    $portProbe.Stop()
+    $serviceDatabase = Join-Path $evidenceTempRoot 'service-telemetry.db'
+    $serviceStdout = Join-Path $evidenceTempRoot 'service.stdout.log'
+    $serviceStderr = Join-Path $evidenceTempRoot 'service.stderr.log'
+    $serviceProcess = Start-Process `
+        -FilePath $serviceExecutable `
+        -ArgumentList @(
+            "--RtxMonitor:Port=$servicePort",
+            "--RtxMonitor:DatabasePath=$serviceDatabase",
+            '--RtxMonitor:IntervalMilliseconds=100',
+            '--RtxMonitor:DiscoveryIntervalSeconds=1'
+        ) `
+        -RedirectStandardOutput $serviceStdout `
+        -RedirectStandardError $serviceStderr `
+        -WindowStyle Hidden `
+        -PassThru
+
+    $serviceBaseUri = "http://127.0.0.1:$servicePort"
+    $serviceDeadline = [DateTimeOffset]::UtcNow.AddSeconds(20)
+    $serviceHealth = $null
+    while ([DateTimeOffset]::UtcNow -lt $serviceDeadline) {
+        if ($serviceProcess.HasExited) {
+            $serviceLog = if (Test-Path -LiteralPath $serviceStderr) {
+                Get-Content -LiteralPath $serviceStderr -Raw
+            }
+            else {
+                ''
+            }
+            throw "Service exited before becoming ready. $serviceLog"
+        }
+
+        try {
+            $serviceHealth = Invoke-RestMethod -Uri "$serviceBaseUri/health" -TimeoutSec 2
+            if ($serviceHealth.ready) {
+                break
+            }
+        }
+        catch {
+            $serviceHealth = $null
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    if ($null -eq $serviceHealth -or
+        -not $serviceHealth.ready -or
+        $serviceHealth.service_version -ne '0.6.0' -or
+        $serviceHealth.storage.state -ne 'available') {
+        throw 'Local service did not become ready with SQLite and version 0.6.0.'
+    }
+
+    $serviceDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
+    $serviceGpus = $null
+    $serviceHistory = $null
+    $encodedServiceUuid = [Uri]::EscapeDataString([string]$cppSample.gpu_uuid)
+    while ([DateTimeOffset]::UtcNow -lt $serviceDeadline) {
+        $serviceGpus = Invoke-RestMethod -Uri "$serviceBaseUri/api/v1/gpus" -TimeoutSec 2
+        $serviceHistory = Invoke-RestMethod `
+            -Uri "$serviceBaseUri/api/v1/history?order=asc&limit=10&gpu_uuid=$encodedServiceUuid" `
+            -TimeoutSec 2
+        if ($serviceGpus.count -ge 1 -and $serviceHistory.count -ge 2) {
+            break
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    $matchingServiceGpus = @(
+        $serviceGpus.gpus | Where-Object { $_.uuid -eq $cppSample.gpu_uuid }
+    )
+    if ($matchingServiceGpus.Count -ne 1 -or
+        $null -eq $matchingServiceGpus[0].last_sample_temperature_c) {
+        throw 'Local service did not expose the expected physical GPU and last sample.'
+    }
+    $serviceTemperature = [int]$matchingServiceGpus[0].last_sample_temperature_c
+    Assert-Temperature -Source 'local service' -Temperature $serviceTemperature
+    $allTemperatures = @($temperatures) + $serviceTemperature
+    $allMinimum = ($allTemperatures | Measure-Object -Minimum).Minimum
+    $allMaximum = ($allTemperatures | Measure-Object -Maximum).Maximum
+    if (($allMaximum - $allMinimum) -gt 5) {
+        throw "The local service differed by more than 5 C: $($allTemperatures -join ', ')."
+    }
+    if ($serviceHistory.count -lt 2 -or
+        $serviceHistory.items[0].run.application_version -ne '0.6.0' -or
+        $serviceHistory.items[0].device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid) {
+        throw 'Local service history did not preserve version and GPU provenance.'
+    }
+
+    $serviceCapabilities = Invoke-RestMethod `
+        -Uri "$serviceBaseUri/api/v1/gpus/$encodedServiceUuid/capabilities" `
+        -TimeoutSec 5
+    if ($serviceCapabilities.schema_version -ne 1 -or
+        $serviceCapabilities.gpu.uuid -ne $cppSample.gpu_uuid -or
+        $serviceCapabilities.board.profile_key -ne $cppCapabilities.board.profile_key) {
+        throw 'Local service capabilities did not preserve GPU and board identity.'
+    }
+
+    Stop-Process -Id $serviceProcess.Id
+    $null = $serviceProcess.WaitForExit(10000)
+    $serviceProcess = $null
+
     Write-Host 'Verification passed.'
     Write-Host "GPU: $($cppSample.gpu_name)"
     Write-Host "UUID: $($cppSample.gpu_uuid)"
     Write-Host "C / C++ / C# / nvidia-smi: $($temperatures -join ' / ') C"
+    Write-Host "Local service: $serviceTemperature C"
     Write-Host "Backend: $($cppSample.backend)"
     Write-Host "Board profile: $($cppCapabilities.board.profile_key)"
     Write-Host "Thermal capability records: $($cppCapabilities.thermal_capabilities.Count)"
     Write-Host 'Resilient event streams: C++ and C# passed.'
     Write-Host 'Threshold alert streams: C++ and C# passed.'
     Write-Host 'SQLite evidence history and export: passed.'
+    Write-Host "Local service HTTP, discovery, history, and capabilities: passed on 127.0.0.1:$servicePort."
 }
 finally {
     try {
+        if ($null -ne $serviceProcess -and -not $serviceProcess.HasExited) {
+            Stop-Process -Id $serviceProcess.Id -Force
+            $null = $serviceProcess.WaitForExit(10000)
+        }
         if ($null -ne $evidenceTempRoot -and (Test-Path -LiteralPath $evidenceTempRoot)) {
             $resolvedEvidenceRoot = (Resolve-Path -LiteralPath $evidenceTempRoot).Path
             $resolvedSystemTemp = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
