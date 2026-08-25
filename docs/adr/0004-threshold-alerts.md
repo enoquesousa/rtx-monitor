@@ -40,7 +40,7 @@ O `ResilientSampler` mantém sua sequência interna e seu buffer sem conhecer al
 - `--alert-threshold`/`--alert-hysteresis` não têm efeito fora de `--watch`; usá-los com `--once` é erro de uso.
 - O buffer circular do `ResilientSampler` não retém eventos de alerta — eles não aparecem em `recent_events()`/`GetRecentEvents()`, só no stream impresso pelo CLI.
 - O stream emitido pelo CLI possui sequência estritamente crescente entre todos os tipos de evento; a sequência interna do buffer do sampler continua limitada aos eventos que ele produz.
-- Persistência de histórico de alertas continua fora de escopo, como já registrado em "Extensões seguras" no `ARCHITECTURE.md`.
+- Persistência de histórico de alertas continua fora de escopo nesta decisão e foi adicionada pela [v0.5.0](../ROADMAP.md).
 
 ## Alternativas rejeitadas
 

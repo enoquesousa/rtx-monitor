@@ -22,7 +22,11 @@ Uma entrega é considerada válida quando:
 16. um limiar de alerta de 0 °C dispara `alert_raised` na primeira amostra em C++ e C#, com o mesmo UUID e o mesmo limiar no envelope;
 17. manter a leitura exatamente no limiar não encerra nem dispara repetidamente o alerta;
 18. amostras, lacunas, recuperações e alertas compartilham uma sequência global crescente no stream do CLI;
-19. os artefatos C/C++ e .NET declaram a mesma versão do projeto.
+19. os artefatos C/C++ e .NET declaram a mesma versão do projeto;
+20. o schema de evidências declara versões 1 para o envelope e para o banco e incorpora o evento v2;
+21. migrations, reabertura, retry idempotente, conflito de sequência, filtros, retenção e writers concorrentes passam sem GPU;
+22. arquivo inválido e schema futuro são recusados sem sobrescrita, e uma consulta não cria um banco ausente;
+23. uma execução física persiste, consulta e exporta o stream mantendo UUID, run, versão, PCI, VBIOS e profile key.
 
 Execute:
 
@@ -36,7 +40,7 @@ Para a verificação independente de hardware usada no CI:
 .\scripts\verify-ci.ps1 -Configuration Release
 ```
 
-`verify-ci.ps1` compila com avisos como erros, executa os testes de ABI e dos samplers simulados, verifica a formatação C# e analisa os dois schemas. `verify.ps1` acrescenta as leituras reais da GPU e a comparação independente com `nvidia-smi`.
+`verify-ci.ps1` compila com avisos como erros, executa os testes de ABI, sampler, alertas e armazenamento SQLite, verifica a formatação C# e analisa os quatro schemas publicados. `verify.ps1` acrescenta as leituras reais da GPU, a comparação independente com `nvidia-smi` e um ciclo físico de persistência, consulta e exportação.
 
 ## Snapshot local inicial
 
@@ -103,3 +107,24 @@ Em 2026-08-25, após a revisão de engenharia, as validações Release e Debug c
 - `dotnet format --verify-no-changes` aprovado nos três projetos C# após a adição do `AlertEvaluator`.
 
 O JSON Schema de eventos avançou para `telemetry-event-v2.schema.json`; o limiar usado nesta validação (0 °C) existe apenas para disparar o alerta de forma determinística e não é uma recomendação de configuração.
+
+## Snapshot da persistência de evidências v0.5.0
+
+Em 2026-08-25, a validação Release confirmou:
+
+- C, C++ e os cinco projetos C# compilaram com avisos tratados como erros;
+- três testes CTest, testes do sampler/alertas C# e a nova suíte `RtxMonitor.Storage.Tests` foram aprovados;
+- schema SQLite 1 criado por migration e preservado após fechar e reabrir o processo;
+- retry do mesmo evento retornou o mesmo `event_id`, enquanto conteúdo diferente na mesma sequência foi recusado;
+- filtros por run, UUID, tipo, intervalo e sequência foram exercitados;
+- retenção removeu somente evento antigo, snapshot órfão e run fora da janela;
+- 48 writers concorrentes confirmaram todas as sequências sem perda;
+- arquivo não SQLite, schema futuro e caminho ausente falharam sem sobrescrever ou criar dados;
+- `dotnet list package --vulnerable --include-transitive` não encontrou pacote vulnerável nas fontes consultadas;
+- o teste físico persistiu duas amostras da RTX 3060 e as recuperou por `--history` e `--export`;
+- os evidence records preservaram `run_id`, versão 0.5.0, o mesmo UUID e o perfil `10de:2504/10de:1536@94.06.25.00.fc`;
+- C, C++, C# e `nvidia-smi` reportaram 33 °C na execução registrada;
+- CMake, projetos .NET e assemblies gerados declararam a versão 0.5.0;
+- `dotnet format --verify-no-changes` foi aprovado nos cinco projetos C#.
+
+O banco usado no teste físico foi criado em um diretório temporário exclusivo e removido após a validação. A v0.5.0 permanece headless: ela adiciona evidência persistente, não serviço nem interface gráfica.
