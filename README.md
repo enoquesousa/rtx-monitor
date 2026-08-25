@@ -103,6 +103,50 @@ Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O c
 
 O alerta reage somente a amostras reais — uma lacuna nunca dispara nem encerra um alerta. Sem `--events`, as transições aparecem como uma linha de diagnóstico em `stderr`, preservando o schema de amostra v1 em `--json`. Com `--events`, elas entram no mesmo stream JSON Lines das amostras, lacunas e recuperações. O limiar é uma política escolhida por quem monitora, não um limite reportado pelo driver.
 
+## Grave e consulte o histórico
+
+O aplicativo C# pode guardar todos os eventos em um banco SQLite local. Informe o caminho explicitamente:
+
+```powershell
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe `
+  --watch `
+  --database .\rtx-monitor.db `
+  --retention-days 30
+```
+
+O banco registra amostras, lacunas, recuperações e alertas. Cada execução recebe um `run_id`; GPU, PCI, VBIOS, driver, NVML e versão do aplicativo são preservados como proveniência quando estiverem disponíveis. A retenção é aplicada no início de cada execução persistente.
+
+Consulte os 100 eventos mais recentes:
+
+```powershell
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe `
+  --history `
+  --database .\rtx-monitor.db `
+  --limit 100
+```
+
+Filtros podem ser combinados:
+
+```powershell
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe `
+  --history `
+  --database .\rtx-monitor.db `
+  --gpu-uuid GPU-... `
+  --event-type gap `
+  --from-unix-ms 1787600000000 `
+  --json
+```
+
+`--history --json` produz registros de evidência JSON Lines com limite. Para exportar todo o recorte encontrado, use:
+
+```powershell
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe `
+  --export `
+  --database .\rtx-monitor.db > evidence.jsonl
+```
+
+O formato está em [evidence-record-v1.schema.json](docs/schema/evidence-record-v1.schema.json). Consultar um caminho inexistente falha sem criar um banco vazio; um arquivo inválido não é sobrescrito.
+
 ## Descubra quais sensores estão disponíveis
 
 Use o inventário térmico antes de assumir que uma GPU oferece memória, hotspot ou VRM:
@@ -148,6 +192,15 @@ O formato JSON completo está documentado em [capabilities-v2.schema.json](docs/
 | `--events` | Produz o stream completo de eventos (schema v2) como JSON Lines |
 | `--alert-threshold C` | Dispara um alerta durante `--watch` ao atingir `C` °C (0-500) |
 | `--alert-hysteresis C` | Define a margem de encerramento; com zero, o alerta só limpa abaixo do limiar |
+| `--database PATH` | Persiste `--watch` em SQLite ou seleciona o banco de uma consulta |
+| `--retention-days N` | Retém entre 1 e 3650 dias; o padrão é 30 |
+| `--history` | Consulta um número limitado de eventos persistidos |
+| `--export` | Exporta o recorte histórico completo como JSON Lines |
+| `--run-id ID` | Filtra uma execução específica |
+| `--event-type T` | Filtra por tipo de evento |
+| `--from-unix-ms N` / `--to-unix-ms N` | Delimita o horário observado |
+| `--after-sequence N` | Continua após uma sequência; exige `--run-id` |
+| `--limit N` | Retorna de 1 a 10000 eventos em `--history`; o padrão é 100 |
 | `--help` | Exibe a ajuda completa |
 
 O CLI C++ usa `--once` como padrão. O aplicativo C# usa `--watch` como padrão.
@@ -197,7 +250,10 @@ sensores e firmware da GPU
  buffer        buffer
       |            |
       v            v
- rtxmon.exe    console C#
+ rtxmon.exe    camada SQLite
+                   |
+                   v
+               console C#
 ```
 
 Cada linguagem tem uma responsabilidade clara:
@@ -206,7 +262,7 @@ Cada linguagem tem uma responsabilidade clara:
 | --- | --- |
 | **C** | Carrega NVML/NVAPI, consulta o driver e expõe uma ABI — o contrato binário usado pelas outras linguagens |
 | **C++** | Organiza os dados, mantém o sampler resiliente e fornece o CLI `rtxmon.exe` |
-| **C#** | Consome a ABI C por P/Invoke e oferece o mesmo modelo resiliente para aplicações .NET |
+| **C#** | Consome a ABI C por P/Invoke, oferece o sampler .NET e mantém persistência SQLite opcional |
 
 A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura principal por NVML continua funcionando.
 
@@ -222,7 +278,9 @@ A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura p
 | Estudar o sampler equivalente em C# | [csharp/RtxMonitor.Managed/Sampling.cs](csharp/RtxMonitor.Managed/Sampling.cs) |
 | Estudar o avaliador de alertas em C++ | [cpp/include/rtxmon/alerts.hpp](cpp/include/rtxmon/alerts.hpp) |
 | Estudar o avaliador de alertas em C# | [csharp/RtxMonitor.Managed/Alerts.cs](csharp/RtxMonitor.Managed/Alerts.cs) |
+| Entender o banco de evidências | [csharp/RtxMonitor.Storage/SqliteTelemetryStore.cs](csharp/RtxMonitor.Storage/SqliteTelemetryStore.cs) |
 | Conhecer as decisões de arquitetura | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Ver o caminho até a engenharia reversa | [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 ## Valide antes de contribuir
 
@@ -240,8 +298,26 @@ A verificação:
 - compara a identidade da GPU com o `nvidia-smi`;
 - confirma que C, C++ e C# observam o mesmo dispositivo;
 - testa seleção por UUID, inventário de capacidades e streams contínuos.
+- testa migrations, reinício, concorrência, retenção e arquivos SQLite inválidos sem GPU.
 
 O GitHub Actions usa `scripts/verify-ci.ps1`, que não exige GPU. A validação física continua separada em `scripts/verify.ps1`.
+
+## Caminho até a engenharia reversa
+
+A prioridade agora é construir evidência, não uma interface gráfica. Cada etapa prepara a seguinte:
+
+| Versão | Foco |
+| --- | --- |
+| **v0.5.0** | Persistir eventos e identidade da placa em SQLite |
+| **v0.6.0** | Executar a coleta como serviço local headless |
+| **v0.7.0** | Ampliar dados públicos e criar métricas calculadas rastreáveis |
+| **v0.8.0** | Montar um laboratório reproduzível de captura e correlação |
+| **v0.9.0** | Adicionar aquisição experimental, privilegiada e somente leitura |
+| **v0.10.0** | Validar candidatos com repetição e referências independentes |
+| **v0.11.0** | Publicar candidatos validados em um provedor experimental separado |
+| **v1.0.0** | Estabilizar contratos, operação e governança dos perfis |
+
+Os critérios completos estão no [roadmap de engenharia](docs/ROADMAP.md). A regra central é simples: um valor que muda com a carga ainda não é prova de que encontramos um sensor de hotspot, memória ou VRM.
 
 ## Segurança e limites atuais
 
@@ -254,17 +330,22 @@ O GitHub Actions usa `scripts/verify-ci.ps1`, que não exige GPU. A validação 
 - A identidade entre NVML e NVAPI é correlacionada pelo endereço PCI, não pela ordem em que as APIs listam as placas.
 - A camada nativa já possui um caminho de carregamento para Linux, mas os scripts de compilação e validação desta versão são voltados ao Windows x64.
 
+O plano futuro inclui engenharia reversa, mas ela será um modo experimental separado, opt-in e restrito a perfis exatos de placa, VBIOS e driver. O coletor estável continuará usando APIs documentadas e sem privilégio administrativo. Veja os marcos e os critérios de evidência no [roadmap de engenharia](docs/ROADMAP.md).
+
 ## Documentação técnica
 
 - [Arquitetura e contratos](docs/ARCHITECTURE.md)
+- [Roadmap de engenharia reversa](docs/ROADMAP.md)
 - [Procedimento de validação](docs/VALIDATION.md)
 - [ADR 0001 — uso da NVML](docs/adr/0001-use-nvml.md)
 - [ADR 0002 — descoberta pública de capacidades](docs/adr/0002-public-capability-discovery.md)
 - [ADR 0003 — monitoramento resiliente](docs/adr/0003-resilient-sampling.md)
 - [ADR 0004 — alertas de limiar](docs/adr/0004-threshold-alerts.md)
+- [ADR 0005 — armazenamento SQLite de evidências](docs/adr/0005-sqlite-evidence-store.md)
 - [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
 - [Schema JSON de eventos atual — v2](docs/schema/telemetry-event-v2.schema.json)
 - [Schema JSON histórico de eventos — v1](docs/schema/telemetry-event-v1.schema.json)
+- [Schema JSON de evidências — v1](docs/schema/evidence-record-v1.schema.json)
 - [Avisos de componentes de terceiros](THIRD_PARTY_NOTICES.md)
 
 ## Referências oficiais
