@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <rtxmon/rtxmon.h>
@@ -99,6 +100,7 @@ public:
 
     [[nodiscard]] std::vector<GpuInfo> gpus() const;
     [[nodiscard]] GpuInfo gpu(std::uint32_t index) const;
+    [[nodiscard]] GpuInfo gpu_by_uuid(std::string_view uuid) const;
     [[nodiscard]] BoardIdentity board_identity(std::uint32_t index) const;
     [[nodiscard]] TemperatureSample read_gpu_die_temperature(std::uint32_t index) const;
     [[nodiscard]] ThermalReport scan_thermal_capabilities(std::uint32_t index) const;

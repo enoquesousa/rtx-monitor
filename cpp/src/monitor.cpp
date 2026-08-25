@@ -1,11 +1,32 @@
 #include <rtxmon/monitor.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <sstream>
 #include <utility>
 
 namespace rtxmon {
 namespace {
+
+[[nodiscard]] bool ascii_case_insensitive_equal(
+    std::string_view left,
+    std::string_view right) noexcept
+{
+    if (left.size() != right.size()) {
+        return false;
+    }
+
+    return std::equal(
+        left.begin(),
+        left.end(),
+        right.begin(),
+        [](char left_character, char right_character) {
+            const auto left_value = static_cast<unsigned char>(left_character);
+            const auto right_value = static_cast<unsigned char>(right_character);
+            return std::tolower(left_value) == std::tolower(right_value);
+        });
+}
 
 [[noreturn]] void throw_for_status(rtxmon_status_t status, const char *operation)
 {
@@ -101,6 +122,29 @@ GpuInfo Monitor::gpu(std::uint32_t index) const
         native_info.driver_version,
         native_info.nvml_version,
     };
+}
+
+GpuInfo Monitor::gpu_by_uuid(std::string_view uuid) const
+{
+    if (uuid.empty()) {
+        throw std::invalid_argument("GPU UUID must not be empty");
+    }
+
+    const auto available_gpus = gpus();
+    const auto match = std::find_if(
+        available_gpus.begin(),
+        available_gpus.end(),
+        [uuid](const GpuInfo &gpu_info) {
+            return ascii_case_insensitive_equal(gpu_info.uuid, uuid);
+        });
+
+    if (match == available_gpus.end()) {
+        throw MonitorError(
+            RTXMON_STATUS_GPU_NOT_FOUND,
+            "Could not find NVIDIA GPU UUID: " + std::string{uuid});
+    }
+
+    return *match;
 }
 
 TemperatureSample Monitor::read_gpu_die_temperature(std::uint32_t index) const

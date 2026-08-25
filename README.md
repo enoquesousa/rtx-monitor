@@ -73,7 +73,22 @@ Ou pelo aplicativo C#:
 .\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe
 ```
 
-Os dois comandos atualizam a leitura a cada segundo. Pressione `Ctrl+C` para encerrar.
+Os dois comandos atualizam a leitura a cada segundo. No modo contínuo, o índice inicial é convertido para o UUID da GPU. Se o driver reiniciar ou o índice mudar, o monitor procura novamente o mesmo UUID em vez de trocar silenciosamente de placa. Pressione `Ctrl+C` para encerrar.
+
+Para receber também lacunas e recuperações como eventos JSON Lines:
+
+```powershell
+.\build\windows-x64\bin\Release\rtxmon.exe --watch --events
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe --watch --events
+```
+
+| Evento | Significado |
+| --- | --- |
+| `sample` | Uma leitura nova e válida foi obtida |
+| `gap` | Não há leitura atual; o evento informa erro e tempo até a próxima tentativa |
+| `recovered` | O mesmo UUID foi reencontrado após uma ou mais falhas |
+
+Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato está em [telemetry-event-v1.schema.json](docs/schema/telemetry-event-v1.schema.json).
 
 ## Descubra quais sensores estão disponíveis
 
@@ -112,9 +127,12 @@ O formato JSON completo está documentado em [capabilities-v2.schema.json](docs/
 | `--list` | Lista as GPUs NVIDIA encontradas |
 | `--capabilities` | Mostra as fontes e os canais térmicos públicos |
 | `--gpu INDEX` | Seleciona a GPU pelo índice, começando em zero |
+| `--gpu-uuid UUID` | Seleciona uma GPU pela identidade persistente; não use junto com `--gpu` |
 | `--interval MS` | Define o intervalo de 100 a 60000 milissegundos |
 | `--count N` | Encerra o modo contínuo após `N` amostras; zero significa ilimitado |
-| `--json` | Produz JSON; no modo contínuo, uma amostra por linha |
+| `--buffer N` | Mantém de 1 a 65536 eventos recentes em memória; o padrão é 256 |
+| `--json` | Produz JSON; no modo contínuo, preserva o schema de amostra v1 |
+| `--events` | Produz o stream completo de `sample`, `gap` e `recovered` |
 | `--help` | Exibe a ajuda completa |
 
 O CLI C++ usa `--once` como padrão. O aplicativo C# usa `--watch` como padrão.
@@ -159,10 +177,12 @@ sensores e firmware da GPU
       +-----+------+
       |            |
       v            v
- CLI C/C++     biblioteca C#
-                   |
-                   v
-             console C#
+ núcleo C++    biblioteca C#
+ sampler +     sampler +
+ buffer        buffer
+      |            |
+      v            v
+ rtxmon.exe    console C#
 ```
 
 Cada linguagem tem uma responsabilidade clara:
@@ -170,8 +190,8 @@ Cada linguagem tem uma responsabilidade clara:
 | Camada | Responsabilidade |
 | --- | --- |
 | **C** | Carrega NVML/NVAPI, consulta o driver e expõe uma ABI — o contrato binário usado pelas outras linguagens |
-| **C++** | Organiza os dados em uma API mais segura e fornece o CLI `rtxmon.exe` |
-| **C#** | Consome a ABI C por P/Invoke e oferece uma API gerenciada para aplicações .NET |
+| **C++** | Organiza os dados, mantém o sampler resiliente e fornece o CLI `rtxmon.exe` |
+| **C#** | Consome a ABI C por P/Invoke e oferece o mesmo modelo resiliente para aplicações .NET |
 
 A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura principal por NVML continua funcionando.
 
@@ -183,6 +203,8 @@ A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura p
 | Ver o menor exemplo possível em C | [examples/c/temperature_once.c](examples/c/temperature_once.c) |
 | Entender o CLI C++ | [cpp/cli/main.cpp](cpp/cli/main.cpp) |
 | Integrar com uma aplicação .NET | [csharp/RtxMonitor.Managed/NvidiaMonitor.cs](csharp/RtxMonitor.Managed/NvidiaMonitor.cs) |
+| Estudar reconexão, eventos e buffer em C++ | [cpp/include/rtxmon/sampler.hpp](cpp/include/rtxmon/sampler.hpp) |
+| Estudar o sampler equivalente em C# | [csharp/RtxMonitor.Managed/Sampling.cs](csharp/RtxMonitor.Managed/Sampling.cs) |
 | Conhecer as decisões de arquitetura | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 
 ## Valide antes de contribuir
@@ -197,9 +219,12 @@ A verificação:
 
 - compila C, C++ e C# tratando avisos como erros;
 - executa os testes do contrato binário;
+- simula perda da GPU, mudança de índice, backoff e recuperação sem hardware;
 - compara a identidade da GPU com o `nvidia-smi`;
 - confirma que C, C++ e C# observam o mesmo dispositivo;
-- testa o inventário de capacidades e os modos contínuos.
+- testa seleção por UUID, inventário de capacidades e streams contínuos.
+
+O GitHub Actions usa `scripts/verify-ci.ps1`, que não exige GPU. A validação física continua separada em `scripts/verify.ps1`.
 
 ## Segurança e limites atuais
 
@@ -218,7 +243,9 @@ A verificação:
 - [Procedimento de validação](docs/VALIDATION.md)
 - [ADR 0001 — uso da NVML](docs/adr/0001-use-nvml.md)
 - [ADR 0002 — descoberta pública de capacidades](docs/adr/0002-public-capability-discovery.md)
+- [ADR 0003 — monitoramento resiliente](docs/adr/0003-resilient-sampling.md)
 - [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
+- [Schema JSON de eventos](docs/schema/telemetry-event-v1.schema.json)
 - [Avisos de componentes de terceiros](THIRD_PARTY_NOTICES.md)
 
 ## Referências oficiais

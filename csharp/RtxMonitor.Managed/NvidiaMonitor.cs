@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace RtxMonitor.Managed;
 
-public sealed class NvidiaMonitor : IDisposable
+public sealed class NvidiaMonitor : ITemperatureSession
 {
     private readonly SafeRtxmonContext context;
     private bool disposed;
@@ -59,6 +59,16 @@ public sealed class NvidiaMonitor : IDisposable
             native.Uuid,
             native.DriverVersion,
             native.NvmlVersion);
+    }
+
+    public GpuInfo GetGpuByUuid(string uuid)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(uuid);
+        return GetGpus().FirstOrDefault(
+            gpu => string.Equals(gpu.Uuid, uuid, StringComparison.OrdinalIgnoreCase))
+            ?? throw new RtxMonitorException(
+                MonitoringStatus.GpuNotFound,
+                $"Não foi possível localizar a GPU NVIDIA com UUID {uuid}.");
     }
 
     public TemperatureSample ReadGpuDieTemperature(uint index)
