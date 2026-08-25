@@ -2,7 +2,7 @@
 
 > Temperatura de GPUs NVIDIA lida pelas APIs públicas do driver — sem usar a saída do `nvidia-smi`, analisar texto ou inventar valores.
 
-O **RTX Monitor** é um monitor de baixo nível e somente leitura. Ele mostra a temperatura atual do chip gráfico e informa quais outros canais térmicos o driver disponibiliza para a sua placa.
+O **RTX Monitor** é um monitor de baixo nível e somente leitura. Ele mostra a temperatura atual do chip gráfico, inventaria os canais publicados pelo driver e calcula tendências que podem ser refeitas a partir do histórico.
 
 Com ele, você pode responder duas perguntas de forma objetiva:
 
@@ -90,7 +90,7 @@ Para receber também lacunas e recuperações como eventos JSON Lines:
 | `alert_raised` | A temperatura do die atingiu o limiar configurado |
 | `alert_cleared` | A temperatura do die caiu do limiar menos a histerese configurada |
 
-Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato está em [telemetry-event-v2.schema.json](docs/schema/telemetry-event-v2.schema.json).
+Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato atual está em [telemetry-event-v3.schema.json](docs/schema/telemetry-event-v3.schema.json); os schemas v1 e v2 permanecem publicados para históricos anteriores.
 
 ## Alerte quando a temperatura cruzar um limiar
 
@@ -164,6 +164,7 @@ Consulte os endpoints:
 ```powershell
 Invoke-RestMethod http://127.0.0.1:5136/health
 Invoke-RestMethod http://127.0.0.1:5136/api/v1/gpus
+Invoke-RestMethod http://127.0.0.1:5136/api/v1/gpus/GPU-.../telemetry
 Invoke-RestMethod 'http://127.0.0.1:5136/api/v1/history?limit=100'
 curl.exe -N http://127.0.0.1:5136/api/v1/events
 ```
@@ -173,6 +174,7 @@ curl.exe -N http://127.0.0.1:5136/api/v1/events
 | `GET /health` | Saúde do processo, SQLite, discovery, coletores e SSE |
 | `GET /api/v1/gpus` | GPUs conhecidas e último estado de cada coletor |
 | `GET /api/v1/gpus/{uuid}/capabilities` | Último inventário térmico público |
+| `GET /api/v1/gpus/{uuid}/telemetry` | Último catálogo documentado, cobertura e métricas calculadas |
 | `GET /api/v1/events` | Eventos persistidos ao vivo por Server-Sent Events |
 | `GET /api/v1/history` | Histórico limitado com filtros equivalentes ao CLI |
 
@@ -228,6 +230,28 @@ Em uma RTX 3060 usada durante o desenvolvimento, por exemplo, o driver publicou 
 
 O formato JSON completo está documentado em [capabilities-v2.schema.json](docs/schema/capabilities-v2.schema.json).
 
+## Leia toda a telemetria documentada
+
+`--telemetry` consulta temperatura, potência, energia, clocks, utilização, memória, fans, P-state, motivos de limitação e uso de encoder/decoder. Cada campo mantém a função NVIDIA, o ID ou seletor nativo, a unidade, o código do driver e um estado explícito:
+
+```powershell
+.\build\windows-x64\bin\Release\rtxmon.exe --telemetry
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe --telemetry --json
+```
+
+O relatório também inclui quatro métricas calculadas:
+
+- média da temperatura do die dentro da janela;
+- inclinação térmica em °C/s;
+- tempo acima de um limiar configurável;
+- diferença entre die e memória, somente quando os dois canais existem.
+
+Uma métrica não é um sensor. Por isso o JSON registra `origin: computed`, fórmula, unidade, janela, número de amostras e entradas. Se a temperatura da memória não estiver disponível, o delta recebe `input_unavailable` e valor `null`.
+
+Na RTX 3060 usada na validação, o catálogo produziu 32 registros: 27 disponíveis e 5 `not_supported`. Os dois fans apareceram separadamente; a temperatura de memória continuou ausente, sem virar zero.
+
+O catálogo completo, os IDs consultados e as fórmulas estão em [PUBLIC_TELEMETRY.md](docs/PUBLIC_TELEMETRY.md).
+
 ## Comandos principais
 
 | Comando | Para que serve |
@@ -236,13 +260,14 @@ O formato JSON completo está documentado em [capabilities-v2.schema.json](docs/
 | `--watch` | Continua lendo até `Ctrl+C` |
 | `--list` | Lista as GPUs NVIDIA encontradas |
 | `--capabilities` | Mostra as fontes e os canais térmicos públicos |
+| `--telemetry` | Lê o catálogo documentado e as métricas calculadas |
 | `--gpu INDEX` | Seleciona a GPU pelo índice, começando em zero |
 | `--gpu-uuid UUID` | Seleciona uma GPU pela identidade persistente; não use junto com `--gpu` |
 | `--interval MS` | Define o intervalo de 100 a 60000 milissegundos |
 | `--count N` | Encerra o modo contínuo após `N` amostras; zero significa ilimitado |
 | `--buffer N` | Mantém de 1 a 65536 eventos recentes em memória; o padrão é 256 |
 | `--json` | Produz JSON; no modo contínuo, preserva o schema de amostra v1 |
-| `--events` | Produz o stream completo de eventos (schema v2) como JSON Lines |
+| `--events` | Produz o stream completo de eventos (schema v3) como JSON Lines |
 | `--alert-threshold C` | Dispara um alerta durante `--watch` ao atingir `C` °C (0-500) |
 | `--alert-hysteresis C` | Define a margem de encerramento; com zero, o alerta só limpa abaixo do limiar |
 | `--database PATH` | Persiste `--watch` em SQLite ou seleciona o banco de uma consulta |
@@ -294,12 +319,13 @@ sensores e firmware da GPU
             |
             v
  rtxmon_native.dll (C)
- contrato binário versionado
+ aquisição + ABI versionada
       +-----+------+
       |            |
       v            v
  núcleo C++    biblioteca C#
- sampler +     sampler resiliente
+ sampler +     P/Invoke + sampler
+ métricas           |
  buffer             |
       |        +----+-----+
       v        |          |
@@ -313,7 +339,7 @@ Cada linguagem tem uma responsabilidade clara:
 | Camada | Responsabilidade |
 | --- | --- |
 | **C** | Carrega NVML/NVAPI, consulta o driver e expõe uma ABI — o contrato binário usado pelas outras linguagens |
-| **C++** | Organiza os dados, mantém o sampler resiliente e fornece o CLI `rtxmon.exe` |
+| **C++** | Organiza os dados, calcula métricas, mantém o sampler resiliente e fornece o CLI `rtxmon.exe` |
 | **C#** | Consome a ABI C por P/Invoke, mantém SQLite e executa o serviço local HTTP/SSE |
 
 A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura principal por NVML continua funcionando.
@@ -325,6 +351,8 @@ A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura p
 | Entender a API pública do projeto | [native/include/rtxmon/rtxmon.h](native/include/rtxmon/rtxmon.h) |
 | Ver o menor exemplo possível em C | [examples/c/temperature_once.c](examples/c/temperature_once.c) |
 | Entender o CLI C++ | [cpp/cli/main.cpp](cpp/cli/main.cpp) |
+| Ver o catálogo documentado | [native/src/public_telemetry.c](native/src/public_telemetry.c) |
+| Entender as fórmulas calculadas | [cpp/src/metrics.cpp](cpp/src/metrics.cpp) |
 | Integrar com uma aplicação .NET | [csharp/RtxMonitor.Managed/NvidiaMonitor.cs](csharp/RtxMonitor.Managed/NvidiaMonitor.cs) |
 | Estudar reconexão, eventos e buffer em C++ | [cpp/include/rtxmon/sampler.hpp](cpp/include/rtxmon/sampler.hpp) |
 | Estudar o sampler equivalente em C# | [csharp/RtxMonitor.Managed/Sampling.cs](csharp/RtxMonitor.Managed/Sampling.cs) |
@@ -351,7 +379,8 @@ A verificação:
 - simula perda da GPU, mudança de índice, backoff e recuperação sem hardware;
 - compara a identidade da GPU com o `nvidia-smi`;
 - confirma que C, C++ e C# observam o mesmo dispositivo;
-- testa seleção por UUID, inventário de capacidades e streams contínuos.
+- testa seleção por UUID, inventário de capacidades, catálogo público e streams contínuos;
+- compara campos aplicáveis com o `nvidia-smi` e confirma que ausência nunca vira zero;
 - testa migrations, reinício, concorrência, retenção e arquivos SQLite inválidos sem GPU.
 - testa API local, backpressure SSE, instância única por GPU, desligamento e recuperação do serviço sem GPU.
 
@@ -365,8 +394,8 @@ A prioridade agora é construir evidência, não uma interface gráfica. Cada et
 | --- | --- |
 | **v0.5.0** | Persistência SQLite concluída |
 | **v0.6.0** | Serviço local headless, HTTP/SSE e Windows Service concluídos |
-| **v0.7.0** | Ampliar dados públicos e criar métricas calculadas rastreáveis |
-| **v0.8.0** | Montar um laboratório reproduzível de captura e correlação |
+| **v0.7.0** | Telemetria pública e métricas rastreáveis concluídas |
+| **v0.8.0** | Próxima etapa: laboratório reproduzível de captura e correlação |
 | **v0.9.0** | Adicionar aquisição experimental, privilegiada e somente leitura |
 | **v0.10.0** | Validar candidatos com repetição e referências independentes |
 | **v0.11.0** | Publicar candidatos validados em um provedor experimental separado |
@@ -393,15 +422,19 @@ O plano futuro inclui engenharia reversa, mas ela será um modo experimental sep
 - [Operação do serviço local](docs/SERVICE.md)
 - [Roadmap de engenharia reversa](docs/ROADMAP.md)
 - [Procedimento de validação](docs/VALIDATION.md)
+- [Catálogo de telemetria pública e fórmulas](docs/PUBLIC_TELEMETRY.md)
 - [ADR 0001 — uso da NVML](docs/adr/0001-use-nvml.md)
 - [ADR 0002 — descoberta pública de capacidades](docs/adr/0002-public-capability-discovery.md)
 - [ADR 0003 — monitoramento resiliente](docs/adr/0003-resilient-sampling.md)
 - [ADR 0004 — alertas de limiar](docs/adr/0004-threshold-alerts.md)
 - [ADR 0005 — armazenamento SQLite de evidências](docs/adr/0005-sqlite-evidence-store.md)
 - [ADR 0006 — serviço local headless](docs/adr/0006-loopback-headless-service.md)
+- [ADR 0007 — telemetria pública e métricas calculadas](docs/adr/0007-public-telemetry-and-computed-metrics.md)
 - [OpenAPI do serviço local — v1](docs/openapi/service-v1.openapi.json)
 - [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
-- [Schema JSON de eventos atual — v2](docs/schema/telemetry-event-v2.schema.json)
+- [Schema JSON do catálogo público](docs/schema/public-telemetry-v1.schema.json)
+- [Schema JSON de eventos atual — v3](docs/schema/telemetry-event-v3.schema.json)
+- [Schema JSON histórico de eventos — v2](docs/schema/telemetry-event-v2.schema.json)
 - [Schema JSON histórico de eventos — v1](docs/schema/telemetry-event-v1.schema.json)
 - [Schema JSON de evidências — v1](docs/schema/evidence-record-v1.schema.json)
 - [Schema JSON de telemetria ao vivo — v1](docs/schema/live-telemetry-v1.schema.json)

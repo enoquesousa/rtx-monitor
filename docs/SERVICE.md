@@ -33,6 +33,9 @@ As opções ficam na seção `RtxMonitor` de `appsettings.json`:
 | `HistoryMaximumLimit` | `1000` | 1–10000 |
 | `AlertThresholdC` | `null` | 0–500 ou desativado |
 | `AlertHysteresisC` | `0` | 0 até o limiar |
+| `MetricWindowMilliseconds` | `5000` | 100–3600000 |
+| `MetricTemperatureThresholdC` | `80` | 0–500 |
+| `MetricMaximumSamples` | `1024` | 2–65536 |
 
 Uma variável de ambiente usa dois sublinhados, por exemplo:
 
@@ -74,7 +77,7 @@ Para criar uma publicação versionada:
 ```powershell
 .\scripts\publish-service.ps1 `
   -Configuration Release `
-  -OutputDirectory 'C:\Program Files\RtxMonitor\0.6.0'
+  -OutputDirectory 'C:\Program Files\RtxMonitor\0.7.0'
 ```
 
 ## Instalar no Windows
@@ -83,7 +86,7 @@ Abra o PowerShell como Administrador:
 
 ```powershell
 .\scripts\install-service.ps1 `
-  -PublishDirectory 'C:\Program Files\RtxMonitor\0.6.0' `
+  -PublishDirectory 'C:\Program Files\RtxMonitor\0.7.0' `
   -Start
 ```
 
@@ -116,6 +119,15 @@ Invoke-RestMethod http://127.0.0.1:5136/health
 O script de remoção não apaga a publicação nem `%ProgramData%\RtxMonitor\telemetry.db`. Assim, trocar o executável não apaga o histórico.
 
 ## Consumir eventos
+
+Consulte o último catálogo público confirmado para uma GPU:
+
+```powershell
+Invoke-RestMethod `
+  'http://127.0.0.1:5136/api/v1/gpus/GPU-.../telemetry'
+```
+
+A resposta inclui identidade de GPU/placa, cobertura, estado e proveniência de cada campo e as quatro métricas calculadas. O endpoint lê o snapshot em memória; ele não consulta a GPU sob demanda. Antes da primeira amostra válida, retorna HTTP 503.
 
 ```powershell
 curl.exe -N http://127.0.0.1:5136/api/v1/events
@@ -156,3 +168,5 @@ Uma falha do driver não impede consulta ao histórico. Uma falha do SQLite inte
 - [Envelope SSE de telemetria](schema/live-telemetry-v1.schema.json)
 - [Lacuna de cliente SSE](schema/stream-gap-v1.schema.json)
 - [ADR 0006](adr/0006-loopback-headless-service.md)
+- [Catálogo público](PUBLIC_TELEMETRY.md)
+- [ADR 0007](adr/0007-public-telemetry-and-computed-metrics.md)

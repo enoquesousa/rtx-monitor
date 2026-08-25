@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include <rtxmon/metrics.hpp>
 #include <rtxmon/monitor.hpp>
 
 namespace rtxmon {
@@ -34,12 +35,15 @@ struct TelemetryEvent {
     std::uint32_t retry_after_ms{};
     std::optional<std::int32_t> alert_threshold_c;
     std::optional<std::int32_t> alert_hysteresis_c;
+    std::optional<PublicTelemetryReport> public_telemetry;
+    std::optional<ComputedMetricsReport> computed_metrics;
 };
 
 struct SamplerOptions {
     std::size_t buffer_capacity{256U};
     std::uint32_t initial_backoff_ms{250U};
     std::uint32_t maximum_backoff_ms{5000U};
+    MetricsOptions metrics{};
 };
 
 class MonitoringSession {
@@ -49,6 +53,8 @@ public:
     [[nodiscard]] virtual std::vector<GpuInfo> gpus() const = 0;
     [[nodiscard]] virtual TemperatureSample read_gpu_die_temperature(
         std::uint32_t index) const = 0;
+    [[nodiscard]] virtual std::optional<PublicTelemetryReport> read_public_telemetry(
+        std::uint32_t index) const;
 };
 
 using MonitoringSessionFactory =
@@ -102,6 +108,7 @@ private:
     MonitoringSessionFactory session_factory_;
     std::unique_ptr<MonitoringSession> session_;
     std::optional<GpuInfo> current_gpu_;
+    std::optional<MetricsEngine> metrics_engine_;
     CircularEventBuffer events_;
     std::uint64_t next_sequence_{1U};
     std::uint32_t consecutive_failures_{0U};

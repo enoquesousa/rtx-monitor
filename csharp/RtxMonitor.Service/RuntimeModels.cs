@@ -24,7 +24,9 @@ public sealed record GpuRuntimeSnapshot(
     DateTimeOffset? TemperatureCapturedAt,
     uint ConsecutiveFailures,
     string? LastError,
-    DiscoveredGpu? Capabilities);
+    DiscoveredGpu? Capabilities,
+    PublicTelemetryReport? PublicTelemetry = null,
+    ComputedMetricsReport? ComputedMetrics = null);
 
 public sealed record StorageRuntimeSnapshot(
     string State,

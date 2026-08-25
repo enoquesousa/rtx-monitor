@@ -81,6 +81,42 @@ public static class ServiceEndpoints
             })
             .WithName("capabilities");
 
+        api.MapGet(
+            "/gpus/{gpuUuid}/telemetry",
+            (string gpuUuid, IMonitoringSnapshotSource snapshots) =>
+            {
+                if (string.IsNullOrWhiteSpace(gpuUuid) || gpuUuid.Length > 256)
+                {
+                    return Results.Problem(
+                        statusCode: 400,
+                        title: "UUID inválido",
+                        detail: "gpu_uuid deve possuir entre 1 e 256 caracteres.");
+                }
+
+                GpuRuntimeSnapshot? gpu = snapshots.GetSnapshot().Gpus.FirstOrDefault(
+                    item => string.Equals(
+                        item.Gpu.Uuid,
+                        gpuUuid,
+                        StringComparison.OrdinalIgnoreCase));
+                if (gpu is null)
+                {
+                    return Results.Problem(
+                        statusCode: 404,
+                        title: "GPU desconhecida",
+                        detail: $"Nenhuma GPU com UUID {gpuUuid} foi observada pelo serviço.");
+                }
+                if (gpu.PublicTelemetry is null)
+                {
+                    return Results.Problem(
+                        statusCode: 503,
+                        title: "Telemetria indisponível",
+                        detail: "O primeiro relatório de telemetria pública ainda não foi capturado para esta GPU.");
+                }
+
+                return Results.Json(BuildTelemetry(gpu));
+            })
+            .WithName("telemetry");
+
         api.MapGet("/history", HandleHistoryAsync).WithName("history");
         api.MapGet("/events", HandleEventsAsync).WithName("events");
     }
@@ -360,24 +396,7 @@ public static class ServiceEndpoints
 
     private static CapabilitiesResponse BuildCapabilities(DiscoveredGpu discovered)
     {
-        BoardIdentity? board = discovered.Evidence.Board;
-        BoardResponse? boardResponse = board is null
-            ? null
-            : new BoardResponse(
-                (uint)board.Flags,
-                board.HasPciIdentity,
-                board.PciBusId,
-                board.PciVendorId,
-                board.PciDeviceId,
-                board.PciSubsystemVendorId,
-                board.PciSubsystemDeviceId,
-                board.PciDomain,
-                board.PciBus,
-                board.PciDevice,
-                board.PciFunction,
-                board.HasVbiosVersion,
-                board.HasVbiosVersion ? board.VbiosVersion : null,
-                discovered.Evidence.ProfileKey);
+        BoardResponse? boardResponse = BuildBoard(discovered);
         ThermalProviderResponse[] providers = discovered.ThermalReport?.Providers.Select(
             provider => new ThermalProviderResponse(
                 provider.ProviderName,
@@ -412,6 +431,86 @@ public static class ServiceEndpoints
             discovered.ThermalError,
             providers,
             capabilities);
+    }
+
+    private static PublicTelemetryResponse BuildTelemetry(GpuRuntimeSnapshot gpu)
+    {
+        PublicTelemetryReport report = gpu.PublicTelemetry!;
+        PublicTelemetryCoverage coverage = report.Coverage;
+        PublicTelemetryFieldResponse[] fields = report.Fields.Select(field =>
+            new PublicTelemetryFieldResponse(
+                field.FieldName,
+                field.ProviderName,
+                field.ProviderNativeId,
+                field.StateName,
+                field.OriginName,
+                field.ValueTypeName,
+                field.UnitName,
+                field.UnsignedValue,
+                field.SignedValue,
+                field.DoubleValue,
+                field.NativeStatus,
+                checked((long)field.TimestampUnixMilliseconds))).ToArray();
+        ComputedMetricsResponse? computed = gpu.ComputedMetrics is ComputedMetricsReport metrics
+            ? new ComputedMetricsResponse(
+                checked((long)metrics.TimestampUnixMilliseconds),
+                metrics.Metrics.Select(metric => new ComputedMetricResponse(
+                    metric.KindName,
+                    metric.StateName,
+                    metric.OriginName,
+                    metric.UnitName,
+                    metric.Formula,
+                    metric.Value,
+                    checked((long)metric.WindowMilliseconds),
+                    metric.SampleCount,
+                    metric.TemperatureThresholdC,
+                    metric.InputNames)).ToArray())
+            : null;
+        DiscoveredGpu? discovered = gpu.Capabilities;
+
+        return new PublicTelemetryResponse(
+            ApiSchemaVersion,
+            checked((long)report.TimestampUnixMilliseconds),
+            new GpuIdentityResponse(
+                gpu.Gpu.Index,
+                gpu.Gpu.Name,
+                gpu.Gpu.Uuid,
+                gpu.Gpu.DriverVersion,
+                gpu.Gpu.NvmlVersion),
+            discovered is null ? null : BuildBoard(discovered),
+            gpu.BoardCaptureState,
+            gpu.BoardCaptureError,
+            gpu.CollectorState,
+            new PublicTelemetryCoverageResponse(
+                coverage.Total,
+                coverage.Available,
+                coverage.NotSupported,
+                coverage.ProviderUnavailable,
+                coverage.QueryFailed),
+            fields,
+            computed);
+    }
+
+    private static BoardResponse? BuildBoard(DiscoveredGpu discovered)
+    {
+        BoardIdentity? board = discovered.Evidence.Board;
+        return board is null
+            ? null
+            : new BoardResponse(
+                (uint)board.Flags,
+                board.HasPciIdentity,
+                board.PciBusId,
+                board.PciVendorId,
+                board.PciDeviceId,
+                board.PciSubsystemVendorId,
+                board.PciSubsystemDeviceId,
+                board.PciDomain,
+                board.PciBus,
+                board.PciDevice,
+                board.PciFunction,
+                board.HasVbiosVersion,
+                board.HasVbiosVersion ? board.VbiosVersion : null,
+                discovered.Evidence.ProfileKey);
     }
 
     private static TelemetryEventKind? ParseEventKind(string? value) => value switch

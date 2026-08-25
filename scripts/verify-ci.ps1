@@ -23,8 +23,10 @@ $managedAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Managed\bin\$Config
 $storageAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Storage\bin\$Configuration\net8.0\RtxMonitor.Storage.dll"
 $serviceAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64\RtxMonitor.Service.dll"
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
+$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v1.schema.json'
 $eventSchemaV1Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
-$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
+$eventSchemaV2Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
+$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v3.schema.json'
 $evidenceSchemaPath = Join-Path $projectRoot 'docs\schema\evidence-record-v1.schema.json'
 $liveSchemaPath = Join-Path $projectRoot 'docs\schema\live-telemetry-v1.schema.json'
 $streamGapSchemaPath = Join-Path $projectRoot 'docs\schema\stream-gap-v1.schema.json'
@@ -105,14 +107,28 @@ try {
         throw 'Capability schema must declare schema_version const 2.'
     }
 
+    $publicTelemetrySchema = Get-Content -Raw -LiteralPath $publicTelemetrySchemaPath | ConvertFrom-Json
+    if ($publicTelemetrySchema.properties.schema_version.const -ne 1 -or
+        $publicTelemetrySchema.properties.fields.minItems -ne 31 -or
+        $publicTelemetrySchema.properties.computed_metrics.minItems -ne 4) {
+        throw 'Public telemetry schema must declare version 1, 31 fields, and four metrics.'
+    }
+
     $eventSchemaV1 = Get-Content -Raw -LiteralPath $eventSchemaV1Path | ConvertFrom-Json
     if ($eventSchemaV1.properties.schema_version.const -ne 1) {
         throw 'Telemetry event schema v1 must remain available and declare schema_version const 1.'
     }
 
+    $eventSchemaV2 = Get-Content -Raw -LiteralPath $eventSchemaV2Path | ConvertFrom-Json
+    if ($eventSchemaV2.properties.schema_version.const -ne 2) {
+        throw 'Telemetry event schema v2 must remain available and declare schema_version const 2.'
+    }
+
     $eventSchema = Get-Content -Raw -LiteralPath $eventSchemaPath | ConvertFrom-Json
-    if ($eventSchema.properties.schema_version.const -ne 2) {
-        throw 'Telemetry event schema must declare schema_version const 2.'
+    if ($eventSchema.properties.schema_version.const -ne 3 -or
+        $null -eq $eventSchema.properties.public_telemetry -or
+        $null -eq $eventSchema.properties.computed_metrics) {
+        throw 'Telemetry event schema must declare version 3 and its enriched reports.'
     }
 
     $eventTypes = @($eventSchema.properties.event_type.enum)
@@ -123,16 +139,18 @@ try {
     }
 
     $evidenceSchema = Get-Content -Raw -LiteralPath $evidenceSchemaPath | ConvertFrom-Json
+    $evidenceEventRefs = @($evidenceSchema.properties.event.oneOf | ForEach-Object { $_.'$ref' })
     if ($evidenceSchema.properties.evidence_schema_version.const -ne 1 -or
         $evidenceSchema.properties.store_schema_version.const -ne 1 -or
-        $evidenceSchema.properties.event.'$ref' -ne 'telemetry-event-v2.schema.json') {
-        throw 'Evidence schema must declare evidence/store version 1 and embed telemetry event v2.'
+        'telemetry-event-v2.schema.json' -notin $evidenceEventRefs -or
+        'telemetry-event-v3.schema.json' -notin $evidenceEventRefs) {
+        throw 'Evidence schema must declare evidence/store version 1 and accept telemetry events v2/v3.'
     }
 
     $liveSchema = Get-Content -Raw -LiteralPath $liveSchemaPath | ConvertFrom-Json
     if ($liveSchema.properties.schema_version.const -ne 1 -or
-        $liveSchema.properties.event.'$ref' -ne 'telemetry-event-v2.schema.json') {
-        throw 'Live telemetry schema must declare version 1 and embed telemetry event v2.'
+        $liveSchema.properties.event.'$ref' -ne 'telemetry-event-v3.schema.json') {
+        throw 'Live telemetry schema must declare version 1 and embed telemetry event v3.'
     }
 
     $streamGapSchema = Get-Content -Raw -LiteralPath $streamGapSchemaPath | ConvertFrom-Json
@@ -147,9 +165,10 @@ try {
         $null -eq $openApi.paths.'/health' -or
         $null -eq $openApi.paths.'/api/v1/gpus' -or
         $null -eq $openApi.paths.'/api/v1/gpus/{gpu_uuid}/capabilities' -or
+        $null -eq $openApi.paths.'/api/v1/gpus/{gpu_uuid}/telemetry' -or
         $null -eq $openApi.paths.'/api/v1/events' -or
         $null -eq $openApi.paths.'/api/v1/history') {
-        throw 'OpenAPI must declare v1 and all five local service endpoints.'
+        throw 'OpenAPI must declare v1 and all six local service endpoints.'
     }
     foreach ($schemaName in @(
         'health',
@@ -162,6 +181,11 @@ try {
         'board',
         'thermalProvider',
         'thermalCapability',
+        'publicTelemetry',
+        'publicTelemetryCoverage',
+        'publicTelemetryField',
+        'computedMetrics',
+        'computedMetric',
         'history',
         'problem'
     )) {
@@ -249,7 +273,7 @@ try {
     }
 
     Write-Host 'Hardware-independent verification passed.'
-    Write-Host 'C/C++: build with warnings as errors and 3 CTest tests.'
+    Write-Host 'C/C++: build with warnings as errors and 4 CTest tests.'
     Write-Host 'C#: build, sampler, alert, SQLite storage, local service tests, and formatting.'
     Write-Host 'Schemas: capabilities, telemetry, evidence, live SSE, stream gaps, and OpenAPI v1.'
     Write-Host "Version parity: C/C++ and C# $nativeVersion."

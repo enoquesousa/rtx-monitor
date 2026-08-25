@@ -38,6 +38,12 @@ RTXMON_PRIVATE_STATIC_ASSERT(
     sizeof(rtxmon_nvml_field_value_t) == 40U,
     "NVML field value ABI changed");
 RTXMON_PRIVATE_STATIC_ASSERT(
+    sizeof(rtxmon_nvml_utilization_t) == 8U,
+    "NVML utilization ABI changed");
+RTXMON_PRIVATE_STATIC_ASSERT(
+    sizeof(rtxmon_nvml_memory_t) == 24U,
+    "NVML memory ABI changed");
+RTXMON_PRIVATE_STATIC_ASSERT(
     sizeof(rtxmon_nvapi_thermal_settings_v2_t) == 68U,
     "NVAPI thermal ABI changed");
 
@@ -370,6 +376,224 @@ const char *RTXMON_CALL rtxmon_sensor_confidence_string(uint32_t confidence)
         return "experimental";
     default:
         return "invalid confidence";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_data_origin_string(uint32_t origin)
+{
+    switch (origin) {
+    case RTXMON_ORIGIN_DRIVER_REPORTED:
+        return "driver_reported";
+    case RTXMON_ORIGIN_COMPUTED:
+        return "computed";
+    case RTXMON_ORIGIN_EXPERIMENTAL:
+        return "experimental";
+    case RTXMON_ORIGIN_UNKNOWN:
+    default:
+        return "unknown";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_public_field_string(uint32_t field)
+{
+    switch (field) {
+    case RTXMON_PUBLIC_FIELD_GPU_DIE_TEMPERATURE_C:
+        return "gpu_die_temperature_c";
+    case RTXMON_PUBLIC_FIELD_MEMORY_TEMPERATURE_C:
+        return "memory_temperature_c";
+    case RTXMON_PUBLIC_FIELD_TOTAL_ENERGY_MJ:
+        return "total_energy_mj";
+    case RTXMON_PUBLIC_FIELD_POWER_AVERAGE_MW:
+        return "power_average_mw";
+    case RTXMON_PUBLIC_FIELD_POWER_INSTANT_MW:
+        return "power_instant_mw";
+    case RTXMON_PUBLIC_FIELD_POWER_LIMIT_MIN_MW:
+        return "power_limit_min_mw";
+    case RTXMON_PUBLIC_FIELD_POWER_LIMIT_MAX_MW:
+        return "power_limit_max_mw";
+    case RTXMON_PUBLIC_FIELD_POWER_LIMIT_DEFAULT_MW:
+        return "power_limit_default_mw";
+    case RTXMON_PUBLIC_FIELD_POWER_LIMIT_CURRENT_MW:
+        return "power_limit_current_mw";
+    case RTXMON_PUBLIC_FIELD_POWER_LIMIT_REQUESTED_MW:
+        return "power_limit_requested_mw";
+    case RTXMON_PUBLIC_FIELD_TEMPERATURE_SHUTDOWN_C:
+        return "temperature_shutdown_c";
+    case RTXMON_PUBLIC_FIELD_TEMPERATURE_SLOWDOWN_C:
+        return "temperature_slowdown_c";
+    case RTXMON_PUBLIC_FIELD_TEMPERATURE_MEMORY_MAX_C:
+        return "temperature_memory_max_c";
+    case RTXMON_PUBLIC_FIELD_TEMPERATURE_GPU_MAX_C:
+        return "temperature_gpu_max_c";
+    case RTXMON_PUBLIC_FIELD_CLOCK_GRAPHICS_MHZ:
+        return "clock_graphics_mhz";
+    case RTXMON_PUBLIC_FIELD_CLOCK_SM_MHZ:
+        return "clock_sm_mhz";
+    case RTXMON_PUBLIC_FIELD_CLOCK_MEMORY_MHZ:
+        return "clock_memory_mhz";
+    case RTXMON_PUBLIC_FIELD_CLOCK_VIDEO_MHZ:
+        return "clock_video_mhz";
+    case RTXMON_PUBLIC_FIELD_UTILIZATION_GPU_PERCENT:
+        return "utilization_gpu_percent";
+    case RTXMON_PUBLIC_FIELD_UTILIZATION_MEMORY_PERCENT:
+        return "utilization_memory_percent";
+    case RTXMON_PUBLIC_FIELD_MEMORY_TOTAL_BYTES:
+        return "memory_total_bytes";
+    case RTXMON_PUBLIC_FIELD_MEMORY_FREE_BYTES:
+        return "memory_free_bytes";
+    case RTXMON_PUBLIC_FIELD_MEMORY_USED_BYTES:
+        return "memory_used_bytes";
+    case RTXMON_PUBLIC_FIELD_FAN_SPEED_PERCENT:
+        return "fan_speed_percent";
+    case RTXMON_PUBLIC_FIELD_PERFORMANCE_STATE:
+        return "performance_state";
+    case RTXMON_PUBLIC_FIELD_CLOCK_EVENT_REASONS_CURRENT:
+        return "clock_event_reasons_current";
+    case RTXMON_PUBLIC_FIELD_CLOCK_EVENT_REASONS_SUPPORTED:
+        return "clock_event_reasons_supported";
+    case RTXMON_PUBLIC_FIELD_ENCODER_UTILIZATION_PERCENT:
+        return "encoder_utilization_percent";
+    case RTXMON_PUBLIC_FIELD_ENCODER_SAMPLING_PERIOD_US:
+        return "encoder_sampling_period_us";
+    case RTXMON_PUBLIC_FIELD_DECODER_UTILIZATION_PERCENT:
+        return "decoder_utilization_percent";
+    case RTXMON_PUBLIC_FIELD_DECODER_SAMPLING_PERIOD_US:
+        return "decoder_sampling_period_us";
+    default:
+        return "unknown_public_field";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_public_provider_string(uint32_t provider)
+{
+    switch (provider) {
+    case RTXMON_PUBLIC_PROVIDER_NVML_TEMPERATURE_V1:
+        return "NVML nvmlDeviceGetTemperatureV";
+    case RTXMON_PUBLIC_PROVIDER_NVML_TEMPERATURE_LEGACY:
+        return "NVML nvmlDeviceGetTemperature";
+    case RTXMON_PUBLIC_PROVIDER_NVML_FIELD_VALUES:
+        return "NVML nvmlDeviceGetFieldValues";
+    case RTXMON_PUBLIC_PROVIDER_NVML_CLOCK_INFO:
+        return "NVML nvmlDeviceGetClockInfo";
+    case RTXMON_PUBLIC_PROVIDER_NVML_UTILIZATION_RATES:
+        return "NVML nvmlDeviceGetUtilizationRates";
+    case RTXMON_PUBLIC_PROVIDER_NVML_MEMORY_INFO:
+        return "NVML nvmlDeviceGetMemoryInfo";
+    case RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_V2:
+        return "NVML nvmlDeviceGetFanSpeed_v2";
+    case RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_LEGACY:
+        return "NVML nvmlDeviceGetFanSpeed";
+    case RTXMON_PUBLIC_PROVIDER_NVML_PERFORMANCE_STATE:
+        return "NVML nvmlDeviceGetPerformanceState";
+    case RTXMON_PUBLIC_PROVIDER_NVML_CLOCK_EVENT_REASONS:
+        return "NVML nvmlDeviceGetCurrentClocksEventReasons";
+    case RTXMON_PUBLIC_PROVIDER_NVML_CLOCK_THROTTLE_REASONS_LEGACY:
+        return "NVML nvmlDeviceGetCurrentClocksThrottleReasons";
+    case RTXMON_PUBLIC_PROVIDER_NVML_ENCODER_UTILIZATION:
+        return "NVML nvmlDeviceGetEncoderUtilization";
+    case RTXMON_PUBLIC_PROVIDER_NVML_DECODER_UTILIZATION:
+        return "NVML nvmlDeviceGetDecoderUtilization";
+    case RTXMON_PUBLIC_PROVIDER_NVML_SUPPORTED_CLOCK_EVENT_REASONS:
+        return "NVML nvmlDeviceGetSupportedClocksEventReasons";
+    case RTXMON_PUBLIC_PROVIDER_NVML_SUPPORTED_CLOCK_THROTTLE_REASONS_LEGACY:
+        return "NVML nvmlDeviceGetSupportedClocksThrottleReasons";
+    default:
+        return "unknown_public_provider";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_value_type_string(uint32_t value_type)
+{
+    switch (value_type) {
+    case RTXMON_VALUE_TYPE_UNSIGNED_INTEGER:
+        return "unsigned_integer";
+    case RTXMON_VALUE_TYPE_SIGNED_INTEGER:
+        return "signed_integer";
+    case RTXMON_VALUE_TYPE_DOUBLE:
+        return "double";
+    case RTXMON_VALUE_TYPE_BITMASK:
+        return "bitmask";
+    case RTXMON_VALUE_TYPE_UNKNOWN:
+    default:
+        return "unknown";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_unit_string(uint32_t unit)
+{
+    switch (unit) {
+    case RTXMON_UNIT_CELSIUS:
+        return "celsius";
+    case RTXMON_UNIT_MILLIWATT:
+        return "milliwatt";
+    case RTXMON_UNIT_MILLIJOULE:
+        return "millijoule";
+    case RTXMON_UNIT_MEGAHERTZ:
+        return "megahertz";
+    case RTXMON_UNIT_PERCENT:
+        return "percent";
+    case RTXMON_UNIT_BYTES:
+        return "bytes";
+    case RTXMON_UNIT_PSTATE:
+        return "pstate";
+    case RTXMON_UNIT_BITMASK:
+        return "bitmask";
+    case RTXMON_UNIT_MICROSECONDS:
+        return "microseconds";
+    case RTXMON_UNIT_CELSIUS_PER_SECOND:
+        return "celsius_per_second";
+    case RTXMON_UNIT_SECONDS:
+        return "seconds";
+    case RTXMON_UNIT_UNKNOWN:
+    default:
+        return "unknown";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_computed_metric_string(uint32_t metric)
+{
+    switch (metric) {
+    case RTXMON_METRIC_GPU_TEMPERATURE_WINDOW_AVERAGE:
+        return "gpu_temperature_window_average";
+    case RTXMON_METRIC_GPU_TEMPERATURE_SLOPE:
+        return "gpu_temperature_slope";
+    case RTXMON_METRIC_GPU_TEMPERATURE_TIME_ABOVE_THRESHOLD:
+        return "gpu_temperature_time_above_threshold";
+    case RTXMON_METRIC_GPU_MEMORY_TEMPERATURE_DELTA:
+        return "gpu_memory_temperature_delta";
+    default:
+        return "unknown_computed_metric";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_computed_metric_formula(uint32_t metric)
+{
+    switch (metric) {
+    case RTXMON_METRIC_GPU_TEMPERATURE_WINDOW_AVERAGE:
+        return "mean(gpu_die_temperature_c within window)";
+    case RTXMON_METRIC_GPU_TEMPERATURE_SLOPE:
+        return "(last(gpu_die_temperature_c)-first(gpu_die_temperature_c))/elapsed_seconds";
+    case RTXMON_METRIC_GPU_TEMPERATURE_TIME_ABOVE_THRESHOLD:
+        return "sum(clipped_interval_seconds where prior(gpu_die_temperature_c)>threshold_c)";
+    case RTXMON_METRIC_GPU_MEMORY_TEMPERATURE_DELTA:
+        return "gpu_die_temperature_c-memory_temperature_c at the same snapshot";
+    default:
+        return "unknown";
+    }
+}
+
+const char *RTXMON_CALL rtxmon_metric_state_string(uint32_t state)
+{
+    switch (state) {
+    case RTXMON_METRIC_STATE_AVAILABLE:
+        return "available";
+    case RTXMON_METRIC_STATE_INSUFFICIENT_DATA:
+        return "insufficient_data";
+    case RTXMON_METRIC_STATE_INPUT_UNAVAILABLE:
+        return "input_unavailable";
+    case RTXMON_METRIC_STATE_UNKNOWN:
+    default:
+        return "unknown";
     }
 }
 

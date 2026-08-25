@@ -57,6 +57,8 @@ internal static class Program
         Check(
             options.DatabasePath == Path.GetFullPath(temporary.DatabasePath),
             "caminho do banco deve ser absoluto");
+        Check(options.MetricWindowMilliseconds == 5000, "janela métrica padrão deve ser estável");
+        Check(options.MetricTemperatureThresholdC == 80, "limiar métrico padrão deve ser estável");
 
         IConfiguration relativeConfiguration = new ConfigurationBuilder()
             .AddInMemoryCollection(
@@ -178,6 +180,7 @@ internal static class Program
         DiscoveredGpu discovered = FakeDiscoveredGpu();
         state.RecordDiscoverySuccess([discovered]);
         state.RecordCollectorStarted(discovered.Gpu.Uuid, "run-http");
+        state.RecordTelemetry(discovered.Gpu.Uuid, FakeTelemetryEvent(1));
         var hub = new TelemetryEventHub(options);
         var history = new RecordingHistorySource();
 
@@ -233,6 +236,25 @@ internal static class Program
             Check(
                 capabilityResponse.StatusCode == HttpStatusCode.OK,
                 "capabilities conhecidas devem retornar 200");
+        }
+
+        using (HttpResponseMessage telemetryResponse = await client.GetAsync(
+            $"/api/v1/gpus/{Uri.EscapeDataString(discovered.Gpu.Uuid)}/telemetry")
+            .ConfigureAwait(false))
+        {
+            Check(
+                telemetryResponse.StatusCode == HttpStatusCode.OK,
+                "telemetria conhecida deve retornar 200");
+            using JsonDocument telemetry = JsonDocument.Parse(
+                await telemetryResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
+            JsonElement root = telemetry.RootElement;
+            Check(root.GetProperty("coverage").GetProperty("available").GetInt32() == 1,
+                "cobertura deve preservar campos disponíveis");
+            Check(root.GetProperty("fields")[0].GetProperty("provider").GetString() == "NVML fake",
+                "endpoint deve preservar a proveniência do campo");
+            Check(root.GetProperty("computed_metrics").GetProperty("metrics")[0]
+                    .GetProperty("formula").GetString() == "mean(gpu_die_temperature_c within window)",
+                "endpoint deve expor fórmula reproduzível");
         }
 
         using (HttpResponseMessage historyResponse = await client.GetAsync(
@@ -466,6 +488,44 @@ internal static class Program
             "fake",
             now,
             timestamp);
+        var field = new PublicTelemetryValue(
+            PublicTelemetryField.GpuDieTemperatureC,
+            "gpu_die_temperature_c",
+            PublicTelemetryProvider.NvmlTemperatureV1,
+            "NVML fake",
+            CapabilityState.Available,
+            "available",
+            DataOrigin.DriverReported,
+            "driver_reported",
+            TelemetryValueType.SignedInteger,
+            "signed_integer",
+            TelemetryUnit.Celsius,
+            "celsius",
+            0,
+            0,
+            null,
+            47,
+            null,
+            timestamp);
+        var publicTelemetry = new PublicTelemetryReport(gpu.Index, now, timestamp, [field]);
+        var metric = new ComputedMetric(
+            ComputedMetricKind.GpuTemperatureWindowAverage,
+            "gpu_temperature_window_average",
+            ComputedMetricState.Available,
+            "available",
+            DataOrigin.Computed,
+            "computed",
+            TelemetryUnit.Celsius,
+            "celsius",
+            "mean(gpu_die_temperature_c within window)",
+            47,
+            timestamp,
+            5000,
+            1,
+            null,
+            [PublicTelemetryField.GpuDieTemperatureC],
+            ["gpu_die_temperature_c"]);
+        var computed = new ComputedMetricsReport(gpu.Index, timestamp, [metric]);
         return new TelemetryEvent(
             sequence,
             TelemetryEventKind.Sample,
@@ -478,7 +538,9 @@ internal static class Program
             "ok",
             string.Empty,
             0,
-            0);
+            0,
+            PublicTelemetry: publicTelemetry,
+            ComputedMetrics: computed);
     }
 
     private static TelemetryEvent FakeGapEvent(ulong sequence)

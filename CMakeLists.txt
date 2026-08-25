@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(
     rtx-monitor
-    VERSION 0.6.0
+    VERSION 0.7.0
     DESCRIPTION "Read-only NVIDIA RTX thermal monitor and capability inventory"
     LANGUAGES C CXX
 )
@@ -22,8 +22,10 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 add_library(rtxmon_native SHARED
+    cpp/src/metrics.cpp
     native/src/nvapi_loader.c
     native/src/nvml_loader.c
+    native/src/public_telemetry.c
     native/src/rtxmon.c
     native/src/thermal_scan.c
 )
@@ -52,6 +54,7 @@ endif()
 
 add_library(rtxmon_core STATIC
     cpp/src/alerts.cpp
+    cpp/src/metrics_wrapper.cpp
     cpp/src/monitor.cpp
     cpp/src/sampler.cpp
 )
@@ -131,6 +134,20 @@ if(RTXMON_BUILD_TESTS)
 
     add_test(NAME rtxmon_alerts COMMAND rtxmon_alerts_tests)
     set_tests_properties(rtxmon_alerts PROPERTIES LABELS "unit;alerts;no-gpu")
+
+    add_executable(rtxmon_metrics_tests
+        cpp/tests/metrics_tests.cpp
+    )
+    target_link_libraries(rtxmon_metrics_tests PRIVATE rtxmon_core)
+
+    if(MSVC)
+        target_compile_options(rtxmon_metrics_tests PRIVATE /W4 /WX /permissive- /utf-8)
+    else()
+        target_compile_options(rtxmon_metrics_tests PRIVATE -Wall -Wextra -Werror)
+    endif()
+
+    add_test(NAME rtxmon_metrics COMMAND rtxmon_metrics_tests)
+    set_tests_properties(rtxmon_metrics PROPERTIES LABELS "unit;metrics;no-gpu")
 
     if(RTXMON_ENABLE_GPU_TESTS)
         add_test(NAME rtxmon_gpu_smoke COMMAND rtxmon_cli --once --json)

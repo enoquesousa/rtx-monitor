@@ -1,4 +1,5 @@
 #include <rtxmon/alerts.hpp>
+#include <rtxmon/metrics.hpp>
 #include <rtxmon/monitor.hpp>
 #include <rtxmon/sampler.hpp>
 
@@ -28,6 +29,7 @@ enum class Mode {
     watch,
     list,
     capabilities,
+    telemetry,
 };
 
 struct Options {
@@ -80,18 +82,20 @@ void print_help()
         << "  rtxmon --watch --alert-threshold C [--alert-hysteresis C] [--events]\n"
         << "  rtxmon --list [--json]\n"
         << "  rtxmon --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]\n\n"
+        << "  rtxmon --telemetry [--gpu INDEX | --gpu-uuid UUID] [--json]\n\n"
         << "Options:\n"
         << "  --once          Read one sample (default)\n"
         << "  --watch         Read continuously until Ctrl+C\n"
         << "  --list          List NVIDIA GPUs\n"
         << "  --capabilities  Inventory public thermal capabilities and provider states\n"
+        << "  --telemetry     Read the documented telemetry catalog and computed metrics\n"
         << "  --gpu INDEX     Select the zero-based GPU index\n"
         << "  --gpu-uuid UUID Select a stable GPU UUID; mutually exclusive with --gpu\n"
         << "  --interval MS   Poll interval, 100 to 60000 ms (default: 1000)\n"
         << "  --count N       Stop watch mode after N samples; 0 means unlimited\n"
         << "  --buffer N      Retain the most recent 1 to 65536 events (default: 256)\n"
         << "  --json          Emit JSON (sample schema v1 in watch mode)\n"
-        << "  --events        Emit the full event stream (schema v2) as JSON Lines\n"
+        << "  --events        Emit the full event stream (schema v3) as JSON Lines\n"
         << "  --alert-threshold C   Raise an alert while --watch when die temperature reaches C (0-500)\n"
         << "  --alert-hysteresis C  Clear at threshold-C; 0 clears only below threshold\n"
         << "  --help          Show this help\n";
@@ -122,6 +126,10 @@ Options parse_options(int argc, char **argv)
         }
         if (argument == "--capabilities") {
             options.mode = Mode::capabilities;
+            continue;
+        }
+        if (argument == "--telemetry") {
+            options.mode = Mode::telemetry;
             continue;
         }
         if (argument == "--json") {
@@ -320,10 +328,13 @@ void print_nullable_int(std::optional<std::int32_t> value)
     }
 }
 
+void print_event_public_telemetry_json(const rtxmon::PublicTelemetryReport &telemetry);
+void print_event_computed_metrics_json(const rtxmon::ComputedMetricsReport &computed);
+
 void print_event_json(const rtxmon::TelemetryEvent &event)
 {
     std::cout
-        << "{\"schema_version\":2"
+        << "{\"schema_version\":3"
         << ",\"event_type\":\"" << rtxmon::telemetry_event_kind_name(event.kind)
         << "\",\"sequence\":" << event.sequence
         << ",\"target_gpu_uuid\":\"" << json_escape(event.target_gpu_uuid)
@@ -362,6 +373,18 @@ void print_event_json(const rtxmon::TelemetryEvent &event)
     print_nullable_int(event.alert_threshold_c);
     std::cout << ",\"alert_hysteresis_c\":";
     print_nullable_int(event.alert_hysteresis_c);
+    std::cout << ",\"public_telemetry\":";
+    if (event.public_telemetry.has_value()) {
+        print_event_public_telemetry_json(*event.public_telemetry);
+    } else {
+        std::cout << "null";
+    }
+    std::cout << ",\"computed_metrics\":";
+    if (event.computed_metrics.has_value()) {
+        print_event_computed_metrics_json(*event.computed_metrics);
+    } else {
+        std::cout << "null";
+    }
     std::cout << "}\n";
     std::cout.flush();
 }
@@ -568,6 +591,270 @@ void print_capability_report_text(
         << "\nOnly public driver-reported channels are listed; unavailable hotspot, memory, or VRM readings are not inferred.\n";
 }
 
+void print_public_value_json(const rtxmon::PublicFieldValue &field)
+{
+    std::cout << "\"value_u64\":";
+    if (field.unsigned_value.has_value()) {
+        std::cout << *field.unsigned_value;
+    } else {
+        std::cout << "null";
+    }
+    std::cout << ",\"value_i64\":";
+    if (field.signed_value.has_value()) {
+        std::cout << *field.signed_value;
+    } else {
+        std::cout << "null";
+    }
+    std::cout << ",\"value_f64\":";
+    if (field.double_value.has_value()) {
+        std::cout << std::setprecision(12) << *field.double_value;
+    } else {
+        std::cout << "null";
+    }
+}
+
+void print_event_public_telemetry_json(const rtxmon::PublicTelemetryReport &telemetry)
+{
+    std::size_t available = 0U;
+    std::size_t not_supported = 0U;
+    std::size_t provider_unavailable = 0U;
+    std::size_t query_failed = 0U;
+    for (const auto &field : telemetry.fields) {
+        switch (field.state) {
+        case RTXMON_CAPABILITY_AVAILABLE:
+            ++available;
+            break;
+        case RTXMON_CAPABILITY_NOT_SUPPORTED:
+            ++not_supported;
+            break;
+        case RTXMON_CAPABILITY_PROVIDER_UNAVAILABLE:
+            ++provider_unavailable;
+            break;
+        case RTXMON_CAPABILITY_QUERY_FAILED:
+            ++query_failed;
+            break;
+        default:
+            break;
+        }
+    }
+
+    std::cout
+        << "{\"gpu_index\":" << telemetry.gpu_index
+        << ",\"captured_at_unix_ms\":" << telemetry.timestamp_unix_ms
+        << ",\"coverage\":{\"total\":" << telemetry.fields.size()
+        << ",\"available\":" << available
+        << ",\"not_supported\":" << not_supported
+        << ",\"provider_unavailable\":" << provider_unavailable
+        << ",\"query_failed\":" << query_failed << "}"
+        << ",\"fields\":[";
+    for (std::size_t index = 0U; index < telemetry.fields.size(); ++index) {
+        const auto &field = telemetry.fields[index];
+        if (index != 0U) {
+            std::cout << ',';
+        }
+        std::cout
+            << "{\"field\":\"" << json_escape(rtxmon::public_field_name(field.field))
+            << "\",\"provider\":\"" << json_escape(rtxmon::public_provider_name(field.provider))
+            << "\",\"provider_native_id\":" << field.provider_native_id
+            << ",\"state\":\"" << json_escape(rtxmon::capability_state_name(field.state))
+            << "\",\"origin\":\"" << json_escape(rtxmon::origin_name(field.origin))
+            << "\",\"value_type\":\"" << json_escape(rtxmon::value_type_name(field.value_type))
+            << "\",\"unit\":\"" << json_escape(rtxmon::unit_name(field.unit)) << "\",";
+        print_public_value_json(field);
+        std::cout
+            << ",\"native_status\":" << field.native_status
+            << ",\"timestamp_unix_ms\":" << field.timestamp_unix_ms << '}';
+    }
+    std::cout << "]}";
+}
+
+void print_event_computed_metrics_json(const rtxmon::ComputedMetricsReport &computed)
+{
+    std::cout
+        << "{\"gpu_index\":" << computed.gpu_index
+        << ",\"timestamp_unix_ms\":" << computed.timestamp_unix_ms
+        << ",\"metrics\":[";
+    for (std::size_t index = 0U; index < computed.metrics.size(); ++index) {
+        const auto &metric = computed.metrics[index];
+        if (index != 0U) {
+            std::cout << ',';
+        }
+        std::cout
+            << "{\"metric\":\"" << json_escape(rtxmon::computed_metric_name(metric.metric))
+            << "\",\"state\":\"" << json_escape(rtxmon::metric_state_name(metric.state))
+            << "\",\"origin\":\"" << json_escape(rtxmon::origin_name(metric.origin))
+            << "\",\"unit\":\"" << json_escape(rtxmon::unit_name(metric.unit))
+            << "\",\"formula\":\"" << json_escape(rtxmon::computed_metric_formula(metric.metric))
+            << "\",\"value\":";
+        if (metric.value.has_value()) {
+            std::cout << std::setprecision(12) << *metric.value;
+        } else {
+            std::cout << "null";
+        }
+        std::cout
+            << ",\"window_ms\":" << metric.window_ms
+            << ",\"sample_count\":" << metric.sample_count
+            << ",\"temperature_threshold_c\":";
+        if (metric.temperature_threshold_c.has_value()) {
+            std::cout << *metric.temperature_threshold_c;
+        } else {
+            std::cout << "null";
+        }
+        std::cout << ",\"inputs\":[";
+        for (std::size_t input = 0U; input < metric.inputs.size(); ++input) {
+            if (input != 0U) {
+                std::cout << ',';
+            }
+            std::cout << '"' << json_escape(rtxmon::public_field_name(metric.inputs[input])) << '"';
+        }
+        std::cout << "]}";
+    }
+    std::cout << "]}";
+}
+
+void print_public_telemetry_json(
+    const rtxmon::GpuInfo &gpu,
+    const rtxmon::BoardIdentity &board,
+    const rtxmon::PublicTelemetryReport &telemetry,
+    const rtxmon::ComputedMetricsReport &computed)
+{
+    std::size_t available = 0U;
+    std::size_t not_supported = 0U;
+    std::size_t provider_unavailable = 0U;
+    std::size_t query_failed = 0U;
+    for (const auto &field : telemetry.fields) {
+        switch (field.state) {
+        case RTXMON_CAPABILITY_AVAILABLE:
+            ++available;
+            break;
+        case RTXMON_CAPABILITY_NOT_SUPPORTED:
+            ++not_supported;
+            break;
+        case RTXMON_CAPABILITY_PROVIDER_UNAVAILABLE:
+            ++provider_unavailable;
+            break;
+        case RTXMON_CAPABILITY_QUERY_FAILED:
+            ++query_failed;
+            break;
+        default:
+            break;
+        }
+    }
+
+    std::cout
+        << "{\"schema_version\":1"
+        << ",\"gpu\":{\"index\":" << gpu.index
+        << ",\"name\":\"" << json_escape(gpu.name)
+        << "\",\"uuid\":\"" << json_escape(gpu.uuid)
+        << "\",\"driver_version\":\"" << json_escape(gpu.driver_version)
+        << "\",\"nvml_version\":\"" << json_escape(gpu.nvml_version) << "\"}"
+        << ",\"profile_key\":\"" << json_escape(board_profile_key(board)) << "\""
+        << ",\"captured_at_unix_ms\":" << telemetry.timestamp_unix_ms
+        << ",\"coverage\":{\"total\":" << telemetry.fields.size()
+        << ",\"available\":" << available
+        << ",\"not_supported\":" << not_supported
+        << ",\"provider_unavailable\":" << provider_unavailable
+        << ",\"query_failed\":" << query_failed << "}"
+        << ",\"fields\":[";
+
+    for (std::size_t index = 0U; index < telemetry.fields.size(); ++index) {
+        const auto &field = telemetry.fields[index];
+        if (index != 0U) {
+            std::cout << ',';
+        }
+        std::cout
+            << "{\"field\":\"" << json_escape(rtxmon::public_field_name(field.field))
+            << "\",\"provider\":\"" << json_escape(rtxmon::public_provider_name(field.provider))
+            << "\",\"provider_native_id\":" << field.provider_native_id
+            << ",\"state\":\"" << json_escape(rtxmon::capability_state_name(field.state))
+            << "\",\"origin\":\"" << json_escape(rtxmon::origin_name(field.origin))
+            << "\",\"value_type\":\"" << json_escape(rtxmon::value_type_name(field.value_type))
+            << "\",\"unit\":\"" << json_escape(rtxmon::unit_name(field.unit)) << "\",";
+        print_public_value_json(field);
+        std::cout
+            << ",\"native_status\":" << field.native_status
+            << ",\"timestamp_unix_ms\":" << field.timestamp_unix_ms << '}';
+    }
+
+    std::cout << "],\"computed_metrics\":[";
+    for (std::size_t index = 0U; index < computed.metrics.size(); ++index) {
+        const auto &metric = computed.metrics[index];
+        if (index != 0U) {
+            std::cout << ',';
+        }
+        std::cout
+            << "{\"metric\":\"" << json_escape(rtxmon::computed_metric_name(metric.metric))
+            << "\",\"state\":\"" << json_escape(rtxmon::metric_state_name(metric.state))
+            << "\",\"origin\":\"" << json_escape(rtxmon::origin_name(metric.origin))
+            << "\",\"unit\":\"" << json_escape(rtxmon::unit_name(metric.unit))
+            << "\",\"formula\":\"" << json_escape(rtxmon::computed_metric_formula(metric.metric))
+            << "\",\"value\":";
+        if (metric.value.has_value()) {
+            std::cout << std::setprecision(12) << *metric.value;
+        } else {
+            std::cout << "null";
+        }
+        std::cout
+            << ",\"window_ms\":" << metric.window_ms
+            << ",\"sample_count\":" << metric.sample_count
+            << ",\"temperature_threshold_c\":";
+        if (metric.temperature_threshold_c.has_value()) {
+            std::cout << *metric.temperature_threshold_c;
+        } else {
+            std::cout << "null";
+        }
+        std::cout << ",\"inputs\":[";
+        for (std::size_t input = 0U; input < metric.inputs.size(); ++input) {
+            if (input != 0U) {
+                std::cout << ',';
+            }
+            std::cout << '"' << json_escape(rtxmon::public_field_name(metric.inputs[input])) << '"';
+        }
+        std::cout << "]}";
+    }
+    std::cout << "]}\n";
+}
+
+void print_public_telemetry_text(
+    const rtxmon::GpuInfo &gpu,
+    const rtxmon::BoardIdentity &board,
+    const rtxmon::PublicTelemetryReport &telemetry,
+    const rtxmon::ComputedMetricsReport &computed)
+{
+    std::cout << "GPU " << gpu.index << "  " << gpu.name << '\n'
+              << "Profile " << board_profile_key(board) << '\n'
+              << "Captured " << iso_utc(telemetry.timestamp_unix_ms) << "\n\nDocumented fields:\n";
+
+    for (const auto &field : telemetry.fields) {
+        std::cout << "  " << rtxmon::public_field_name(field.field)
+                  << " | " << rtxmon::capability_state_name(field.state)
+                  << " | " << rtxmon::public_provider_name(field.provider)
+                  << '[' << field.provider_native_id << ']';
+        if (field.unsigned_value.has_value()) {
+            std::cout << " | " << *field.unsigned_value;
+        } else if (field.signed_value.has_value()) {
+            std::cout << " | " << *field.signed_value;
+        } else if (field.double_value.has_value()) {
+            std::cout << " | " << std::setprecision(12) << *field.double_value;
+        }
+        std::cout << " " << rtxmon::unit_name(field.unit)
+                  << " | native status " << field.native_status << '\n';
+    }
+
+    std::cout << "\nComputed metrics:\n";
+    for (const auto &metric : computed.metrics) {
+        std::cout << "  " << rtxmon::computed_metric_name(metric.metric)
+                  << " | " << rtxmon::metric_state_name(metric.state);
+        if (metric.value.has_value()) {
+            std::cout << " | " << std::setprecision(12) << *metric.value
+                      << ' ' << rtxmon::unit_name(metric.unit);
+        }
+        std::cout << " | window " << metric.window_ms << " ms"
+                  << " | samples " << metric.sample_count
+                  << " | " << rtxmon::computed_metric_formula(metric.metric) << '\n';
+    }
+}
+
 std::string alert_message(
     rtxmon::TelemetryEventKind kind,
     std::int32_t temperature_c,
@@ -623,6 +910,8 @@ int run_watch(const Options &options)
                         alert_event.kind = *alert_kind;
                         alert_event.alert_threshold_c = options.alert_threshold_c;
                         alert_event.alert_hysteresis_c = options.alert_hysteresis_c;
+                        alert_event.public_telemetry.reset();
+                        alert_event.computed_metrics.reset();
                         alert_event.message =
                             alert_message(*alert_kind, event.sample->temperature_c, options);
                         print_watch_event(alert_event, options);
@@ -669,6 +958,18 @@ int run(const Options &options)
             print_capability_report_json(gpu, board, report);
         } else {
             print_capability_report_text(gpu, board, report);
+        }
+        return 0;
+    }
+    if (options.mode == Mode::telemetry) {
+        const auto board = monitor.board_identity(gpu.index);
+        const auto telemetry = monitor.read_public_telemetry(gpu.index);
+        rtxmon::MetricsEngine metrics;
+        const auto computed = metrics.observe(telemetry);
+        if (options.json) {
+            print_public_telemetry_json(gpu, board, telemetry, computed);
+        } else {
+            print_public_telemetry_text(gpu, board, telemetry, computed);
         }
         return 0;
     }

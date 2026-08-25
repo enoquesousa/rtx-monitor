@@ -204,6 +204,71 @@ rtxmon_nvml_loader_status_t rtxmon_nvml_load(
         device_get_field_values,
         rtxmon_nvml_device_get_field_values_fn,
         "nvmlDeviceGetFieldValues");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_clock_info,
+        rtxmon_nvml_device_get_clock_info_fn,
+        "nvmlDeviceGetClockInfo");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_utilization_rates,
+        rtxmon_nvml_device_get_utilization_rates_fn,
+        "nvmlDeviceGetUtilizationRates");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_memory_info,
+        rtxmon_nvml_device_get_memory_info_fn,
+        "nvmlDeviceGetMemoryInfo");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_num_fans,
+        rtxmon_nvml_device_get_num_fans_fn,
+        "nvmlDeviceGetNumFans");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_fan_speed_v2,
+        rtxmon_nvml_device_get_fan_speed_v2_fn,
+        "nvmlDeviceGetFanSpeed_v2");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_fan_speed,
+        rtxmon_nvml_device_get_fan_speed_fn,
+        "nvmlDeviceGetFanSpeed");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_performance_state,
+        rtxmon_nvml_device_get_performance_state_fn,
+        "nvmlDeviceGetPerformanceState");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_current_clocks_event_reasons,
+        rtxmon_nvml_device_get_clock_reasons_fn,
+        "nvmlDeviceGetCurrentClocksEventReasons");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_current_clocks_throttle_reasons,
+        rtxmon_nvml_device_get_clock_reasons_fn,
+        "nvmlDeviceGetCurrentClocksThrottleReasons");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_supported_clocks_event_reasons,
+        rtxmon_nvml_device_get_clock_reasons_fn,
+        "nvmlDeviceGetSupportedClocksEventReasons");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_supported_clocks_throttle_reasons,
+        rtxmon_nvml_device_get_clock_reasons_fn,
+        "nvmlDeviceGetSupportedClocksThrottleReasons");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_encoder_utilization,
+        rtxmon_nvml_device_get_engine_utilization_fn,
+        "nvmlDeviceGetEncoderUtilization");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
+        device_get_decoder_utilization,
+        rtxmon_nvml_device_get_engine_utilization_fn,
+        "nvmlDeviceGetDecoderUtilization");
 
     if (api->device_get_temperature_v == NULL && api->device_get_temperature == NULL) {
         rtxmon_loader_error(

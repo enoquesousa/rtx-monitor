@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace RtxMonitor.Managed;
 
-public sealed class NvidiaMonitor : ITemperatureSession
+public sealed class NvidiaMonitor : IPublicTelemetrySession
 {
     private readonly SafeRtxmonContext context;
     private bool disposed;
@@ -186,6 +186,66 @@ public sealed class NvidiaMonitor : ITemperatureSession
             capabilities);
     }
 
+    public PublicTelemetryReport ReadPublicTelemetry(uint index)
+    {
+        ThrowIfDisposed();
+        NativePublicTelemetryReport native = NativePublicTelemetryReport.Create();
+        NativeStatus status = NativeMethods.rtxmon_read_public_telemetry(
+            context,
+            index,
+            ref native);
+        if (status != NativeStatus.Ok)
+        {
+            Throw(status, $"Não foi possível ler a telemetria pública da GPU {index}");
+        }
+        if (native.FieldCount > NativeMethods.MaxPublicFields)
+        {
+            throw new InvalidOperationException(
+                $"Relatório nativo excedeu o limite de campos: {native.FieldCount}.");
+        }
+
+        var fields = new List<PublicTelemetryValue>(checked((int)native.FieldCount));
+        for (int indexValue = 0; indexValue < native.FieldCount; indexValue++)
+        {
+            NativePublicTelemetryValue field = native.Fields[indexValue];
+            bool available = field.State == (uint)CapabilityState.Available;
+            var valueType = (TelemetryValueType)field.ValueType;
+            fields.Add(new PublicTelemetryValue(
+                (PublicTelemetryField)field.Field,
+                NativeMethods.PublicFieldString(field.Field),
+                (PublicTelemetryProvider)field.Provider,
+                NativeMethods.PublicProviderString(field.Provider),
+                (CapabilityState)field.State,
+                NativeMethods.CapabilityStateString(field.State),
+                (DataOrigin)field.Origin,
+                NativeMethods.DataOriginString(field.Origin),
+                valueType,
+                NativeMethods.ValueTypeString(field.ValueType),
+                (TelemetryUnit)field.Unit,
+                NativeMethods.UnitString(field.Unit),
+                field.NativeStatus,
+                field.ProviderNativeId,
+                available && valueType is
+                    TelemetryValueType.UnsignedInteger or TelemetryValueType.Bitmask
+                    ? field.ValueU64
+                    : null,
+                available && valueType == TelemetryValueType.SignedInteger
+                    ? field.ValueI64
+                    : null,
+                available && valueType == TelemetryValueType.Double
+                    ? field.ValueF64
+                    : null,
+                field.TimestampUnixMilliseconds));
+        }
+
+        return new PublicTelemetryReport(
+            native.GpuIndex,
+            DateTimeOffset.FromUnixTimeMilliseconds(
+                checked((long)native.TimestampUnixMilliseconds)),
+            native.TimestampUnixMilliseconds,
+            fields);
+    }
+
     public void Dispose()
     {
         if (disposed)
@@ -213,12 +273,21 @@ public sealed class NvidiaMonitor : ITemperatureSession
         int providerSize = Marshal.SizeOf<NativeThermalProviderResult>();
         int capabilitySize = Marshal.SizeOf<NativeThermalCapability>();
         int reportSize = Marshal.SizeOf<NativeThermalReport>();
+        int publicValueSize = Marshal.SizeOf<NativePublicTelemetryValue>();
+        int publicReportSize = Marshal.SizeOf<NativePublicTelemetryReport>();
+        int metricOptionsSize = Marshal.SizeOf<NativeComputedMetricOptions>();
+        int metricSize = Marshal.SizeOf<NativeComputedMetric>();
+        int metricReportSize = Marshal.SizeOf<NativeComputedMetricsReport>();
         if (gpuInfoSize != 392 || sampleSize != 32 || boardIdentitySize != 240 ||
-            providerSize != 16 || capabilitySize != 48 || reportSize != 456)
+            providerSize != 16 || capabilitySize != 48 || reportSize != 456 ||
+            publicValueSize != 64 || publicReportSize != 3096 || metricOptionsSize != 16 ||
+            metricSize != 64 || metricReportSize != 280)
         {
             throw new InvalidOperationException(
                 $"Layout P/Invoke incompatível: gpu_info={gpuInfoSize}, sample={sampleSize}, " +
-                $"board={boardIdentitySize}, provider={providerSize}, capability={capabilitySize}, report={reportSize}.");
+                $"board={boardIdentitySize}, provider={providerSize}, capability={capabilitySize}, " +
+                $"report={reportSize}, public_value={publicValueSize}, public_report={publicReportSize}, " +
+                $"metric_options={metricOptionsSize}, metric={metricSize}, metric_report={metricReportSize}.");
         }
     }
 

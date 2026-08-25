@@ -25,6 +25,12 @@ public:
         return monitor_.read_gpu_die_temperature(index);
     }
 
+    [[nodiscard]] std::optional<PublicTelemetryReport> read_public_telemetry(
+        std::uint32_t index) const override
+    {
+        return monitor_.read_public_telemetry(index);
+    }
+
 private:
     Monitor monitor_;
 };
@@ -64,6 +70,13 @@ private:
 }
 
 } // namespace
+
+std::optional<PublicTelemetryReport> MonitoringSession::read_public_telemetry(
+    std::uint32_t index) const
+{
+    (void)index;
+    return std::nullopt;
+}
 
 CircularEventBuffer::CircularEventBuffer(std::size_t capacity)
     : capacity_(capacity)
@@ -157,6 +170,15 @@ std::vector<TelemetryEvent> ResilientSampler::poll()
                 "temperature sample belongs to a different GPU index");
         }
 
+        auto public_telemetry = session_->read_public_telemetry(current_gpu_->index);
+        std::optional<ComputedMetricsReport> computed_metrics;
+        if (public_telemetry.has_value()) {
+            if (!metrics_engine_.has_value()) {
+                metrics_engine_.emplace(options_.metrics);
+            }
+            computed_metrics = metrics_engine_->observe(*public_telemetry);
+        }
+
         if (consecutive_failures_ > 0U) {
             auto recovered = base_event(TelemetryEventKind::recovered);
             recovered.observed_at_unix_ms = sample.timestamp_unix_ms;
@@ -176,6 +198,8 @@ std::vector<TelemetryEvent> ResilientSampler::poll()
         auto sample_event = base_event(TelemetryEventKind::sample);
         sample_event.observed_at_unix_ms = sample.timestamp_unix_ms;
         sample_event.sample = std::move(sample);
+        sample_event.public_telemetry = std::move(public_telemetry);
+        sample_event.computed_metrics = std::move(computed_metrics);
         record(std::move(sample_event), emitted);
     } catch (const MonitorError &error) {
         if (!is_recoverable_sampling_status(error.status())) {
@@ -196,6 +220,9 @@ std::vector<TelemetryEvent> ResilientSampler::poll()
 
         session_.reset();
         current_gpu_.reset();
+        if (metrics_engine_.has_value()) {
+            metrics_engine_->reset();
+        }
     }
 
     return emitted;
