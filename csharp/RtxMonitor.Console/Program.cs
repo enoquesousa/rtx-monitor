@@ -21,7 +21,9 @@ internal sealed record Options(
     long Count,
     int BufferCapacity,
     bool Json,
-    bool Events);
+    bool Events,
+    int? AlertThresholdC,
+    int AlertHysteresisC);
 
 internal sealed class RunningStatistics
 {
@@ -139,6 +141,8 @@ internal static class Program
         int bufferCapacity = 256;
         bool json = false;
         bool events = false;
+        int? alertThresholdC = null;
+        int? alertHysteresisC = null;
 
         for (int index = 0; index < args.Length; index++)
         {
@@ -188,6 +192,12 @@ internal static class Program
                 case "--buffer":
                     bufferCapacity = ParseInt32(NextValue(args, ref index, argument), argument);
                     break;
+                case "--alert-threshold":
+                    alertThresholdC = ParseInt32(NextValue(args, ref index, argument), argument);
+                    break;
+                case "--alert-hysteresis":
+                    alertHysteresisC = ParseInt32(NextValue(args, ref index, argument), argument);
+                    break;
                 default:
                     throw new ArgumentException($"opção desconhecida: {argument}; use --help");
             }
@@ -214,6 +224,22 @@ internal static class Program
         {
             throw new ArgumentException("--events exige --watch");
         }
+        if (alertThresholdC is not null && mode != RunMode.Watch)
+        {
+            throw new ArgumentException("--alert-threshold exige --watch");
+        }
+        if (alertThresholdC is null && alertHysteresisC is not null)
+        {
+            throw new ArgumentException("--alert-hysteresis exige --alert-threshold");
+        }
+        if (alertThresholdC is < 0 or > 500)
+        {
+            throw new ArgumentException("--alert-threshold deve estar entre 0 e 500 °C");
+        }
+        if (alertHysteresisC < 0 || alertHysteresisC > (alertThresholdC ?? 0))
+        {
+            throw new ArgumentException("--alert-hysteresis deve estar entre 0 e o limiar");
+        }
 
         return new Options(
             mode,
@@ -223,7 +249,9 @@ internal static class Program
             count,
             bufferCapacity,
             json,
-            events);
+            events,
+            alertThresholdC,
+            alertHysteresisC ?? 0);
     }
 
     private static string NextValue(string[] args, ref int index, string option)
@@ -260,6 +288,7 @@ internal static class Program
             Uso:
               dotnet RtxMonitor.Console.dll [--watch] [--gpu INDEX | --gpu-uuid UUID] [--interval MS]
               dotnet RtxMonitor.Console.dll --watch --events [--gpu INDEX | --gpu-uuid UUID]
+              dotnet RtxMonitor.Console.dll --watch --alert-threshold C [--alert-hysteresis C]
               dotnet RtxMonitor.Console.dll --once [--gpu INDEX | --gpu-uuid UUID] [--json]
               dotnet RtxMonitor.Console.dll --list [--json]
               dotnet RtxMonitor.Console.dll --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]
@@ -275,7 +304,9 @@ internal static class Program
               --count N       Encerra após N amostras; zero é ilimitado
               --buffer N      Retém de 1 a 65536 eventos recentes (padrão: 256)
               --json          JSON; em watch, mantém o schema de amostra v1
-              --events        Emite sample, gap e recovered como JSON Lines
+              --events        Emite o stream completo de eventos (schema v2) como JSON Lines
+              --alert-threshold C   Dispara um alerta durante --watch ao atingir C °C (0-500)
+              --alert-hysteresis C  Limpa em limiar-C; com 0, somente abaixo do limiar
               --help          Mostra esta ajuda
             """);
     }
@@ -452,6 +483,10 @@ internal static class Program
         bool dashboard = !options.Json && !options.Events && !Console.IsOutputRedirected;
         var statistics = new RunningStatistics();
         long samples = 0;
+        AlertEvaluator? alertEvaluator = options.AlertThresholdC is int alertThresholdC
+            ? new AlertEvaluator(new AlertOptions(alertThresholdC, options.AlertHysteresisC))
+            : null;
+        ulong streamSequence = 0;
 
         if (dashboard)
         {
@@ -462,8 +497,13 @@ internal static class Program
                (options.Count == 0 || samples < options.Count))
         {
             IReadOnlyList<TelemetryEvent> events = sampler.Poll();
-            foreach (TelemetryEvent telemetryEvent in events)
+            foreach (TelemetryEvent sampledEvent in events)
             {
+                TelemetryEvent telemetryEvent = sampledEvent with
+                {
+                    Sequence = ++streamSequence,
+                };
+
                 if (telemetryEvent.Sample is TemperatureSample sample)
                 {
                     statistics.Add(sample.TemperatureC);
@@ -477,7 +517,8 @@ internal static class Program
                         initialGpu,
                         telemetryEvent,
                         statistics,
-                        options.IntervalMilliseconds);
+                        options.IntervalMilliseconds,
+                        alertEvaluator);
                 }
                 else if (options.Events)
                 {
@@ -491,6 +532,43 @@ internal static class Program
                 else
                 {
                     PrintTelemetryDiagnostic(telemetryEvent);
+                }
+
+                if (alertEvaluator is not null &&
+                    telemetryEvent.Kind == TelemetryEventKind.Sample &&
+                    telemetryEvent.Sample is TemperatureSample sampleForAlert)
+                {
+                    TelemetryEventKind? alertKind = alertEvaluator.Observe(sampleForAlert.TemperatureC);
+                    if (alertKind is TelemetryEventKind kind)
+                    {
+                        TelemetryEvent alertEvent = telemetryEvent with
+                        {
+                            Sequence = ++streamSequence,
+                            Kind = kind,
+                            AlertThresholdC = alertEvaluator.Options.ThresholdC,
+                            AlertHysteresisC = alertEvaluator.Options.HysteresisC,
+                            Message = AlertMessage(kind, sampleForAlert.TemperatureC, alertEvaluator.Options),
+                        };
+
+                        if (dashboard)
+                        {
+                            RenderDashboard(
+                                targetUuid,
+                                initialGpu,
+                                alertEvent,
+                                statistics,
+                                options.IntervalMilliseconds,
+                                alertEvaluator);
+                        }
+                        else if (options.Events)
+                        {
+                            PrintTelemetryEvent(alertEvent);
+                        }
+                        else
+                        {
+                            PrintTelemetryDiagnostic(alertEvent);
+                        }
+                    }
                 }
             }
 
@@ -534,7 +612,7 @@ internal static class Program
 
         var payload = new
         {
-            schema_version = 1,
+            schema_version = 2,
             event_type = telemetryEvent.KindName,
             sequence = telemetryEvent.Sequence,
             target_gpu_uuid = telemetryEvent.TargetGpuUuid,
@@ -547,6 +625,8 @@ internal static class Program
             consecutive_failures = telemetryEvent.ConsecutiveFailures,
             retry_after_ms = telemetryEvent.RetryAfterMilliseconds,
             sample,
+            alert_threshold_c = telemetryEvent.AlertThresholdC,
+            alert_hysteresis_c = telemetryEvent.AlertHysteresisC,
         };
         Console.WriteLine(JsonSerializer.Serialize(payload));
     }
@@ -562,17 +642,35 @@ internal static class Program
             return;
         }
 
+        if (telemetryEvent.Kind == TelemetryEventKind.Recovered)
+        {
+            Console.Error.WriteLine(
+                $"{telemetryEvent.ObservedAt:O} | GPU {telemetryEvent.TargetGpuUuid} | " +
+                $"monitoramento recuperado após {telemetryEvent.ConsecutiveFailures} falha(s)");
+            return;
+        }
+
         Console.Error.WriteLine(
             $"{telemetryEvent.ObservedAt:O} | GPU {telemetryEvent.TargetGpuUuid} | " +
-            $"monitoramento recuperado após {telemetryEvent.ConsecutiveFailures} falha(s)");
+            $"{telemetryEvent.KindName} | {telemetryEvent.Message}");
     }
+
+    private static string AlertMessage(
+        TelemetryEventKind kind,
+        int temperatureC,
+        AlertOptions alertOptions) =>
+        kind == TelemetryEventKind.AlertRaised
+            ? $"die temperature {temperatureC} C reached alert threshold {alertOptions.ThresholdC} C"
+            : $"die temperature {temperatureC} C cleared alert threshold {alertOptions.ThresholdC} C " +
+              $"(hysteresis {alertOptions.HysteresisC} C)";
 
     private static void RenderDashboard(
         string targetUuid,
         GpuInfo? initialGpu,
         TelemetryEvent telemetryEvent,
         RunningStatistics statistics,
-        int intervalMilliseconds)
+        int intervalMilliseconds,
+        AlertEvaluator? alertEvaluator)
     {
         int width = Math.Max(40, Console.WindowWidth - 1);
         GpuInfo? gpu = telemetryEvent.Gpu ?? initialGpu;
@@ -595,9 +693,18 @@ internal static class Program
                 $"lacuna: {telemetryEvent.StatusName}; nova tentativa em {telemetryEvent.RetryAfterMilliseconds} ms",
             TelemetryEventKind.Recovered =>
                 $"recuperado após {telemetryEvent.ConsecutiveFailures} falha(s)",
+            TelemetryEventKind.AlertRaised => "alerta disparado",
+            TelemetryEventKind.AlertCleared => "alerta encerrado",
             _ => "estado desconhecido",
         };
         string source = telemetryEvent.Sample?.BackendName ?? "nenhuma leitura atual";
+        string alertLine = alertEvaluator is null
+            ? "ALERTA    desabilitado"
+            : alertEvaluator.Alarmed
+                ? $"ALERTA    ativo — limiar {alertEvaluator.Options.ThresholdC} °C " +
+                  $"(histerese {alertEvaluator.Options.HysteresisC} °C)"
+                : $"ALERTA    normal — limiar {alertEvaluator.Options.ThresholdC} °C " +
+                  $"(histerese {alertEvaluator.Options.HysteresisC} °C)";
 
         string[] lines =
         [
@@ -612,6 +719,7 @@ internal static class Program
             $"ESTADO    {status}",
             $"EVENTO    {telemetryEvent.ObservedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | intervalo {intervalMilliseconds} ms",
             $"FONTE     {source}",
+            alertLine,
             string.Empty,
             "Uma lacuna nunca reutiliza a última temperatura como se fosse atual.",
             "Ctrl+C para encerrar.",

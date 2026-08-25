@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/enoquesousa/rtx-monitor/main/docs/schema/telemetry-event-v2.schema.json",
+  "title": "RTX Monitor telemetry event",
+  "description": "One JSON Lines event emitted by --watch --events.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_type",
+    "sequence",
+    "target_gpu_uuid",
+    "gpu_index",
+    "gpu_name",
+    "observed_at_unix_ms",
+    "status",
+    "status_code",
+    "message",
+    "consecutive_failures",
+    "retry_after_ms",
+    "sample",
+    "alert_threshold_c",
+    "alert_hysteresis_c"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "event_type": {
+      "enum": [
+        "sample",
+        "gap",
+        "recovered",
+        "alert_raised",
+        "alert_cleared"
+      ]
+    },
+    "sequence": {
+      "description": "Monotonically increasing position in one CLI output stream.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "target_gpu_uuid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "gpu_index": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "gpu_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observed_at_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status_code": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 11
+    },
+    "message": {
+      "type": "string"
+    },
+    "consecutive_failures": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "retry_after_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sample": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "temperature_c",
+            "sensor",
+            "backend",
+            "timestamp_unix_ms"
+          ],
+          "properties": {
+            "temperature_c": {
+              "type": "integer"
+            },
+            "sensor": {
+              "const": "gpu_die"
+            },
+            "backend": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timestamp_unix_ms": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "alert_threshold_c": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 500
+    },
+    "alert_hysteresis_c": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 500
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "sample"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "status_code": {
+            "const": 0
+          },
+          "consecutive_failures": {
+            "const": 0
+          },
+          "retry_after_ms": {
+            "const": 0
+          },
+          "sample": {
+            "type": "object"
+          },
+          "alert_threshold_c": {
+            "type": "null"
+          },
+          "alert_hysteresis_c": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "gap"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status_code": {
+            "minimum": 1
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          },
+          "retry_after_ms": {
+            "minimum": 1
+          },
+          "sample": {
+            "type": "null"
+          },
+          "alert_threshold_c": {
+            "type": "null"
+          },
+          "alert_hysteresis_c": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "const": "recovered"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "status_code": {
+            "const": 0
+          },
+          "consecutive_failures": {
+            "minimum": 1
+          },
+          "retry_after_ms": {
+            "const": 0
+          },
+          "sample": {
+            "type": "null"
+          },
+          "alert_threshold_c": {
+            "type": "null"
+          },
+          "alert_hysteresis_c": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": {
+            "enum": [
+              "alert_raised",
+              "alert_cleared"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "ok"
+          },
+          "status_code": {
+            "const": 0
+          },
+          "consecutive_failures": {
+            "const": 0
+          },
+          "retry_after_ms": {
+            "const": 0
+          },
+          "sample": {
+            "type": "object"
+          },
+          "alert_threshold_c": {
+            "type": "integer"
+          },
+          "alert_hysteresis_c": {
+            "type": "integer"
+          }
+        }
+      }
+    }
+  ]
+}

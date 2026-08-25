@@ -15,7 +15,8 @@ $cppExecutable = Join-Path $nativeOutput 'rtxmon.exe'
 $cExecutable = Join-Path $nativeOutput 'rtxmon-c.exe'
 $csharpExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Configuration\net8.0\RtxMonitor.Console.exe"
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
-$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
+$eventSchemaV1Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
+$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
 
 function Assert-LastExitCode {
     param([Parameter(Mandatory)][string]$Description)
@@ -47,14 +48,48 @@ function Assert-EventStream {
         throw "$Source produced $($Events.Count) events instead of 2."
     }
 
-    foreach ($event in $Events) {
-        if ($event.schema_version -ne 1 -or $event.event_type -ne 'sample') {
+    for ($index = 0; $index -lt $Events.Count; $index++) {
+        $event = $Events[$index]
+        if ($event.sequence -ne ($index + 1)) {
+            throw "$Source did not emit one contiguous global sequence."
+        }
+        if ($event.schema_version -ne 2 -or $event.event_type -ne 'sample') {
             throw "$Source emitted an unexpected event envelope."
         }
         if ($event.target_gpu_uuid -ne $GpuUuid -or
             $event.sample.sensor -ne 'gpu_die' -or
             $null -eq $event.sample.temperature_c) {
             throw "$Source did not preserve the selected GPU and sensor reading."
+        }
+    }
+}
+
+function Assert-AlertStream {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][object[]]$Events,
+        [Parameter(Mandatory)][string]$GpuUuid
+    )
+
+    if ($Events.Count -ne 2 -or
+        $Events[0].event_type -ne 'sample' -or
+        $Events[1].event_type -ne 'alert_raised') {
+        throw "$Source did not emit exactly one sample followed by one alert."
+    }
+    for ($index = 0; $index -lt $Events.Count; $index++) {
+        if ($Events[$index].sequence -ne ($index + 1)) {
+            throw "$Source did not emit one contiguous global sequence."
+        }
+    }
+
+    $alerts = @($Events | Where-Object { $_.event_type -eq 'alert_raised' })
+    foreach ($alert in $alerts) {
+        if ($alert.schema_version -ne 2 -or
+            $alert.target_gpu_uuid -ne $GpuUuid -or
+            $alert.alert_threshold_c -ne 0 -or
+            $null -eq $alert.sample -or
+            $null -eq $alert.sample.temperature_c) {
+            throw "$Source emitted an unexpected alert_raised envelope."
         }
     }
 }
@@ -70,9 +105,14 @@ try {
         throw 'The capability JSON Schema is missing schema_version const 2.'
     }
 
+    $eventSchemaV1 = Get-Content -Raw -LiteralPath $eventSchemaV1Path | ConvertFrom-Json
+    if ($eventSchemaV1.properties.schema_version.const -ne 1) {
+        throw 'The telemetry event JSON Schema v1 is missing or no longer declares schema_version const 1.'
+    }
+
     $eventSchema = Get-Content -Raw -LiteralPath $eventSchemaPath | ConvertFrom-Json
-    if ($eventSchema.properties.schema_version.const -ne 1) {
-        throw 'The telemetry event JSON Schema is missing schema_version const 1.'
+    if ($eventSchema.properties.schema_version.const -ne 2) {
+        throw 'The telemetry event JSON Schema is missing schema_version const 2.'
     }
 
     & ctest --preset "windows-x64-$configurationLower"
@@ -273,6 +313,17 @@ try {
     Assert-EventStream -Source 'C++ resilient stream' -Events $cppEvents -GpuUuid $cppSample.gpu_uuid
     Assert-EventStream -Source 'C# resilient stream' -Events $csharpEvents -GpuUuid $cppSample.gpu_uuid
 
+    $cppAlertEvents = @(& $cppExecutable --watch --count 1 --interval 100 --events --alert-threshold 0) |
+        ForEach-Object { $_ | ConvertFrom-Json }
+    Assert-LastExitCode -Description 'C++ alert stream'
+
+    $csharpAlertEvents = @(& $csharpExecutable --watch --count 1 --interval 100 --events --alert-threshold 0) |
+        ForEach-Object { $_ | ConvertFrom-Json }
+    Assert-LastExitCode -Description 'C# alert stream'
+
+    Assert-AlertStream -Source 'C++ alert stream' -Events $cppAlertEvents -GpuUuid $cppSample.gpu_uuid
+    Assert-AlertStream -Source 'C# alert stream' -Events $csharpAlertEvents -GpuUuid $cppSample.gpu_uuid
+
     Write-Host 'Verification passed.'
     Write-Host "GPU: $($cppSample.gpu_name)"
     Write-Host "UUID: $($cppSample.gpu_uuid)"
@@ -281,6 +332,7 @@ try {
     Write-Host "Board profile: $($cppCapabilities.board.profile_key)"
     Write-Host "Thermal capability records: $($cppCapabilities.thermal_capabilities.Count)"
     Write-Host 'Resilient event streams: C++ and C# passed.'
+    Write-Host 'Threshold alert streams: C++ and C# passed.'
 }
 finally {
     Pop-Location

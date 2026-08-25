@@ -62,10 +62,13 @@ internal static class Program
         TestGapRecoveryAndIndexChange();
         TestBackoffCap();
         TestNonrecoverableStatus();
+        TestAlertRaisesAndClearsWithoutHysteresis();
+        TestAlertHysteresisPreventsFlapping();
+        TestAlertInvalidOptionsAreRejected();
 
         if (failures == 0)
         {
-            Console.WriteLine("RtxMonitor.Managed sampler tests passed");
+            Console.WriteLine("RtxMonitor.Managed tests passed");
         }
 
         return failures == 0 ? 0 : 1;
@@ -175,6 +178,61 @@ internal static class Program
         catch (RtxMonitorException error)
         {
             Check(error.Status == MonitoringStatus.NoPermission, "status fatal preservado");
+        }
+    }
+
+    private static void TestAlertRaisesAndClearsWithoutHysteresis()
+    {
+        var evaluator = new AlertEvaluator(new AlertOptions(80, 0));
+
+        Check(evaluator.Observe(60) is null, "sem alerta abaixo do limiar");
+        Check(!evaluator.Alarmed, "não alarmado abaixo do limiar");
+
+        TelemetryEventKind? raised = evaluator.Observe(80);
+        Check(raised == TelemetryEventKind.AlertRaised, "alerta disparado no limiar");
+        Check(evaluator.Alarmed, "alarmado após cruzar o limiar");
+        Check(
+            evaluator.Observe(80) is null,
+            "não encerra enquanto a temperatura permanece exatamente no limiar");
+        Check(evaluator.Alarmed, "continua alarmado exatamente no limiar");
+        Check(evaluator.Observe(85) is null, "sem repetição de alerta enquanto quente");
+
+        TelemetryEventKind? cleared = evaluator.Observe(79);
+        Check(cleared == TelemetryEventKind.AlertCleared, "alerta encerrado logo abaixo do limiar");
+        Check(!evaluator.Alarmed, "não alarmado após encerrar");
+    }
+
+    private static void TestAlertHysteresisPreventsFlapping()
+    {
+        var evaluator = new AlertEvaluator(new AlertOptions(80, 5));
+
+        Check(evaluator.Observe(80) is not null, "alerta disparado no limiar");
+        Check(evaluator.Observe(76) is null, "sem encerramento dentro da faixa de histerese");
+        Check(evaluator.Alarmed, "ainda alarmado dentro da faixa de histerese");
+        Check(evaluator.Observe(75) is not null, "encerra abaixo do limiar menos a histerese");
+        Check(!evaluator.Alarmed, "não alarmado após encerrar com histerese");
+    }
+
+    private static void TestAlertInvalidOptionsAreRejected()
+    {
+        Check(
+            Throws<ArgumentOutOfRangeException>(() => new AlertEvaluator(new AlertOptions(80, -1))),
+            "histerese negativa deve ser rejeitada");
+        Check(
+            Throws<ArgumentOutOfRangeException>(() => new AlertEvaluator(new AlertOptions(80, 81))),
+            "histerese acima do limiar deve ser rejeitada");
+    }
+
+    private static bool Throws<TException>(Action action) where TException : Exception
+    {
+        try
+        {
+            action();
+            return false;
+        }
+        catch (TException)
+        {
+            return true;
         }
     }
 

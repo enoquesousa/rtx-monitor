@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(
     rtx-monitor
-    VERSION 0.3.0
+    VERSION 0.4.0
     DESCRIPTION "Read-only NVIDIA RTX thermal monitor and capability inventory"
     LANGUAGES C CXX
 )
@@ -51,6 +51,7 @@ else()
 endif()
 
 add_library(rtxmon_core STATIC
+    cpp/src/alerts.cpp
     cpp/src/monitor.cpp
     cpp/src/sampler.cpp
 )
@@ -116,6 +117,20 @@ if(RTXMON_BUILD_TESTS)
 
     add_test(NAME rtxmon_sampler COMMAND rtxmon_sampler_tests)
     set_tests_properties(rtxmon_sampler PROPERTIES LABELS "unit;sampler;no-gpu")
+
+    add_executable(rtxmon_alerts_tests
+        cpp/tests/alerts_tests.cpp
+    )
+    target_link_libraries(rtxmon_alerts_tests PRIVATE rtxmon_core)
+
+    if(MSVC)
+        target_compile_options(rtxmon_alerts_tests PRIVATE /W4 /WX /permissive- /utf-8)
+    else()
+        target_compile_options(rtxmon_alerts_tests PRIVATE -Wall -Wextra -Werror)
+    endif()
+
+    add_test(NAME rtxmon_alerts COMMAND rtxmon_alerts_tests)
+    set_tests_properties(rtxmon_alerts PROPERTIES LABELS "unit;alerts;no-gpu")
 
     if(RTXMON_ENABLE_GPU_TESTS)
         add_test(NAME rtxmon_gpu_smoke COMMAND rtxmon_cli --once --json)

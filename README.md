@@ -87,8 +87,21 @@ Para receber também lacunas e recuperações como eventos JSON Lines:
 | `sample` | Uma leitura nova e válida foi obtida |
 | `gap` | Não há leitura atual; o evento informa erro e tempo até a próxima tentativa |
 | `recovered` | O mesmo UUID foi reencontrado após uma ou mais falhas |
+| `alert_raised` | A temperatura do die atingiu o limiar configurado |
+| `alert_cleared` | A temperatura do die caiu do limiar menos a histerese configurada |
 
-Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato está em [telemetry-event-v1.schema.json](docs/schema/telemetry-event-v1.schema.json).
+Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato está em [telemetry-event-v2.schema.json](docs/schema/telemetry-event-v2.schema.json).
+
+## Alerte quando a temperatura cruzar um limiar
+
+`--alert-threshold` liga um alerta durante `--watch`. Ele dispara `alert_raised` na primeira amostra que atinge o limiar. Com a histerese padrão de zero, o alerta permanece ativo enquanto a leitura estiver exatamente no limiar e só encerra quando ela cair abaixo dele. Com uma histerese positiva, `alert_cleared` ocorre ao atingir `limiar - histerese`:
+
+```powershell
+.\build\windows-x64\bin\Release\rtxmon.exe --watch --alert-threshold 80 --alert-hysteresis 5
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe --watch --alert-threshold 80 --alert-hysteresis 5
+```
+
+O alerta reage somente a amostras reais — uma lacuna nunca dispara nem encerra um alerta. Sem `--events`, as transições aparecem como uma linha de diagnóstico em `stderr`, preservando o schema de amostra v1 em `--json`. Com `--events`, elas entram no mesmo stream JSON Lines das amostras, lacunas e recuperações. O limiar é uma política escolhida por quem monitora, não um limite reportado pelo driver.
 
 ## Descubra quais sensores estão disponíveis
 
@@ -132,7 +145,9 @@ O formato JSON completo está documentado em [capabilities-v2.schema.json](docs/
 | `--count N` | Encerra o modo contínuo após `N` amostras; zero significa ilimitado |
 | `--buffer N` | Mantém de 1 a 65536 eventos recentes em memória; o padrão é 256 |
 | `--json` | Produz JSON; no modo contínuo, preserva o schema de amostra v1 |
-| `--events` | Produz o stream completo de `sample`, `gap` e `recovered` |
+| `--events` | Produz o stream completo de eventos (schema v2) como JSON Lines |
+| `--alert-threshold C` | Dispara um alerta durante `--watch` ao atingir `C` °C (0-500) |
+| `--alert-hysteresis C` | Define a margem de encerramento; com zero, o alerta só limpa abaixo do limiar |
 | `--help` | Exibe a ajuda completa |
 
 O CLI C++ usa `--once` como padrão. O aplicativo C# usa `--watch` como padrão.
@@ -205,6 +220,8 @@ A NVAPI é complementar e opcional. Se ela não estiver disponível, a leitura p
 | Integrar com uma aplicação .NET | [csharp/RtxMonitor.Managed/NvidiaMonitor.cs](csharp/RtxMonitor.Managed/NvidiaMonitor.cs) |
 | Estudar reconexão, eventos e buffer em C++ | [cpp/include/rtxmon/sampler.hpp](cpp/include/rtxmon/sampler.hpp) |
 | Estudar o sampler equivalente em C# | [csharp/RtxMonitor.Managed/Sampling.cs](csharp/RtxMonitor.Managed/Sampling.cs) |
+| Estudar o avaliador de alertas em C++ | [cpp/include/rtxmon/alerts.hpp](cpp/include/rtxmon/alerts.hpp) |
+| Estudar o avaliador de alertas em C# | [csharp/RtxMonitor.Managed/Alerts.cs](csharp/RtxMonitor.Managed/Alerts.cs) |
 | Conhecer as decisões de arquitetura | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 
 ## Valide antes de contribuir
@@ -244,8 +261,10 @@ O GitHub Actions usa `scripts/verify-ci.ps1`, que não exige GPU. A validação 
 - [ADR 0001 — uso da NVML](docs/adr/0001-use-nvml.md)
 - [ADR 0002 — descoberta pública de capacidades](docs/adr/0002-public-capability-discovery.md)
 - [ADR 0003 — monitoramento resiliente](docs/adr/0003-resilient-sampling.md)
+- [ADR 0004 — alertas de limiar](docs/adr/0004-threshold-alerts.md)
 - [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
-- [Schema JSON de eventos](docs/schema/telemetry-event-v1.schema.json)
+- [Schema JSON de eventos atual — v2](docs/schema/telemetry-event-v2.schema.json)
+- [Schema JSON histórico de eventos — v1](docs/schema/telemetry-event-v1.schema.json)
 - [Avisos de componentes de terceiros](THIRD_PARTY_NOTICES.md)
 
 ## Referências oficiais

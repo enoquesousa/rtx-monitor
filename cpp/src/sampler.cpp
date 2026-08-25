@@ -314,6 +314,10 @@ const char *telemetry_event_kind_name(TelemetryEventKind kind) noexcept
         return "gap";
     case TelemetryEventKind::recovered:
         return "recovered";
+    case TelemetryEventKind::alert_raised:
+        return "alert_raised";
+    case TelemetryEventKind::alert_cleared:
+        return "alert_cleared";
     default:
         return "unknown";
     }

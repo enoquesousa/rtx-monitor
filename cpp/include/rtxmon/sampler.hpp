@@ -17,6 +17,8 @@ enum class TelemetryEventKind {
     sample,
     gap,
     recovered,
+    alert_raised,
+    alert_cleared,
 };
 
 struct TelemetryEvent {
@@ -30,6 +32,8 @@ struct TelemetryEvent {
     std::string message;
     std::uint32_t consecutive_failures{};
     std::uint32_t retry_after_ms{};
+    std::optional<std::int32_t> alert_threshold_c;
+    std::optional<std::int32_t> alert_hysteresis_c;
 };
 
 struct SamplerOptions {
