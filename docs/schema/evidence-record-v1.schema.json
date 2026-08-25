@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/enoquesousa/rtx-monitor/main/docs/schema/evidence-record-v1.schema.json",
+  "title": "RTX Monitor stored evidence record",
+  "description": "One JSON Lines record emitted by --history --json or --export.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidence_schema_version",
+    "store_schema_version",
+    "event_id",
+    "stored_at_unix_ms",
+    "run",
+    "device_snapshot",
+    "event"
+  ],
+  "properties": {
+    "evidence_schema_version": {
+      "const": 1
+    },
+    "store_schema_version": {
+      "const": 1
+    },
+    "event_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "stored_at_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "run": {
+      "$ref": "#/$defs/run"
+    },
+    "device_snapshot": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/deviceSnapshot"
+        }
+      ]
+    },
+    "event": {
+      "$ref": "telemetry-event-v2.schema.json"
+    }
+  },
+  "$defs": {
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "nullableInteger": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "event_schema_version",
+        "started_at_unix_ms",
+        "completed_at_unix_ms",
+        "completion_reason",
+        "target_gpu_uuid",
+        "interval_ms",
+        "buffer_capacity",
+        "alert_threshold_c",
+        "alert_hysteresis_c",
+        "retention_days",
+        "application_version",
+        "os_description",
+        "os_architecture",
+        "process_architecture"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "event_schema_version": {
+          "const": 2
+        },
+        "started_at_unix_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_at_unix_ms": {
+          "$ref": "#/$defs/nullableInteger"
+        },
+        "completion_reason": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "target_gpu_uuid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "interval_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
+        "buffer_capacity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
+        "alert_threshold_c": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 500
+            }
+          ]
+        },
+        "alert_hysteresis_c": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 500
+        },
+        "retention_days": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 3650
+        },
+        "application_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os_description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "os_architecture": {
+          "type": "string",
+          "minLength": 1
+        },
+        "process_architecture": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "deviceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshot_id",
+        "observed_at_unix_ms",
+        "board_capture_state",
+        "board_capture_error",
+        "gpu",
+        "board"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "observed_at_unix_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "board_capture_state": {
+          "enum": [
+            "not_attempted",
+            "available",
+            "query_failed"
+          ]
+        },
+        "board_capture_error": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "gpu": {
+          "$ref": "#/$defs/gpu"
+        },
+        "board": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/board"
+            }
+          ]
+        }
+      }
+    },
+    "gpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "name",
+        "uuid",
+        "driver_version",
+        "nvml_version"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uuid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "driver_version": {
+          "type": "string"
+        },
+        "nvml_version": {
+          "type": "string"
+        }
+      }
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "flags",
+        "pci_identity_available",
+        "pci_bus_id",
+        "pci_vendor_id",
+        "pci_device_id",
+        "pci_subsystem_vendor_id",
+        "pci_subsystem_device_id",
+        "pci_domain",
+        "pci_bus",
+        "pci_device",
+        "pci_function",
+        "vbios_available",
+        "vbios_version",
+        "profile_key"
+      ],
+      "properties": {
+        "flags": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "pci_identity_available": {
+          "type": "boolean"
+        },
+        "pci_bus_id": {
+          "type": "string"
+        },
+        "pci_vendor_id": {
+          "$ref": "#/$defs/uint32"
+        },
+        "pci_device_id": {
+          "$ref": "#/$defs/uint32"
+        },
+        "pci_subsystem_vendor_id": {
+          "$ref": "#/$defs/uint32"
+        },
+        "pci_subsystem_device_id": {
+          "$ref": "#/$defs/uint32"
+        },
+        "pci_domain": {
+          "$ref": "#/$defs/uint32"
+        },
+        "pci_bus": {
+          "$ref": "#/$defs/uint32"
+        },
+        "pci_device": {
+          "$ref": "#/$defs/uint32"
+        },
+        "pci_function": {
+          "$ref": "#/$defs/uint32"
+        },
+        "vbios_available": {
+          "type": "boolean"
+        },
+        "vbios_version": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "profile_key": {
+          "$ref": "#/$defs/nullableString"
+        }
+      }
+    },
+    "uint32": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    }
+  }
+}

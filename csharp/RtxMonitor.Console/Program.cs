@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using RtxMonitor.Managed;
+using RtxMonitor.Storage;
 
 namespace RtxMonitor.ConsoleApp;
 
@@ -11,6 +12,8 @@ internal enum RunMode
     Once,
     List,
     Capabilities,
+    History,
+    Export,
 }
 
 internal sealed record Options(
@@ -23,7 +26,15 @@ internal sealed record Options(
     bool Json,
     bool Events,
     int? AlertThresholdC,
-    int AlertHysteresisC);
+    int AlertHysteresisC,
+    string? DatabasePath,
+    int RetentionDays,
+    string? RunId,
+    TelemetryEventKind? EventKind,
+    long? FromUnixMilliseconds,
+    long? ToUnixMilliseconds,
+    ulong? AfterSequence,
+    int QueryLimit);
 
 internal sealed class RunningStatistics
 {
@@ -54,6 +65,15 @@ internal static class Program
         {
             Console.OutputEncoding = Encoding.UTF8;
             Options options = ParseOptions(args);
+
+            if (options.Mode == RunMode.History)
+            {
+                return PrintHistory(options);
+            }
+            if (options.Mode == RunMode.Export)
+            {
+                return ExportHistory(options);
+            }
 
             if (options.Mode == RunMode.Watch)
             {
@@ -143,6 +163,20 @@ internal static class Program
         bool events = false;
         int? alertThresholdC = null;
         int? alertHysteresisC = null;
+        string? databasePath = null;
+        int retentionDays = 30;
+        string? runId = null;
+        TelemetryEventKind? eventKind = null;
+        long? fromUnixMilliseconds = null;
+        long? toUnixMilliseconds = null;
+        ulong? afterSequence = null;
+        int queryLimit = 100;
+        bool intervalSet = false;
+        bool countSet = false;
+        bool bufferSet = false;
+        bool retentionSet = false;
+        bool queryFilterSet = false;
+        bool queryLimitSet = false;
 
         for (int index = 0; index < args.Length; index++)
         {
@@ -166,6 +200,12 @@ internal static class Program
                 case "--capabilities":
                     mode = RunMode.Capabilities;
                     break;
+                case "--history":
+                    mode = RunMode.History;
+                    break;
+                case "--export":
+                    mode = RunMode.Export;
+                    break;
                 case "--json":
                     json = true;
                     break;
@@ -185,18 +225,66 @@ internal static class Program
                     break;
                 case "--interval":
                     interval = ParseInt32(NextValue(args, ref index, argument), argument);
+                    intervalSet = true;
                     break;
                 case "--count":
                     count = ParseInt64(NextValue(args, ref index, argument), argument);
+                    countSet = true;
                     break;
                 case "--buffer":
                     bufferCapacity = ParseInt32(NextValue(args, ref index, argument), argument);
+                    bufferSet = true;
                     break;
                 case "--alert-threshold":
                     alertThresholdC = ParseInt32(NextValue(args, ref index, argument), argument);
                     break;
                 case "--alert-hysteresis":
                     alertHysteresisC = ParseInt32(NextValue(args, ref index, argument), argument);
+                    break;
+                case "--database":
+                    databasePath = NextValue(args, ref index, argument);
+                    if (string.IsNullOrWhiteSpace(databasePath))
+                    {
+                        throw new ArgumentException("--database não pode estar vazio");
+                    }
+                    break;
+                case "--retention-days":
+                    retentionDays = ParseInt32(NextValue(args, ref index, argument), argument);
+                    retentionSet = true;
+                    break;
+                case "--run-id":
+                    runId = NextValue(args, ref index, argument);
+                    if (string.IsNullOrWhiteSpace(runId))
+                    {
+                        throw new ArgumentException("--run-id não pode estar vazio");
+                    }
+                    queryFilterSet = true;
+                    break;
+                case "--event-type":
+                    eventKind = ParseEventKind(NextValue(args, ref index, argument));
+                    queryFilterSet = true;
+                    break;
+                case "--from-unix-ms":
+                    fromUnixMilliseconds = ParseInt64(
+                        NextValue(args, ref index, argument),
+                        argument);
+                    queryFilterSet = true;
+                    break;
+                case "--to-unix-ms":
+                    toUnixMilliseconds = ParseInt64(
+                        NextValue(args, ref index, argument),
+                        argument);
+                    queryFilterSet = true;
+                    break;
+                case "--after-sequence":
+                    afterSequence = ParseUInt64(
+                        NextValue(args, ref index, argument),
+                        argument);
+                    queryFilterSet = true;
+                    break;
+                case "--limit":
+                    queryLimit = ParseInt32(NextValue(args, ref index, argument), argument);
+                    queryLimitSet = true;
                     break;
                 default:
                     throw new ArgumentException($"opção desconhecida: {argument}; use --help");
@@ -240,6 +328,59 @@ internal static class Program
         {
             throw new ArgumentException("--alert-hysteresis deve estar entre 0 e o limiar");
         }
+        if (retentionDays is < 1 or > 3650)
+        {
+            throw new ArgumentException("--retention-days deve estar entre 1 e 3650");
+        }
+        if (queryLimit is < 1 or > 10000)
+        {
+            throw new ArgumentException("--limit deve estar entre 1 e 10000");
+        }
+        if (fromUnixMilliseconds < 0 || toUnixMilliseconds < 0)
+        {
+            throw new ArgumentException("os timestamps da consulta não podem ser negativos");
+        }
+        if (fromUnixMilliseconds > toUnixMilliseconds)
+        {
+            throw new ArgumentException("--from-unix-ms não pode ser posterior a --to-unix-ms");
+        }
+
+        bool queryMode = mode is RunMode.History or RunMode.Export;
+        if (queryMode && databasePath is null)
+        {
+            throw new ArgumentException("--history e --export exigem --database PATH");
+        }
+        if (databasePath is not null &&
+            mode is not (RunMode.Watch or RunMode.History or RunMode.Export))
+        {
+            throw new ArgumentException("--database só pode ser usado com --watch, --history ou --export");
+        }
+        if (retentionSet && (mode != RunMode.Watch || databasePath is null))
+        {
+            throw new ArgumentException("--retention-days exige --watch --database PATH");
+        }
+        if ((queryFilterSet || queryLimitSet) && !queryMode)
+        {
+            throw new ArgumentException(
+                "--run-id, --event-type, filtros de tempo, --after-sequence e --limit exigem --history ou --export");
+        }
+        if (queryMode && gpuIndexSet)
+        {
+            throw new ArgumentException("consultas históricas usam --gpu-uuid, não --gpu");
+        }
+        if (queryMode && (events || alertThresholdC is not null || intervalSet || countSet || bufferSet))
+        {
+            throw new ArgumentException(
+                "opções de coleta não podem ser usadas com --history ou --export");
+        }
+        if (mode == RunMode.Export && queryLimitSet)
+        {
+            throw new ArgumentException("--export percorre todo o recorte; --limit é exclusivo de --history");
+        }
+        if (afterSequence is not null && runId is null)
+        {
+            throw new ArgumentException("--after-sequence exige --run-id");
+        }
 
         return new Options(
             mode,
@@ -251,7 +392,15 @@ internal static class Program
             json,
             events,
             alertThresholdC,
-            alertHysteresisC ?? 0);
+            alertHysteresisC ?? 0,
+            databasePath,
+            retentionDays,
+            runId,
+            eventKind,
+            fromUnixMilliseconds,
+            toUnixMilliseconds,
+            afterSequence,
+            queryLimit);
     }
 
     private static string NextValue(string[] args, ref int index, string option)
@@ -279,6 +428,22 @@ internal static class Program
             ? parsed
             : throw new ArgumentException($"valor inválido para {option}: {value}");
 
+    private static ulong ParseUInt64(string value, string option) =>
+        ulong.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out ulong parsed)
+            ? parsed
+            : throw new ArgumentException($"valor inválido para {option}: {value}");
+
+    private static TelemetryEventKind ParseEventKind(string value) => value switch
+    {
+        "sample" => TelemetryEventKind.Sample,
+        "gap" => TelemetryEventKind.Gap,
+        "recovered" => TelemetryEventKind.Recovered,
+        "alert_raised" => TelemetryEventKind.AlertRaised,
+        "alert_cleared" => TelemetryEventKind.AlertCleared,
+        _ => throw new ArgumentException(
+            $"valor inválido para --event-type: {value}; use sample, gap, recovered, alert_raised ou alert_cleared"),
+    };
+
     private static void PrintHelp()
     {
         Console.WriteLine(
@@ -292,6 +457,8 @@ internal static class Program
               dotnet RtxMonitor.Console.dll --once [--gpu INDEX | --gpu-uuid UUID] [--json]
               dotnet RtxMonitor.Console.dll --list [--json]
               dotnet RtxMonitor.Console.dll --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]
+              dotnet RtxMonitor.Console.dll --history --database PATH [filtros] [--json]
+              dotnet RtxMonitor.Console.dll --export --database PATH [filtros]
 
             Opções:
               --watch         Monitor contínuo (padrão)
@@ -307,8 +474,115 @@ internal static class Program
               --events        Emite o stream completo de eventos (schema v2) como JSON Lines
               --alert-threshold C   Dispara um alerta durante --watch ao atingir C °C (0-500)
               --alert-hysteresis C  Limpa em limiar-C; com 0, somente abaixo do limiar
+              --database PATH Persiste --watch em SQLite ou seleciona o banco de uma consulta
+              --retention-days N  Retém de 1 a 3650 dias (padrão: 30; exige --watch --database)
+              --history       Consulta até --limit eventos; --json emite evidence records JSON Lines
+              --export        Exporta todo o recorte como evidence records JSON Lines no stdout
+              --run-id ID     Filtra uma sessão de monitoramento
+              --event-type T  Filtra sample, gap, recovered, alert_raised ou alert_cleared
+              --from-unix-ms N  Inclui eventos observados a partir do timestamp
+              --to-unix-ms N    Inclui eventos observados até o timestamp
+              --after-sequence N  Exclui sequências até N; exige --run-id
+              --limit N       Limite de 1 a 10000 no modo --history (padrão: 100)
               --help          Mostra esta ajuda
             """);
+    }
+
+    private static int PrintHistory(Options options)
+    {
+        SqliteTelemetryStore store = OpenExistingStore(options);
+        IReadOnlyList<StoredTelemetryEvidence> records = store.QueryEvents(
+            BuildHistoryQuery(options, options.QueryLimit, ascending: false));
+
+        foreach (StoredTelemetryEvidence record in records)
+        {
+            if (options.Json)
+            {
+                Console.WriteLine(EvidenceJson.Serialize(record));
+            }
+            else
+            {
+                PrintHistoryRecord(record);
+            }
+        }
+
+        if (records.Count == 0 && !options.Json)
+        {
+            Console.WriteLine("Nenhum evento corresponde aos filtros informados.");
+        }
+
+        return 0;
+    }
+
+    private static int ExportHistory(Options options)
+    {
+        const int pageSize = 1000;
+        SqliteTelemetryStore store = OpenExistingStore(options);
+        long? maximumEventId = store.GetMaximumEventId();
+        if (maximumEventId is null)
+        {
+            return 0;
+        }
+
+        long? afterEventId = null;
+        while (afterEventId is null || afterEventId < maximumEventId)
+        {
+            TelemetryEventQuery query = BuildHistoryQuery(
+                options,
+                pageSize,
+                ascending: true) with
+            {
+                AfterEventId = afterEventId,
+                ThroughEventId = maximumEventId,
+            };
+            IReadOnlyList<StoredTelemetryEvidence> records = store.QueryEvents(query);
+            if (records.Count == 0)
+            {
+                break;
+            }
+
+            foreach (StoredTelemetryEvidence record in records)
+            {
+                Console.WriteLine(EvidenceJson.Serialize(record));
+            }
+
+            afterEventId = records[^1].EventId;
+        }
+
+        return 0;
+    }
+
+    private static SqliteTelemetryStore OpenExistingStore(Options options) =>
+        SqliteTelemetryStore.Open(
+            new TelemetryStoreOptions(
+                options.DatabasePath!,
+                openMode: TelemetryStoreOpenMode.OpenExisting));
+
+    private static TelemetryEventQuery BuildHistoryQuery(
+        Options options,
+        int limit,
+        bool ascending) =>
+        new(
+            RunId: options.RunId,
+            TargetGpuUuid: options.GpuUuid,
+            EventKind: options.EventKind,
+            FromUnixMilliseconds: options.FromUnixMilliseconds,
+            ToUnixMilliseconds: options.ToUnixMilliseconds,
+            AfterSequence: options.AfterSequence,
+            Limit: limit,
+            Ascending: ascending);
+
+    private static void PrintHistoryRecord(StoredTelemetryEvidence record)
+    {
+        using JsonDocument document = JsonDocument.Parse(record.EventJson);
+        JsonElement root = document.RootElement;
+        string value = root.GetProperty("sample").ValueKind == JsonValueKind.Object
+            ? $"{root.GetProperty("sample").GetProperty("temperature_c").GetInt32()} °C"
+            : root.GetProperty("status").GetString() ?? "estado desconhecido";
+        string profile = record.DeviceSnapshot?.ProfileKey ?? "perfil indisponível";
+        Console.WriteLine(
+            $"{record.EventId,8} | {record.ObservedAt:O} | {record.EventKindName,-13} | " +
+            $"run {record.Run.RunId} seq {record.StreamSequence} | {value} | {profile}");
     }
 
     private static void PrintGpuList(IReadOnlyList<GpuInfo> gpus, bool json)
@@ -487,149 +761,243 @@ internal static class Program
             ? new AlertEvaluator(new AlertOptions(alertThresholdC, options.AlertHysteresisC))
             : null;
         ulong streamSequence = 0;
+        SqliteTelemetryStore? store = null;
+        string? runId = null;
+        long? currentSnapshotId = null;
+        string? currentSnapshotFingerprint = null;
+        string completionReason = "error";
+        Exception? monitoringError = null;
 
-        if (dashboard)
+        if (options.DatabasePath is not null)
         {
-            Console.Write("\u001b[2J");
+            store = SqliteTelemetryStore.Open(
+                new TelemetryStoreOptions(
+                    options.DatabasePath,
+                    TimeSpan.FromDays(options.RetentionDays)));
+            RetentionResult retention = store.ApplyRetention(DateTimeOffset.UtcNow);
+            runId = store.StartRun(
+                new MonitoringRunOptions(
+                    targetUuid,
+                    options.IntervalMilliseconds,
+                    options.BufferCapacity,
+                    options.AlertThresholdC,
+                    options.AlertHysteresisC,
+                    ApplicationVersion(),
+                    DateTimeOffset.UtcNow));
+            Console.Error.WriteLine(
+                $"rtxmon-csharp: persistência ativa em {store.DatabasePath} | run {runId} | " +
+                $"retenção {options.RetentionDays} dia(s) | removidos " +
+                $"{retention.EventsDeleted} evento(s)");
         }
 
-        while (!cancellation.IsCancellationRequested &&
-               (options.Count == 0 || samples < options.Count))
+        try
         {
-            IReadOnlyList<TelemetryEvent> events = sampler.Poll();
-            foreach (TelemetryEvent sampledEvent in events)
+            if (dashboard)
             {
-                TelemetryEvent telemetryEvent = sampledEvent with
-                {
-                    Sequence = ++streamSequence,
-                };
+                Console.Write("\u001b[2J");
+            }
 
-                if (telemetryEvent.Sample is TemperatureSample sample)
+            while (!cancellation.IsCancellationRequested &&
+                   (options.Count == 0 || samples < options.Count))
+            {
+                IReadOnlyList<TelemetryEvent> events = sampler.Poll();
+                foreach (TelemetryEvent sampledEvent in events)
                 {
-                    statistics.Add(sample.TemperatureC);
-                    samples++;
-                }
-
-                if (dashboard)
-                {
-                    RenderDashboard(
-                        targetUuid,
-                        initialGpu,
-                        telemetryEvent,
-                        statistics,
-                        options.IntervalMilliseconds,
-                        alertEvaluator);
-                }
-                else if (options.Events)
-                {
-                    PrintTelemetryEvent(telemetryEvent);
-                }
-                else if (telemetryEvent.Sample is TemperatureSample current &&
-                         telemetryEvent.Gpu is GpuInfo gpu)
-                {
-                    PrintSample(gpu, current, options.Json);
-                }
-                else
-                {
-                    PrintTelemetryDiagnostic(telemetryEvent);
-                }
-
-                if (alertEvaluator is not null &&
-                    telemetryEvent.Kind == TelemetryEventKind.Sample &&
-                    telemetryEvent.Sample is TemperatureSample sampleForAlert)
-                {
-                    TelemetryEventKind? alertKind = alertEvaluator.Observe(sampleForAlert.TemperatureC);
-                    if (alertKind is TelemetryEventKind kind)
+                    TelemetryEvent telemetryEvent = sampledEvent with
                     {
-                        TelemetryEvent alertEvent = telemetryEvent with
-                        {
-                            Sequence = ++streamSequence,
-                            Kind = kind,
-                            AlertThresholdC = alertEvaluator.Options.ThresholdC,
-                            AlertHysteresisC = alertEvaluator.Options.HysteresisC,
-                            Message = AlertMessage(kind, sampleForAlert.TemperatureC, alertEvaluator.Options),
-                        };
+                        Sequence = ++streamSequence,
+                    };
 
-                        if (dashboard)
+                    if (store is not null && runId is not null)
+                    {
+                        if (telemetryEvent.Gpu is GpuInfo observedGpu)
                         {
-                            RenderDashboard(
-                                targetUuid,
-                                initialGpu,
-                                alertEvent,
-                                statistics,
-                                options.IntervalMilliseconds,
-                                alertEvaluator);
+                            string fingerprint = GpuFingerprint(observedGpu);
+                            if (currentSnapshotId is null ||
+                                !string.Equals(
+                                    fingerprint,
+                                    currentSnapshotFingerprint,
+                                    StringComparison.Ordinal))
+                            {
+                                GpuEvidenceSnapshot snapshot = CaptureGpuEvidence(observedGpu);
+                                currentSnapshotId = store.RegisterGpuSnapshot(runId, snapshot);
+                                currentSnapshotFingerprint = fingerprint;
+                            }
                         }
-                        else if (options.Events)
+
+                        store.AppendEvent(runId, telemetryEvent, currentSnapshotId);
+                    }
+
+                    if (telemetryEvent.Sample is TemperatureSample sample)
+                    {
+                        statistics.Add(sample.TemperatureC);
+                        samples++;
+                    }
+
+                    if (dashboard)
+                    {
+                        RenderDashboard(
+                            targetUuid,
+                            initialGpu,
+                            telemetryEvent,
+                            statistics,
+                            options.IntervalMilliseconds,
+                            alertEvaluator);
+                    }
+                    else if (options.Events)
+                    {
+                        PrintTelemetryEvent(telemetryEvent);
+                    }
+                    else if (telemetryEvent.Sample is TemperatureSample current &&
+                             telemetryEvent.Gpu is GpuInfo gpu)
+                    {
+                        PrintSample(gpu, current, options.Json);
+                    }
+                    else
+                    {
+                        PrintTelemetryDiagnostic(telemetryEvent);
+                    }
+
+                    if (alertEvaluator is not null &&
+                        telemetryEvent.Kind == TelemetryEventKind.Sample &&
+                        telemetryEvent.Sample is TemperatureSample sampleForAlert)
+                    {
+                        TelemetryEventKind? alertKind = alertEvaluator.Observe(sampleForAlert.TemperatureC);
+                        if (alertKind is TelemetryEventKind kind)
                         {
-                            PrintTelemetryEvent(alertEvent);
-                        }
-                        else
-                        {
-                            PrintTelemetryDiagnostic(alertEvent);
+                            TelemetryEvent alertEvent = telemetryEvent with
+                            {
+                                Sequence = ++streamSequence,
+                                Kind = kind,
+                                AlertThresholdC = alertEvaluator.Options.ThresholdC,
+                                AlertHysteresisC = alertEvaluator.Options.HysteresisC,
+                                Message = AlertMessage(
+                                    kind,
+                                    sampleForAlert.TemperatureC,
+                                    alertEvaluator.Options),
+                            };
+
+                            store?.AppendEvent(runId!, alertEvent, currentSnapshotId);
+
+                            if (dashboard)
+                            {
+                                RenderDashboard(
+                                    targetUuid,
+                                    initialGpu,
+                                    alertEvent,
+                                    statistics,
+                                    options.IntervalMilliseconds,
+                                    alertEvaluator);
+                            }
+                            else if (options.Events)
+                            {
+                                PrintTelemetryEvent(alertEvent);
+                            }
+                            else
+                            {
+                                PrintTelemetryDiagnostic(alertEvent);
+                            }
                         }
                     }
                 }
+
+                if (options.Count != 0 && samples >= options.Count)
+                {
+                    break;
+                }
+
+                try
+                {
+                    uint delay = sampler.NextDelayMilliseconds(
+                        checked((uint)options.IntervalMilliseconds));
+                    await Task.Delay(TimeSpan.FromMilliseconds(delay), cancellation.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
 
-            if (options.Count != 0 && samples >= options.Count)
+            if (dashboard)
             {
-                break;
+                Console.WriteLine();
             }
 
-            try
-            {
-                uint delay = sampler.NextDelayMilliseconds(
-                    checked((uint)options.IntervalMilliseconds));
-                await Task.Delay(TimeSpan.FromMilliseconds(delay), cancellation.Token)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            completionReason = cancellation.IsCancellationRequested ? "cancelled" : "completed";
+            return 0;
         }
-
-        if (dashboard)
+        catch (Exception error)
         {
-            Console.WriteLine();
+            monitoringError = error;
+            throw;
         }
-
-        return 0;
+        finally
+        {
+            if (store is not null && runId is not null)
+            {
+                try
+                {
+                    store.CompleteRun(runId, completionReason, DateTimeOffset.UtcNow);
+                }
+                catch (Exception completionError) when (monitoringError is not null)
+                {
+                    Console.Error.WriteLine(
+                        $"rtxmon-csharp: também não foi possível encerrar o run {runId}: " +
+                        completionError.Message);
+                }
+            }
+        }
     }
 
-    private static void PrintTelemetryEvent(TelemetryEvent telemetryEvent)
+    private static string ApplicationVersion() =>
+        typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "unknown";
+
+    private static string GpuFingerprint(GpuInfo gpu) =>
+        $"{gpu.Uuid}\u001f{gpu.Index}\u001f{gpu.Name}\u001f{gpu.DriverVersion}\u001f{gpu.NvmlVersion}";
+
+    private static GpuEvidenceSnapshot CaptureGpuEvidence(GpuInfo gpu)
     {
-        object? sample = telemetryEvent.Sample is TemperatureSample current
-            ? new
-            {
-                temperature_c = current.TemperatureC,
-                sensor = "gpu_die",
-                backend = current.BackendName,
-                timestamp_unix_ms = current.TimestampUnixMilliseconds,
-            }
-            : null;
-
-        var payload = new
+        DateTimeOffset observedAt = DateTimeOffset.UtcNow;
+        try
         {
-            schema_version = 2,
-            event_type = telemetryEvent.KindName,
-            sequence = telemetryEvent.Sequence,
-            target_gpu_uuid = telemetryEvent.TargetGpuUuid,
-            gpu_index = telemetryEvent.Gpu?.Index,
-            gpu_name = telemetryEvent.Gpu?.Name,
-            observed_at_unix_ms = telemetryEvent.ObservedAtUnixMilliseconds,
-            status = telemetryEvent.StatusName,
-            status_code = (int)telemetryEvent.Status,
-            message = telemetryEvent.Message,
-            consecutive_failures = telemetryEvent.ConsecutiveFailures,
-            retry_after_ms = telemetryEvent.RetryAfterMilliseconds,
-            sample,
-            alert_threshold_c = telemetryEvent.AlertThresholdC,
-            alert_hysteresis_c = telemetryEvent.AlertHysteresisC,
-        };
-        Console.WriteLine(JsonSerializer.Serialize(payload));
+            using NvidiaMonitor monitor = NvidiaMonitor.Open();
+            GpuInfo current = monitor.GetGpuByUuid(gpu.Uuid);
+            if (current.Index != gpu.Index)
+            {
+                return new GpuEvidenceSnapshot(
+                    gpu,
+                    null,
+                    BoardEvidenceState.QueryFailed,
+                    $"O índice mudou de {gpu.Index} para {current.Index} durante a captura da identidade.",
+                    observedAt);
+            }
+
+            BoardIdentity board = monitor.GetBoardIdentity(current.Index);
+            return new GpuEvidenceSnapshot(
+                gpu,
+                board,
+                BoardEvidenceState.Available,
+                null,
+                observedAt);
+        }
+        catch (Exception error) when (error is
+            RtxMonitorException or
+            DllNotFoundException or
+            EntryPointNotFoundException or
+            BadImageFormatException)
+        {
+            return new GpuEvidenceSnapshot(
+                gpu,
+                null,
+                BoardEvidenceState.QueryFailed,
+                error.Message,
+                observedAt);
+        }
     }
+
+    private static void PrintTelemetryEvent(TelemetryEvent telemetryEvent) =>
+        Console.WriteLine(TelemetryJson.Serialize(telemetryEvent));
 
     private static void PrintTelemetryDiagnostic(TelemetryEvent telemetryEvent)
     {
