@@ -1,3 +1,4 @@
+#include <rtxmon/alerts.hpp>
 #include <rtxmon/monitor.hpp>
 #include <rtxmon/sampler.hpp>
 
@@ -39,6 +40,10 @@ struct Options {
     std::size_t buffer_capacity{256U};
     bool json{false};
     bool events{false};
+    bool alert_enabled{false};
+    bool alert_hysteresis_set{false};
+    std::int32_t alert_threshold_c{0};
+    std::int32_t alert_hysteresis_c{0};
 };
 
 void on_interrupt(int)
@@ -72,6 +77,7 @@ void print_help()
         << "  rtxmon [--once] [--gpu INDEX | --gpu-uuid UUID] [--json]\n"
         << "  rtxmon --watch [--gpu INDEX | --gpu-uuid UUID] [--interval MS] [--count N] [--json]\n"
         << "  rtxmon --watch --events [--gpu INDEX | --gpu-uuid UUID] [--interval MS] [--count N]\n"
+        << "  rtxmon --watch --alert-threshold C [--alert-hysteresis C] [--events]\n"
         << "  rtxmon --list [--json]\n"
         << "  rtxmon --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]\n\n"
         << "Options:\n"
@@ -85,7 +91,9 @@ void print_help()
         << "  --count N       Stop watch mode after N samples; 0 means unlimited\n"
         << "  --buffer N      Retain the most recent 1 to 65536 events (default: 256)\n"
         << "  --json          Emit JSON (sample schema v1 in watch mode)\n"
-        << "  --events        Emit sample, gap, and recovered events as JSON Lines\n"
+        << "  --events        Emit the full event stream (schema v2) as JSON Lines\n"
+        << "  --alert-threshold C   Raise an alert while --watch when die temperature reaches C (0-500)\n"
+        << "  --alert-hysteresis C  Clear at threshold-C; 0 clears only below threshold\n"
         << "  --help          Show this help\n";
 }
 
@@ -127,7 +135,8 @@ Options parse_options(int argc, char **argv)
 
         if (argument == "--gpu" || argument == "--gpu-uuid" ||
             argument == "--interval" || argument == "--count" ||
-            argument == "--buffer") {
+            argument == "--buffer" || argument == "--alert-threshold" ||
+            argument == "--alert-hysteresis") {
             if (index + 1 >= argc) {
                 usage_error(std::string{"missing value for "} + std::string{argument});
             }
@@ -144,8 +153,16 @@ Options parse_options(int argc, char **argv)
                 options.interval_ms = parse_unsigned<std::uint32_t>(value, "--interval");
             } else if (argument == "--count") {
                 options.count = parse_unsigned<std::uint64_t>(value, "--count");
-            } else {
+            } else if (argument == "--buffer") {
                 options.buffer_capacity = parse_unsigned<std::size_t>(value, "--buffer");
+            } else if (argument == "--alert-threshold") {
+                options.alert_threshold_c =
+                    static_cast<std::int32_t>(parse_unsigned<std::uint32_t>(value, "--alert-threshold"));
+                options.alert_enabled = true;
+            } else {
+                options.alert_hysteresis_c =
+                    static_cast<std::int32_t>(parse_unsigned<std::uint32_t>(value, "--alert-hysteresis"));
+                options.alert_hysteresis_set = true;
             }
             continue;
         }
@@ -164,6 +181,18 @@ Options parse_options(int argc, char **argv)
     }
     if (options.events && options.mode != Mode::watch) {
         usage_error("--events requires --watch");
+    }
+    if (options.alert_enabled && options.mode != Mode::watch) {
+        usage_error("--alert-threshold requires --watch");
+    }
+    if (!options.alert_enabled && options.alert_hysteresis_set) {
+        usage_error("--alert-hysteresis requires --alert-threshold");
+    }
+    if (options.alert_threshold_c < 0 || options.alert_threshold_c > 500) {
+        usage_error("--alert-threshold must be between 0 and 500 C");
+    }
+    if (options.alert_hysteresis_c < 0 || options.alert_hysteresis_c > options.alert_threshold_c) {
+        usage_error("--alert-hysteresis must be between 0 and the threshold");
     }
 
     return options;
@@ -282,10 +311,19 @@ rtxmon::GpuInfo resolve_gpu(const rtxmon::Monitor &monitor, const Options &optio
         : monitor.gpu_by_uuid(options.gpu_uuid);
 }
 
+void print_nullable_int(std::optional<std::int32_t> value)
+{
+    if (value.has_value()) {
+        std::cout << *value;
+    } else {
+        std::cout << "null";
+    }
+}
+
 void print_event_json(const rtxmon::TelemetryEvent &event)
 {
     std::cout
-        << "{\"schema_version\":1"
+        << "{\"schema_version\":2"
         << ",\"event_type\":\"" << rtxmon::telemetry_event_kind_name(event.kind)
         << "\",\"sequence\":" << event.sequence
         << ",\"target_gpu_uuid\":\"" << json_escape(event.target_gpu_uuid)
@@ -320,6 +358,10 @@ void print_event_json(const rtxmon::TelemetryEvent &event)
     } else {
         std::cout << "null";
     }
+    std::cout << ",\"alert_threshold_c\":";
+    print_nullable_int(event.alert_threshold_c);
+    std::cout << ",\"alert_hysteresis_c\":";
+    print_nullable_int(event.alert_hysteresis_c);
     std::cout << "}\n";
     std::cout.flush();
 }
@@ -341,11 +383,19 @@ void print_event_text(const rtxmon::TelemetryEvent &event)
         return;
     }
 
+    if (event.kind == rtxmon::TelemetryEventKind::recovered) {
+        std::cerr << iso_utc(event.observed_at_unix_ms)
+                  << " | GPU " << event.target_gpu_uuid
+                  << " | monitoring recovered after " << event.consecutive_failures
+                  << (event.consecutive_failures == 1U ? " failure" : " failures")
+                  << '\n';
+        return;
+    }
+
     std::cerr << iso_utc(event.observed_at_unix_ms)
               << " | GPU " << event.target_gpu_uuid
-              << " | monitoring recovered after " << event.consecutive_failures
-              << (event.consecutive_failures == 1U ? " failure" : " failures")
-              << '\n';
+              << " | " << rtxmon::telemetry_event_kind_name(event.kind)
+              << " | " << event.message << '\n';
 }
 
 void print_watch_event(const rtxmon::TelemetryEvent &event, const Options &options)
@@ -518,6 +568,23 @@ void print_capability_report_text(
         << "\nOnly public driver-reported channels are listed; unavailable hotspot, memory, or VRM readings are not inferred.\n";
 }
 
+std::string alert_message(
+    rtxmon::TelemetryEventKind kind,
+    std::int32_t temperature_c,
+    const Options &options)
+{
+    std::ostringstream message;
+    if (kind == rtxmon::TelemetryEventKind::alert_raised) {
+        message << "die temperature " << temperature_c << " C reached alert threshold "
+                 << options.alert_threshold_c << " C";
+    } else {
+        message << "die temperature " << temperature_c << " C cleared alert threshold "
+                 << options.alert_threshold_c << " C (hysteresis " << options.alert_hysteresis_c
+                 << " C)";
+    }
+    return message.str();
+}
+
 int run_watch(const Options &options)
 {
     std::string target_uuid = options.gpu_uuid;
@@ -530,15 +597,37 @@ int run_watch(const Options &options)
         target_uuid,
         rtxmon::SamplerOptions{options.buffer_capacity, 250U, 5000U}};
 
+    std::optional<rtxmon::AlertEvaluator> alert_evaluator;
+    if (options.alert_enabled) {
+        alert_evaluator.emplace(
+            rtxmon::AlertOptions{options.alert_threshold_c, options.alert_hysteresis_c});
+    }
+    std::uint64_t stream_sequence = 1U;
+
     running.store(true);
     std::signal(SIGINT, on_interrupt);
     std::uint64_t samples = 0U;
     while (running.load() && (options.count == 0U || samples < options.count)) {
         const auto events = sampler.poll();
-        for (const auto &event : events) {
+        for (auto event : events) {
+            event.sequence = stream_sequence++;
             print_watch_event(event, options);
             if (event.kind == rtxmon::TelemetryEventKind::sample) {
                 ++samples;
+
+                if (alert_evaluator.has_value() && event.sample.has_value()) {
+                    const auto alert_kind = alert_evaluator->observe(event.sample->temperature_c);
+                    if (alert_kind.has_value()) {
+                        auto alert_event = event;
+                        alert_event.sequence = stream_sequence++;
+                        alert_event.kind = *alert_kind;
+                        alert_event.alert_threshold_c = options.alert_threshold_c;
+                        alert_event.alert_hysteresis_c = options.alert_hysteresis_c;
+                        alert_event.message =
+                            alert_message(*alert_kind, event.sample->temperature_c, options);
+                        print_watch_event(alert_event, options);
+                    }
+                }
             }
         }
 

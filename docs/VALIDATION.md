@@ -14,10 +14,15 @@ Uma entrega é considerada válida quando:
 8. C++ e C# retornam a mesma identidade PCI/VBIOS e o mesmo conjunto de capabilities;
 9. o campo público de temperatura da memória sempre gera um registro, inclusive quando não suportado;
 10. o JSON Schema de capabilities declara `schema_version = 2`;
-11. o JSON Schema de eventos declara `schema_version = 1` e os três tipos de evento;
+11. o JSON Schema v1 permanece disponível para eventos históricos, enquanto o v2 declara os cinco tipos atuais;
 12. testes sem GPU reproduzem gap, backoff limitado, recuperação e mudança de índice para o mesmo UUID;
 13. o buffer circular descarta somente os eventos mais antigos ao atingir sua capacidade;
-14. C++ e C# selecionam o mesmo UUID e emitem envelopes equivalentes em um stream saudável.
+14. C++ e C# selecionam o mesmo UUID e emitem envelopes equivalentes em um stream saudável;
+15. `--alert-threshold` fora de `--watch` e `--alert-hysteresis 0` sem limiar são rejeitados sem tocar a GPU;
+16. um limiar de alerta de 0 °C dispara `alert_raised` na primeira amostra em C++ e C#, com o mesmo UUID e o mesmo limiar no envelope;
+17. manter a leitura exatamente no limiar não encerra nem dispara repetidamente o alerta;
+18. amostras, lacunas, recuperações e alertas compartilham uma sequência global crescente no stream do CLI;
+19. os artefatos C/C++ e .NET declaram a mesma versão do projeto.
 
 Execute:
 
@@ -81,3 +86,20 @@ Em 2026-08-24, a validação Release confirmou:
 - build adicional com Clang 22.1.8 e os dois testes CTest aprovados.
 
 O UUID identifica apenas a GPU usada nesta validação e não é um valor esperado em outras máquinas.
+
+## Snapshot dos alertas de limiar v0.4.0
+
+Em 2026-08-25, após a revisão de engenharia, as validações Release e Debug confirmaram:
+
+- builds MSVC Release e Debug sem avisos, incluindo o novo alvo de teste `rtxmon_alerts`;
+- três testes CTest aprovados: ABI, sampler C++ e o avaliador de alertas C++;
+- testes C++ e C# aprovados sem GPU para limiar exato, histerese e opções inválidas;
+- `--alert-threshold` fora de `--watch` e `--alert-hysteresis 0` sem limiar rejeitados por ambos os CLIs antes de carregar NVML;
+- seis leituras estáveis exatamente em 31 °C produziram somente um `alert_raised`, sem alternância, em C++ e C#;
+- o stream com alerta preservou sequências globais contíguas em ambas as implementações;
+- C, C++, C# e `nvidia-smi` reportaram 31 °C para o mesmo UUID na execução registrada;
+- `telemetry-event-v1.schema.json` permaneceu byte a byte igual ao contrato anterior, enquanto o v2 foi validado pelas verificações do projeto;
+- CMake, projetos .NET e assemblies gerados declararam a versão 0.4.0;
+- `dotnet format --verify-no-changes` aprovado nos três projetos C# após a adição do `AlertEvaluator`.
+
+O JSON Schema de eventos avançou para `telemetry-event-v2.schema.json`; o limiar usado nesta validação (0 °C) existe apenas para disparar o alerta de forma determinística e não é uma recomendação de configuração.

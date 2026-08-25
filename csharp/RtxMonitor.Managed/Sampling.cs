@@ -21,6 +21,8 @@ public enum TelemetryEventKind
     Sample,
     Gap,
     Recovered,
+    AlertRaised,
+    AlertCleared,
 }
 
 public sealed record SamplingOptions(
@@ -40,13 +42,17 @@ public sealed record TelemetryEvent(
     string StatusName,
     string Message,
     uint ConsecutiveFailures,
-    uint RetryAfterMilliseconds)
+    uint RetryAfterMilliseconds,
+    int? AlertThresholdC = null,
+    int? AlertHysteresisC = null)
 {
     public string KindName => Kind switch
     {
         TelemetryEventKind.Sample => "sample",
         TelemetryEventKind.Gap => "gap",
         TelemetryEventKind.Recovered => "recovered",
+        TelemetryEventKind.AlertRaised => "alert_raised",
+        TelemetryEventKind.AlertCleared => "alert_cleared",
         _ => "unknown",
     };
 }

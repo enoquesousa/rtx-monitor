@@ -27,9 +27,10 @@ O programa não afirma acesso elétrico direto ao sensor. Registradores térmico
 | `rtxmon.h` | ABI C | Contrato binário versionado compartilhado por qualquer consumidor. |
 | `rtxmon_core` | C++20 | RAII, exceções tipadas, modelos de GPU/amostra e conversão de tempo. |
 | `sampler.cpp` / `sampler.hpp` | C++20 | Seleção por UUID, eventos, backoff, reconexão e buffer circular limitado. |
-| `rtxmon` | C++20 | CLI de amostra, watch resiliente, GPUs e capabilities; JSON versionado. |
-| `RtxMonitor.Managed` | C#/.NET 8 | P/Invoke, `SafeHandle`, layouts verificados e sampler resiliente equivalente. |
-| `RtxMonitor.Console` | C#/.NET 8 | Dashboard de terminal, eventos de disponibilidade, estatísticas e saída JSON. |
+| `alerts.cpp` / `alerts.hpp` | C++20 | Máquina de estados de limiar/histerese sobre a temperatura de cada amostra. |
+| `rtxmon` | C++20 | CLI de amostra, watch resiliente, GPUs, capabilities e alertas; JSON versionado. |
+| `RtxMonitor.Managed` | C#/.NET 8 | P/Invoke, `SafeHandle`, layouts verificados, sampler resiliente e avaliador de alertas equivalentes. |
+| `RtxMonitor.Console` | C#/.NET 8 | Dashboard de terminal, eventos de disponibilidade, alertas, estatísticas e saída JSON. |
 
 ## Fluxo de uma leitura
 
@@ -74,6 +75,17 @@ Não há deduplicação semântica: duas APIs que reportam o mesmo die continuam
 A fábrica de sessões é injetável em C++ e C#. Os testes usam sessões simuladas para reproduzir perda da GPU, driver indisponível, mudança de índice e recuperação sem carregar NVML ou exigir hardware NVIDIA.
 
 A saída `--watch --json` permanece compatível com o schema de amostra v1 e envia diagnósticos de lacuna para `stderr`. O modo opt-in `--watch --events` envia todos os eventos em JSON Lines.
+
+## Fluxo de alertas
+
+1. `--alert-threshold C` cria um `AlertEvaluator` com o limiar e, opcionalmente, `--alert-hysteresis C`.
+2. A cada evento `sample` do sampler resiliente, o CLI passa a temperatura ao avaliador; `gap` e `recovered` não o alimentam.
+3. A primeira amostra com `temperature_c >= threshold_c` produz `alert_raised`; o avaliador permanece alarmado até a condição de saída.
+4. Com histerese zero, a primeira amostra abaixo do limiar produz `alert_cleared`; com histerese positiva, a transição ocorre em `temperature_c <= threshold_c - hysteresis_c`.
+5. O evento de alerta reaproveita o envelope da amostra que disparou a transição (GPU, leitura, timestamp), e o CLI atribui uma única sequência crescente a todos os eventos do stream de saída.
+6. Sem `--events`, o alerta é impresso como diagnóstico em `stderr`, preservando o schema de amostra v1 em `--json`. Com `--events`, entra no mesmo stream JSON Lines das amostras, lacunas e recuperações.
+
+O avaliador não conhece sessão, GPU, thread ou relógio: é uma máquina de estados pura sobre um inteiro, testável sem `ResilientSampler` e sem GPU. O limiar é uma política escolhida por quem monitora, não um fato reportado pelo driver — ver [ADR 0004](adr/0004-threshold-alerts.md).
 
 ## ABI C
 
@@ -168,14 +180,17 @@ O comando `--capabilities --json` usa `schema_version: 2` e separa:
 
 O contrato serializado é formalizado em [`docs/schema/capabilities-v2.schema.json`](schema/capabilities-v2.schema.json).
 
-O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json). Cada envelope contém:
+O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v2.schema.json`](schema/telemetry-event-v2.schema.json). Cada envelope contém:
 
-- `event_type`: `sample`, `gap` ou `recovered`;
-- `sequence` e horário observado;
+- `event_type`: `sample`, `gap`, `recovered`, `alert_raised` ou `alert_cleared`;
+- `sequence` global e crescente dentro de um processo, além do horário observado;
 - UUID persistente e índice atual anulável;
 - status normalizado, código e diagnóstico;
 - contagem de falhas e próximo backoff;
-- amostra anulável, presente somente em `sample`.
+- amostra anulável, presente em `sample`, `alert_raised` e `alert_cleared`;
+- `alert_threshold_c`/`alert_hysteresis_c`, anuláveis, presentes somente nos dois tipos de alerta.
+
+O [`telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json) permanece publicado e imutável para validar streams históricos da v0.3.0.
 
 ## Extensões seguras
 
@@ -184,7 +199,7 @@ Próximas camadas podem ser adicionadas sem alterar o coletor:
 - persistência SQLite/Parquet alimentada pelo stream de eventos;
 - serviço Windows separado do frontend;
 - endpoint local HTTP/SSE ou OpenTelemetry;
-- alertas baseados em thresholds configuráveis ou thresholds consultados do driver;
+- alertas derivados de thresholds consultados do driver, complementando o limiar definido pelo usuário já suportado (ver [ADR 0004](adr/0004-threshold-alerts.md));
 - frontend desktop, mantendo `RtxMonitor.Managed` como fronteira;
 - base de perfis por `vendor:device/subvendor:subdevice@vbios`, sem converter correlação em fato físico;
 - modo experimental separado, somente se houver documentação por placa, validação cruzada e isolamento de risco.
