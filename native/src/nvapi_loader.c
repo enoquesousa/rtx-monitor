@@ -149,6 +149,11 @@ rtxmon_nvapi_loader_status_t rtxmon_nvapi_load(
         RTXMON_NVAPI_ID_GPU_GET_THERMAL_SETTINGS,
         "NvAPI_GPU_GetThermalSettings");
 
+    /* Private, optional driver interface used by established monitoring tools. */
+    api->gpu_therm_channel_get_status =
+        (rtxmon_nvapi_gpu_therm_channel_get_status_fn)api->query_interface(
+            RTXMON_NVAPI_ID_GPU_THERM_CHANNEL_GET_STATUS);
+
     rtxmon_nvapi_loader_error(error, error_capacity, "");
     return RTXMON_NVAPI_LOADER_OK;
 #endif

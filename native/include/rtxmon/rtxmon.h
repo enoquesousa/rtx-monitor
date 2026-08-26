@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define RTXMON_ABI_VERSION 3U
+#define RTXMON_ABI_VERSION 4U
 #define RTXMON_TEXT_CAPACITY 96U
 #define RTXMON_MAX_THERMAL_PROVIDERS 3U
 #define RTXMON_MAX_THERMAL_CAPABILITIES 8U
@@ -234,6 +234,22 @@ typedef struct rtxmon_temperature_sample {
     uint64_t timestamp_unix_ms;
 } rtxmon_temperature_sample_t;
 
+enum {
+    RTXMON_PRIVATE_THERMAL_DIE_VALID = 1U << 0U,
+    RTXMON_PRIVATE_THERMAL_HOTSPOT_VALID = 1U << 1U
+};
+
+typedef struct rtxmon_private_thermal_sample {
+    uint32_t struct_size;
+    uint32_t gpu_index;
+    uint32_t value_flags;
+    int32_t native_status;
+    int32_t gpu_die_temperature_millic;
+    int32_t gpu_hotspot_temperature_millic;
+    int32_t reserved;
+    uint64_t timestamp_unix_ms;
+} rtxmon_private_thermal_sample_t;
+
 typedef struct rtxmon_board_identity {
     uint32_t struct_size;
     uint32_t gpu_index;
@@ -393,6 +409,13 @@ rtxmon_read_gpu_die_temperature(
     rtxmon_context_t *context,
     uint32_t gpu_index,
     rtxmon_temperature_sample_t *out_sample);
+
+/* Reads driver thermal channels directly through NVAPI; GPU-Z is not used. */
+RTXMON_API rtxmon_status_t RTXMON_CALL
+rtxmon_read_private_thermal_channels(
+    rtxmon_context_t *context,
+    uint32_t gpu_index,
+    rtxmon_private_thermal_sample_t *out_sample);
 
 /* Set out_report->struct_size to sizeof(rtxmon_thermal_report_t). */
 RTXMON_API rtxmon_status_t RTXMON_CALL

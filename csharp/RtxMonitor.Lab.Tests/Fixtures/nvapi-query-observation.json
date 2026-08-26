@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "source_kind": "nvapi_query_interface_observation",
+  "captured_utc": "2026-08-25T22:41:09Z",
+  "duration_seconds": 15,
+  "gpuz_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "forced_target_process_ids": [],
+  "observation_count": 3,
+  "unique_interface_count": 2,
+  "interfaces": [
+    {
+      "interface_id": "0x0150e828",
+      "call_count": 2
+    },
+    {
+      "interface_id": "0xdeadbeef",
+      "call_count": 1
+    }
+  ],
+  "warning": "Synthetic observation used only by hardware-independent tests."
+}

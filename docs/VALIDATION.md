@@ -1,5 +1,16 @@
 # Validação
 
+## Leitura direta de die e hotspot
+
+Depois do build, valide a aquisição sem GPU-Z:
+
+```powershell
+dotnet .\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.dll `
+  --thermal-watch --count 3 --interval 500
+```
+
+Cada linha deve conter leituras atuais de `GPU Die`, `Hotspot`, `Delta` e a fonte `nvapi_thermal_channel`. A função privada é detectada em runtime e resultados incompletos, implausíveis ou com status NVAPI de erro não são publicados.
+
 ## Critérios de aceite
 
 Uma entrega é considerada válida quando:
@@ -24,21 +35,28 @@ Uma entrega é considerada válida quando:
 18. amostras, lacunas, recuperações e alertas compartilham uma sequência global crescente no stream do CLI;
 19. os artefatos C/C++ e .NET declaram a mesma versão do projeto;
 20. o schema de evidências declara versões 1 para o envelope e para o banco e aceita eventos v2 e v3;
-21. migrations, reabertura, retry idempotente, conflito de sequência, filtros, retenção e writers concorrentes passam sem GPU;
+21. migrações, reabertura, repetição idempotente, conflito de sequência, filtros, retenção e processos de gravação concorrentes passam sem GPU;
 22. arquivo inválido e schema futuro são recusados sem sobrescrita, e uma consulta não cria um banco ausente;
 23. uma execução física persiste, consulta e exporta o stream mantendo UUID, run, versão, PCI, VBIOS e profile key;
-24. o serviço cria no máximo um coletor ativo para cada UUID mesmo após múltiplos ciclos de discovery;
+24. o serviço cria no máximo um coletor ativo para cada UUID mesmo após múltiplos ciclos de descoberta;
 25. saúde, GPUs, capabilities, telemetria, histórico e SSE possuem contratos HTTP testados sem GPU;
 26. um cliente SSE lento não bloqueia o produtor, recebe uma lacuna explícita e pode recuperar pelo `event_id` persistido;
 27. SQLite indisponível mantém o host diagnóstico ativo e a coleta só recomeça depois da recuperação do banco;
 28. desligamento gracioso confirma `completed_at` e `completion_reason=service_stopped` para cada run;
-29. uma execução física do serviço publica somente em loopback e preserva UUID, profile key e versão 0.7.0 no histórico;
+29. uma execução física do serviço publica somente em loopback e preserva UUID, profile key e a versão atual no histórico;
 30. a instalação real no Windows já confirma configuração do SCM, ações de recuperação, ciclo stop/start, encerramento persistido do run e stream SSE crescente;
 31. C++ e C# expõem a mesma ordem, proveniência, IDs, unidades e estados para pelo menos 31 campos semânticos públicos;
 32. um campo indisponível mantém todos os valores nulos, enquanto um zero disponível continua sendo zero legítimo;
 33. cada relatório contém exatamente quatro métricas com fórmula, unidade, janela, amostras, entradas e origem `computed`;
 34. temperatura, potência e memória total aplicáveis são comparadas com uma consulta independente do `nvidia-smi`;
-35. eventos persistidos v3 contêm entradas brutas e métricas suficientes para reprodução posterior.
+35. eventos persistidos v3 contêm entradas brutas e métricas suficientes para reprodução posterior;
+36. o laboratório cria e verifica um pacote de arquivo único sem sobrescrita, traversal, reparse point ou campo JSON extra;
+37. no Windows, o CLI offline aceita apenas arquivos de até 16 MiB e valida ROM, PCIR e BIT sem interpretar payloads de token; em outras plataformas, falha com `unsupported_platform` antes de acessar o path;
+38. o executável offline não depende de `rtxmon_native`, NVML ou NVAPI e usa somente fixtures sintéticas no CI;
+39. a saída do parser e os manifestos do laboratório obedecem aos schemas v0.8 publicados;
+40. a observação anexada de IOCTL valida assinaturas, mantém o processo-alvo vivo, não lê buffers de saída e produz relatórios de códigos, entradas limitadas e identidade de handle conformes aos schemas v1;
+41. o coletor genérico de candidatos NVAPI preserva inventário, módulos, call sites e entradas delimitadas conforme o schema v1, e uma janela só recebe o rótulo de polling quando o log de referência cresce durante a captura;
+42. o perfil térmico fixo valida hashes, versão, tamanho, máscara e layout, lê somente o buffer já fornecido pelo GPU-Z e correlaciona die/hotspot dentro da tolerância de arredondamento publicada no schema.
 
 Execute:
 
@@ -52,7 +70,7 @@ Para a verificação independente de hardware usada no CI:
 .\scripts\verify-ci.ps1 -Configuration Release
 ```
 
-`verify-ci.ps1` compila com avisos como erros, executa os testes de ABI, sampler, alertas, armazenamento SQLite e serviço local, verifica a formatação C# e analisa schemas e OpenAPI publicados. `verify.ps1` acrescenta as leituras reais da GPU, a comparação independente com `nvidia-smi` e ciclos físicos do CLI persistente e do serviço HTTP.
+`verify-ci.ps1` compila com avisos como erros, executa os testes de ABI, sampler, alertas, armazenamento SQLite, serviço local, pacote de evidências e parser offline, verifica a formatação C# e analisa schemas e OpenAPI publicados. `verify.ps1` acrescenta as leituras reais da GPU, a comparação independente com `nvidia-smi` e ciclos físicos do CLI persistente e do serviço HTTP.
 
 ## Snapshot local inicial
 
@@ -127,10 +145,10 @@ Em 2026-08-25, a validação Release confirmou:
 - C, C++ e os cinco projetos C# compilaram com avisos tratados como erros;
 - três testes CTest, testes do sampler/alertas C# e a nova suíte `RtxMonitor.Storage.Tests` foram aprovados;
 - schema SQLite 1 criado por migration e preservado após fechar e reabrir o processo;
-- retry do mesmo evento retornou o mesmo `event_id`, enquanto conteúdo diferente na mesma sequência foi recusado;
+- a repetição do mesmo evento retornou o mesmo `event_id`, enquanto conteúdo diferente na mesma sequência foi recusado;
 - filtros por run, UUID, tipo, intervalo e sequência foram exercitados;
 - retenção removeu somente evento antigo, snapshot órfão e run fora da janela;
-- 48 writers concorrentes confirmaram todas as sequências sem perda;
+- 48 processos de gravação concorrentes confirmaram todas as sequências sem perda;
 - arquivo não SQLite, schema futuro e caminho ausente falharam sem sobrescrever ou criar dados;
 - `dotnet list package --vulnerable --include-transitive` não encontrou pacote vulnerável nas fontes consultadas;
 - o teste físico persistiu duas amostras da RTX 3060 e as recuperou por `--history` e `--export`;
@@ -149,7 +167,7 @@ Em 2026-08-25, as validações Debug e Release confirmaram:
 - três testes CTest e as suítes gerenciadas de sampler, alertas, SQLite e serviço foram aprovados;
 - o host real respondeu em loopback aos contratos de saúde, GPUs, capabilities, histórico e SSE;
 - um cliente SSE lento não bloqueou o produtor, recebeu `stream_gap` e preservou o `event_id` necessário para recuperar o intervalo pelo histórico;
-- múltiplos ciclos de discovery mantiveram apenas um coletor ativo por UUID;
+- múltiplos ciclos de descoberta mantiveram apenas um coletor ativo por UUID;
 - banco inválido deixou o serviço `unavailable` sem encerrar o host e a coleta retomou automaticamente depois da recuperação do arquivo;
 - desligamento gracioso persistiu `completed_at` e `completion_reason=service_stopped`;
 - schemas do SSE e o contrato OpenAPI v1 foram analisados durante a verificação;
@@ -197,3 +215,41 @@ Em 2026-08-25, a validação Release confirmou:
 - o endpoint `/telemetry` preservou o perfil `10de:2504/10de:1536@94.06.25.00.fc`, cobertura e quatro métricas.
 
 A porta 4210 foi escolhida automaticamente para esse ensaio e o banco temporário foi removido ao final. A instalação permanente da v0.6.0 não foi substituída durante esta validação da branch v0.7.0.
+
+## Snapshot do laboratório offline v0.8.0
+
+Em 2026-08-25, a validação atual da v0.8 confirmou:
+
+- versões CMake/.NET/assemblies em 0.8.0;
+- build C/C++ Release com `/W4 /WX` e doze testes CTest aprovados;
+- oito testes CTest específicos do laboratório: parser, protocolo térmico RM, fixtures, CLI, limite, rejeição de device path e help;
+- 34 testes C# do laboratório aprovados, incluindo pacote de evidências, adulteração concorrente, GPU-Z com sessões anexadas, correlação por sessão, classificação offline, inventário de candidatos NVAPI, associação térmica die/hotspot e resolução somente leitura de handle Windows;
+- `dotnet format --verify-no-changes` aprovado como gate separado para todos os projetos C#;
+- criação e verificação reais passaram pelos schemas de manifesto, descritor, resultado e erro; adulterar payload e manifesto foi recusado pela âncora externa anterior;
+- fixtures ROM inteiramente sintéticas cobrem imagem legacy isolada, cadeia legacy+UEFI+tail, ajuste de ponteiro NVIDIA, checksum, revisão/alinhamento PCIR e truncamentos;
+- arquivo esparso de 16 MiB + 1 byte rejeitado antes da alocação com `input_too_large`;
+- JSON do CLI aprovado por `vbios-analysis-v1.schema.json`, cujo contrato inclui a falha fechada `unsupported_platform` anterior ao acesso de path em sistemas não Windows;
+- `rtxmon-vbios.exe` sem dependência de `rtxmon_native`, NVML ou NVAPI;
+- relatório real de tracing aprovado pelos schemas de consulta, resolução e execução: 100 IDs NVAPI únicos, todos com ponteiro não nulo; 99 resolvidos em `nvapi_impl.dll` e um em `nvapi.dll`;
+- classificador real aprovado por `nvapi-interface-classification-v1.schema.json`, com hashes do relatório e do cabeçalho usados e sem carregar NVAPI;
+- captura de 10 segundos registrou 150 entradas em 33 alvos: 14 públicos e 19 ausentes do catálogo; o inventário real passou por `nvapi-candidate-inventory-v1.schema.json` e preservou módulo, hash, RVA e estado semântico;
+- captura de controle com 30 segundos repetiu as mesmas 150 entradas e os mesmos 33 alvos, demonstrando que a coleta atual cobre o caminho de startup, ainda não o polling contínuo da aba `Sensors`;
+- sintaxe dos sete scripts de bancada validada no CI;
+- o diagnóstico de autoridade executado como usuário comum: `nvidia-smi` canônico com assinatura válida, GPU pública disponível, processo não elevado, NVFlash ausente e toolchain WDK/KMDF incompleto;
+- Process Monitor confirmou os módulos NVAPI e o ciclo de vida do helper temporário assinado do GPU-Z; a análise estática mostrou caminhos de escrita, portanto o helper não foi adotado como backend;
+- o anexo tardio com CDB x86 assinado observou 130 chamadas em 10 segundos tanto em `KernelBase!DeviceIoControl` quanto em `ntdll!NtDeviceIoControlFile`, com os mesmos dois códigos, tamanhos, handle e contagens;
+- `resolve-windows-handle` comprovou que o handle `0x368` era um objeto `File` para `\Device\GPU-Z-v8`, com alias `\\.\GPU-Z-v8`, sem abrir o device por nome nem aceitar a licença de uma ferramenta adicional;
+- `0x80006040` recebeu somente o seletor `0x19c` e foi ligado estaticamente a `RDMSR` (`IA32_THERM_STATUS`, CPU); `0x800060c0` foi ligado a `HalGetBusDataByOffset` e leu dez offsets de configuração PCI da RTX;
+- os relatórios de código/tamanho, entrada delimitada e identidade do handle passaram pelos três schemas v1; nenhum buffer de saída foi coletado;
+- o anexo tardio dos 100 candidatos NVAPI registrou 465 entradas em 19 alvos durante dez segundos de log ativo: oito públicos e 11 ausentes do catálogo; `NvAPI_GPU_GetThermalSettings` permaneceu com zero chamadas;
+- o novo relatório passou por `nvapi-candidate-call-observation-v1.schema.json`; módulo, hash, RVA, threads e call sites foram preservados sem chamada ativa nem leitura de retorno;
+- no binário NVIDIA fixado por hash, `0x65fe3aad`/RVA `0x001ad310` referencia diretamente `NvAPI_GPU_ThermChannelGetStatus`; o call site GPU-Z RVA `0x002225b5` demonstrou dois argumentos, estrutura v2 `0x000200a8` de 168 bytes, máscara por canal e escala `raw / 256` °C;
+- o coletor térmico formal registrou 20 retornos bem-sucedidos em dez segundos, dez por canal, lendo somente os 42 DWORDs já fornecidos pelo GPU-Z; canal 0 usou palavra 10/offset `0x28`, e canal 1 usou palavra 11/offset `0x2c`;
+- o log cresceu de 3.566.112 para 3.569.796 e 3.572.866 bytes antes, no midpoint e depois da captura; o GPU-Z permaneceu responsivo e não restou CDB/WinDbg anexado;
+- `correlate-nvapi-therm-channel` selecionou a sessão 5, janela `22:37:41`–`22:37:49`, e passou por `nvapi-therm-channel-correlation-v1.schema.json`;
+- canal 0 → `GPU Temperature` teve erro máximo `0,04375` °C; canal 1 → `Hot Spot`, `0,05` °C; a associação invertida teve erro absoluto médio combinado de `10,3565625` °C;
+- o primeiro detach histórico que interrompeu o log e a captura seguinte sem novas amostras continuam registrados como tentativas inválidas e não participam dessa associação;
+- nas capturas de startup encerradas, não restou processo GPU-Z/WinDbg, serviço `GPU-Z-v8` nem arquivo temporário do driver; nas capturas anexadas, o GPU-Z permaneceu aberto e responsivo após `qqd`, sem CDB/WinDbg anexado;
+- nenhuma ROM proprietária, configuração PCI, MMIO, I2C ou VRAM foi lida pelo RTX Monitor durante essa validação.
+
+O snapshot comprova o laboratório offline, a resolução dos 100 IDs, a redução do polling a 11 candidatos não catalogados e a identificação da ABI térmica v2: palavra 10 é a temperatura do die e palavra 11 é o hotspot no perfil testado. Também elimina os dois IOCTLs observados como fontes diretas do `Hot Spot`: um pertence à telemetria térmica da CPU e o outro à configuração PCI da GPU. Ele ainda não comprova captura direta da VBIOS, contrato público NVIDIA, construção física do sensor, generalização para outro perfil ou acesso próprio do monitor a essa interface privada.

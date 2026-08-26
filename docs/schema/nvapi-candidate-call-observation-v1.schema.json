@@ -1,0 +1,261 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:nvapi-candidate-call-observation:1",
+  "title": "RTX Monitor attached NVAPI candidate call observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "captured_utc",
+    "duration_seconds",
+    "gpuz_sha256",
+    "process_id",
+    "debugger_sha256",
+    "debugger_file_version",
+    "candidate_inventory_sha256",
+    "target_count",
+    "observed_target_count",
+    "call_count",
+    "targets",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "source_kind": {
+      "const": "nvapi_candidate_call_observation"
+    },
+    "captured_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_seconds": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 60
+    },
+    "gpuz_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "process_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "debugger_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "debugger_file_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_inventory_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "capture_mode": {
+      "enum": [
+        "call_sites_only",
+        "bounded_input_words"
+      ]
+    },
+    "target_scope": {
+      "enum": [
+        "all_inventory_targets",
+        "previously_observed_unidentified"
+      ]
+    },
+    "prior_observation_sha256": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "observed_target_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "call_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "module_name",
+          "module_sha256",
+          "rva",
+          "interface_ids",
+          "catalog_statuses",
+          "public_functions",
+          "call_count",
+          "call_sites"
+        ],
+        "properties": {
+          "module_name": {
+            "enum": [
+              "nvapi.dll",
+              "nvapi_impl.dll"
+            ]
+          },
+          "module_sha256": {
+            "$ref": "#/$defs/sha256"
+          },
+          "rva": {
+            "$ref": "#/$defs/rva"
+          },
+          "interface_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^0x[0-9a-f]{8}$"
+            }
+          },
+          "catalog_statuses": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "public_catalog_match",
+                "not_in_public_catalog"
+              ]
+            }
+          },
+          "public_functions": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^NvAPI_[A-Za-z0-9_]+$"
+            }
+          },
+          "call_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "call_sites": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "caller_module_name",
+                "caller_module_sha256",
+                "caller_rva",
+                "thread_ids",
+                "call_count"
+              ],
+              "properties": {
+                "caller_module_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "caller_module_sha256": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/sha256"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "caller_rva": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/rva"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "thread_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-f]{8}$"
+                  }
+                },
+                "call_count": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "bounded_input_patterns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ecx",
+                "edx",
+                "stack_dwords",
+                "call_count"
+              ],
+              "properties": {
+                "ecx": {
+                  "$ref": "#/$defs/word"
+                },
+                "edx": {
+                  "$ref": "#/$defs/word"
+                },
+                "stack_dwords": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "$ref": "#/$defs/word"
+                  }
+                },
+                "call_count": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rva": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{8}$"
+    },
+    "word": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{8}$"
+    }
+  }
+}

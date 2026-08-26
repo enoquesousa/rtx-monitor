@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "source_kind": "nvapi_function_call_observation",
+  "captured_utc": "2026-08-25T22:41:09Z",
+  "duration_seconds": 20,
+  "gpuz_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "resolution_report_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "target_count": 2,
+  "observed_target_count": 2,
+  "call_count": 20,
+  "targets": [
+    {
+      "module_name": "nvapi.dll",
+      "module_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "rva": "0x00001234",
+      "interface_ids": [
+        "0x0150e828"
+      ],
+      "call_count": 1
+    },
+    {
+      "module_name": "nvapi_impl.dll",
+      "module_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "rva": "0x00123456",
+      "interface_ids": [
+        "0xdeadbeef"
+      ],
+      "call_count": 19
+    }
+  ],
+  "warning": "Synthetic function call observation used only by hardware-independent tests."
+}

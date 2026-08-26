@@ -1,5 +1,7 @@
 #include <rtxmon/rtxmon.h>
 
+_Static_assert(sizeof(rtxmon_private_thermal_sample_t) == 40U, "private thermal ABI changed");
+
 #include <stdio.h>
 #include <string.h>
 

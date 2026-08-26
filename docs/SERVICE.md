@@ -77,7 +77,7 @@ Para criar uma publicação versionada:
 ```powershell
 .\scripts\publish-service.ps1 `
   -Configuration Release `
-  -OutputDirectory 'C:\Program Files\RtxMonitor\0.7.0'
+  -OutputDirectory 'C:\Program Files\RtxMonitor\0.8.0'
 ```
 
 ## Instalar no Windows
@@ -86,7 +86,7 @@ Abra o PowerShell como Administrador:
 
 ```powershell
 .\scripts\install-service.ps1 `
-  -PublishDirectory 'C:\Program Files\RtxMonitor\0.7.0' `
+  -PublishDirectory 'C:\Program Files\RtxMonitor\0.8.0' `
   -Start
 ```
 
@@ -154,8 +154,8 @@ O descarte ocorre apenas na entrega ao cliente lento. O evento já estava persis
 
 | Estado | Significado |
 | --- | --- |
-| `starting` | SQLite ou primeiro discovery ainda não concluíram |
-| `healthy` | SQLite, discovery e todos os coletores estão normais |
+| `starting` | SQLite ou primeira descoberta ainda não concluídos |
+| `healthy` | SQLite, descoberta e todos os coletores estão normais |
 | `degraded` | API e histórico funcionam, mas GPU, driver ou coletor possuem diagnóstico |
 | `unavailable` | SQLite não está pronto; `/health` retorna HTTP 503 |
 | `stopped` | Supervisor encerrado |

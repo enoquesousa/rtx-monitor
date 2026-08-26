@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:nvapi-therm-channel-correlation:1",
+  "title": "RTX Monitor NVAPI thermal channel correlation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "therm_observation_sha256",
+    "gpuz_log_prefix_sha256",
+    "gpuz_log_prefix_size_bytes",
+    "gpuz_sha256",
+    "nvapi_module_sha256",
+    "interface_id",
+    "function_rva",
+    "structure_version",
+    "selected_session_index",
+    "window_first_timestamp_local",
+    "window_last_timestamp_local",
+    "tolerance_celsius",
+    "combined_mean_absolute_error_celsius",
+    "alternative_combined_mean_absolute_error_celsius",
+    "mapping_status",
+    "mappings",
+    "warnings"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "source_kind": {
+      "const": "nvapi_therm_channel_reference_correlation"
+    },
+    "therm_observation_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "gpuz_log_prefix_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "gpuz_log_prefix_size_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16777216
+    },
+    "gpuz_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "nvapi_module_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "interface_id": {
+      "const": "0x65fe3aad"
+    },
+    "function_rva": {
+      "const": "0x001ad310"
+    },
+    "structure_version": {
+      "const": "0x000200a8"
+    },
+    "selected_session_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "window_first_timestamp_local": {
+      "$ref": "#/$defs/local_timestamp"
+    },
+    "window_last_timestamp_local": {
+      "$ref": "#/$defs/local_timestamp"
+    },
+    "tolerance_celsius": {
+      "const": 0.051
+    },
+    "combined_mean_absolute_error_celsius": {
+      "type": "number",
+      "minimum": 0
+    },
+    "alternative_combined_mean_absolute_error_celsius": {
+      "type": "number",
+      "minimum": 0
+    },
+    "mapping_status": {
+      "enum": [
+        "matched_external_reference",
+        "ambiguous_or_outside_tolerance"
+      ]
+    },
+    "mappings": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "channel_index",
+          "semantic_channel",
+          "reference_channel",
+          "sample_count",
+          "mean_absolute_error_celsius",
+          "maximum_absolute_error_celsius",
+          "status"
+        ],
+        "properties": {
+          "channel_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "semantic_channel": {
+            "enum": [
+              "gpu_die_temperature",
+              "gpu_hotspot_temperature"
+            ]
+          },
+          "reference_channel": {
+            "enum": [
+              "GPU Temperature",
+              "Hot Spot"
+            ]
+          },
+          "sample_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "mean_absolute_error_celsius": {
+            "type": "number",
+            "minimum": 0
+          },
+          "maximum_absolute_error_celsius": {
+            "type": "number",
+            "minimum": 0
+          },
+          "status": {
+            "enum": [
+              "matched_rounding_tolerance",
+              "outside_tolerance"
+            ]
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "local_timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{3})?$"
+    }
+  }
+}

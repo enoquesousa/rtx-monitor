@@ -11,6 +11,7 @@ $configurationLower = $Configuration.ToLowerInvariant()
 $nativeOutput = Join-Path $projectRoot "build\windows-x64\bin\$Configuration"
 $managedProject = Join-Path $projectRoot 'csharp\RtxMonitor.Console\RtxMonitor.Console.csproj'
 $serviceProject = Join-Path $projectRoot 'csharp\RtxMonitor.Service\RtxMonitor.Service.csproj'
+$labProject = Join-Path $projectRoot 'csharp\RtxMonitor.Lab\RtxMonitor.Lab.csproj'
 
 function Invoke-Checked {
     param(
@@ -51,10 +52,17 @@ try {
             "-p:NativeLibraryDir=$nativeOutput"
     }
 
+    Invoke-Checked -Description '.NET laboratory build' -Command {
+        & dotnet build $labProject `
+            --configuration $Configuration `
+            --nologo
+    }
+
     Write-Host "Build completed: $Configuration"
     Write-Host "C/C++: $nativeOutput"
     Write-Host "C#: $(Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Configuration\net8.0")"
     Write-Host "Service: $(Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64")"
+    Write-Host "Laboratory: $(Join-Path $projectRoot "csharp\RtxMonitor.Lab\bin\$Configuration\net8.0")"
 }
 finally {
     Pop-Location

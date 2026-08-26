@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(
     rtx-monitor
-    VERSION 0.7.0
+    VERSION 0.8.0
     DESCRIPTION "Read-only NVIDIA RTX thermal monitor and capability inventory"
     LANGUAGES C CXX
 )
@@ -26,6 +26,7 @@ add_library(rtxmon_native SHARED
     native/src/nvapi_loader.c
     native/src/nvml_loader.c
     native/src/public_telemetry.c
+    native/src/private_thermal.c
     native/src/rtxmon.c
     native/src/thermal_scan.c
 )
@@ -66,6 +67,18 @@ target_include_directories(rtxmon_core
 
 target_link_libraries(rtxmon_core PUBLIC rtxmon_native)
 
+add_library(rtxmon_lab STATIC
+    cpp/src/lab/rm_thermal_protocol.cpp
+    cpp/src/lab/vbios_json.cpp
+    cpp/src/lab/vbios_parser.cpp
+)
+
+target_include_directories(rtxmon_lab
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/cpp/include>
+        $<INSTALL_INTERFACE:include>
+)
+
 add_executable(rtxmon_cli
     cpp/cli/main.cpp
 )
@@ -78,14 +91,22 @@ add_executable(rtxmon_c_example
 set_target_properties(rtxmon_c_example PROPERTIES OUTPUT_NAME rtxmon-c)
 target_link_libraries(rtxmon_c_example PRIVATE rtxmon_native)
 
+add_executable(rtxmon_vbios_cli
+    cpp/lab/main.cpp
+)
+set_target_properties(rtxmon_vbios_cli PROPERTIES OUTPUT_NAME rtxmon-vbios)
+target_link_libraries(rtxmon_vbios_cli PRIVATE rtxmon_lab)
+
 if(MSVC)
-    foreach(target rtxmon_native rtxmon_core rtxmon_cli rtxmon_c_example)
+    foreach(target rtxmon_native rtxmon_core rtxmon_lab rtxmon_cli rtxmon_c_example rtxmon_vbios_cli)
         target_compile_options(${target} PRIVATE /W4 /WX /utf-8)
     endforeach()
     target_compile_options(rtxmon_core PRIVATE /permissive-)
+    target_compile_options(rtxmon_lab PRIVATE /permissive-)
     target_compile_options(rtxmon_cli PRIVATE /permissive-)
+    target_compile_options(rtxmon_vbios_cli PRIVATE /permissive-)
 else()
-    foreach(target rtxmon_native rtxmon_core rtxmon_cli rtxmon_c_example)
+    foreach(target rtxmon_native rtxmon_core rtxmon_lab rtxmon_cli rtxmon_c_example rtxmon_vbios_cli)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
     endforeach()
 endif()
@@ -149,6 +170,108 @@ if(RTXMON_BUILD_TESTS)
     add_test(NAME rtxmon_metrics COMMAND rtxmon_metrics_tests)
     set_tests_properties(rtxmon_metrics PROPERTIES LABELS "unit;metrics;no-gpu")
 
+    add_executable(rtxmon_vbios_parser_tests
+        cpp/tests/vbios_parser_tests.cpp
+    )
+    target_link_libraries(rtxmon_vbios_parser_tests PRIVATE rtxmon_lab)
+
+    if(MSVC)
+        target_compile_options(rtxmon_vbios_parser_tests PRIVATE /W4 /WX /permissive- /utf-8)
+    else()
+        target_compile_options(rtxmon_vbios_parser_tests PRIVATE -Wall -Wextra -Werror)
+    endif()
+
+    add_test(NAME rtxmon_vbios_parser COMMAND rtxmon_vbios_parser_tests)
+    set_tests_properties(rtxmon_vbios_parser PROPERTIES LABELS "unit;vbios;lab;no-gpu")
+
+    add_executable(rtxmon_rm_thermal_protocol_tests
+        cpp/tests/rm_thermal_protocol_tests.cpp
+    )
+    target_link_libraries(rtxmon_rm_thermal_protocol_tests PRIVATE rtxmon_lab)
+
+    if(MSVC)
+        target_compile_options(rtxmon_rm_thermal_protocol_tests PRIVATE /W4 /WX /permissive- /utf-8)
+    else()
+        target_compile_options(rtxmon_rm_thermal_protocol_tests PRIVATE -Wall -Wextra -Werror)
+    endif()
+
+    add_test(NAME rtxmon_rm_thermal_protocol COMMAND rtxmon_rm_thermal_protocol_tests)
+    set_tests_properties(
+        rtxmon_rm_thermal_protocol
+        PROPERTIES LABELS "unit;rm-thermal;lab;no-gpu"
+    )
+
+    if(WIN32)
+        set(RTXMON_VBIOS_TEST_FIXTURE
+            "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/synthetic-vbios-test.rom")
+        add_test(
+            NAME rtxmon_vbios_fixture_setup
+            COMMAND rtxmon_vbios_parser_tests --write-fixture "${RTXMON_VBIOS_TEST_FIXTURE}"
+        )
+        set_tests_properties(rtxmon_vbios_fixture_setup PROPERTIES
+            FIXTURES_SETUP rtxmon_vbios_fixture
+            LABELS "fixture;vbios;lab;no-gpu"
+        )
+
+        add_test(NAME rtxmon_vbios_cli_parse COMMAND rtxmon_vbios_cli "${RTXMON_VBIOS_TEST_FIXTURE}")
+        set_tests_properties(rtxmon_vbios_cli_parse PROPERTIES
+            FIXTURES_REQUIRED rtxmon_vbios_fixture
+            LABELS "integration;vbios;lab;no-gpu"
+            PASS_REGULAR_EXPRESSION "\"status\": \"success\""
+        )
+
+        set(RTXMON_VBIOS_OVERSIZED_FIXTURE
+            "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/synthetic-vbios-oversized-test.rom")
+        add_test(
+            NAME rtxmon_vbios_oversized_fixture_setup
+            COMMAND rtxmon_vbios_parser_tests
+                --write-oversized-fixture "${RTXMON_VBIOS_OVERSIZED_FIXTURE}"
+        )
+        set_tests_properties(rtxmon_vbios_oversized_fixture_setup PROPERTIES
+            FIXTURES_SETUP rtxmon_vbios_oversized_fixture
+            LABELS "fixture;security;vbios;lab;no-gpu"
+        )
+
+        add_test(
+            NAME rtxmon_vbios_cli_rejects_oversized
+            COMMAND ${CMAKE_COMMAND}
+                "-DRTXMON_VBIOS_CLI=$<TARGET_FILE:rtxmon_vbios_cli>"
+                "-DRTXMON_VBIOS_INPUT=${RTXMON_VBIOS_OVERSIZED_FIXTURE}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cpp/tests/check_vbios_cli_failure.cmake"
+        )
+        set_tests_properties(rtxmon_vbios_cli_rejects_oversized PROPERTIES
+            FIXTURES_REQUIRED rtxmon_vbios_oversized_fixture
+            LABELS "integration;security;vbios;lab;no-gpu"
+        )
+
+        add_test(
+            NAME rtxmon_vbios_cli_rejects_device_path
+            COMMAND ${CMAKE_COMMAND}
+                "-DRTXMON_VBIOS_CLI=$<TARGET_FILE:rtxmon_vbios_cli>"
+                "-DRTXMON_VBIOS_INPUT=NUL"
+                "-DRTXMON_VBIOS_EXPECTED_DIAGNOSTIC=path_not_local_regular"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cpp/tests/check_vbios_cli_failure.cmake"
+        )
+        set_tests_properties(rtxmon_vbios_cli_rejects_device_path PROPERTIES
+            LABELS "integration;security;vbios;lab;no-gpu"
+        )
+    else()
+        add_test(
+            NAME rtxmon_vbios_cli_rejects_unsupported_platform
+            COMMAND ${CMAKE_COMMAND}
+                "-DRTXMON_VBIOS_CLI=$<TARGET_FILE:rtxmon_vbios_cli>"
+                "-DRTXMON_VBIOS_INPUT=rtxmon-vbios-path-must-not-be-inspected"
+                "-DRTXMON_VBIOS_EXPECTED_DIAGNOSTIC=unsupported_platform"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cpp/tests/check_vbios_cli_failure.cmake"
+        )
+        set_tests_properties(rtxmon_vbios_cli_rejects_unsupported_platform PROPERTIES
+            LABELS "integration;security;vbios;lab;no-gpu"
+        )
+    endif()
+
+    add_test(NAME rtxmon_vbios_cli_help COMMAND rtxmon_vbios_cli --help)
+    set_tests_properties(rtxmon_vbios_cli_help PROPERTIES LABELS "smoke;vbios;lab;no-gpu")
+
     if(RTXMON_ENABLE_GPU_TESTS)
         add_test(NAME rtxmon_gpu_smoke COMMAND rtxmon_cli --once --json)
         set_tests_properties(rtxmon_gpu_smoke PROPERTIES LABELS "gpu;integration")
@@ -158,7 +281,7 @@ if(RTXMON_BUILD_TESTS)
 endif()
 
 include(GNUInstallDirs)
-install(TARGETS rtxmon_native rtxmon_core rtxmon_cli rtxmon_c_example
+install(TARGETS rtxmon_native rtxmon_core rtxmon_lab rtxmon_cli rtxmon_c_example rtxmon_vbios_cli
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

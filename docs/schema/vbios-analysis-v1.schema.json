@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:vbios-analysis:1",
+  "title": "RTX Monitor offline VBIOS analysis",
+  "description": "Exact JSON emitted by rtxmon-vbios v0.8 for an already-acquired operator-supplied file on Windows, or before path access on an unsupported platform.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "status",
+    "rom",
+    "bit",
+    "diagnostics"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "status": {
+      "enum": [
+        "success",
+        "partial",
+        "rom_not_found",
+        "invalid_pcir",
+        "invalid_image",
+        "io_error"
+      ]
+    },
+    "rom": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/rom" }
+      ]
+    },
+    "bit": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/bit" }
+      ]
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16777216
+    },
+    "nullableUnsigned": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "pcir": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offset",
+        "vendor_id",
+        "device_id",
+        "revision_specific_data",
+        "structure_length",
+        "structure_revision",
+        "class_code",
+        "image_length_units_512_bytes",
+        "code_revision",
+        "code_type",
+        "indicator"
+      ],
+      "properties": {
+        "offset": { "$ref": "#/$defs/offset" },
+        "vendor_id": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "device_id": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "revision_specific_data": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "structure_length": { "type": "integer", "minimum": 24, "maximum": 65535 },
+        "structure_revision": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "class_code": { "type": "integer", "minimum": 0, "maximum": 16777215 },
+        "image_length_units_512_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "code_revision": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "code_type": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "indicator": { "type": "integer", "minimum": 0, "maximum": 255 }
+      }
+    },
+    "rom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offset",
+        "declared_size",
+        "legacy_length_units_512_bytes",
+        "efi_initialization_length_units_512_bytes",
+        "pcir"
+      ],
+      "properties": {
+        "offset": { "$ref": "#/$defs/offset" },
+        "declared_size": {
+          "type": "integer",
+          "minimum": 512,
+          "maximum": 16777216
+        },
+        "legacy_length_units_512_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "efi_initialization_length_units_512_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "pcir": { "$ref": "#/$defs/pcir" }
+      }
+    },
+    "token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offset",
+        "id",
+        "data_version",
+        "data_size",
+        "data_pointer",
+        "validated_data_offset"
+      ],
+      "properties": {
+        "offset": { "$ref": "#/$defs/offset" },
+        "id": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "data_version": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "data_size": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "data_pointer": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "validated_data_offset": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/offset" }
+          ]
+        }
+      }
+    },
+    "bit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offset",
+        "bcd_version",
+        "header_size",
+        "token_size",
+        "token_count",
+        "header_checksum_valid",
+        "version_supported",
+        "tokens"
+      ],
+      "properties": {
+        "offset": { "$ref": "#/$defs/offset" },
+        "bcd_version": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "header_size": { "type": "integer", "minimum": 12, "maximum": 255 },
+        "token_size": { "type": "integer", "minimum": 6, "maximum": 255 },
+        "token_count": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "header_checksum_valid": { "const": true },
+        "version_supported": { "type": "boolean" },
+        "tokens": {
+          "type": "array",
+          "maxItems": 255,
+          "items": { "$ref": "#/$defs/token" }
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity",
+        "code",
+        "offset",
+        "expected",
+        "actual"
+      ],
+      "properties": {
+        "severity": {
+          "enum": ["information", "warning", "error"]
+        },
+        "code": {
+          "enum": [
+            "rom_signature_not_found",
+            "pcir_pointer_out_of_bounds",
+            "pcir_pointer_misaligned",
+            "pcir_signature_invalid",
+            "pcir_header_truncated",
+            "pcir_structure_length_invalid",
+            "pcir_structure_out_of_bounds",
+            "pcir_revision_unsupported",
+            "image_length_zero",
+            "image_truncated",
+            "image_chain_truncated",
+            "legacy_image_not_first",
+            "pcir_outside_declared_image",
+            "rom_header_length_mismatch",
+            "rom_checksum_invalid",
+            "efi_signature_invalid",
+            "unexpected_pci_vendor",
+            "bit_not_found",
+            "bit_header_truncated",
+            "bit_header_size_invalid",
+            "bit_token_size_invalid",
+            "bit_header_checksum_invalid",
+            "bit_version_unsupported",
+            "bit_token_array_out_of_bounds",
+            "bit_token_data_not_resolved",
+            "open_failed",
+            "size_failed",
+            "input_too_large",
+            "read_failed",
+            "path_not_local_regular",
+            "unsupported_platform"
+          ]
+        },
+        "offset": { "$ref": "#/$defs/offset" },
+        "expected": { "$ref": "#/$defs/nullableUnsigned" },
+        "actual": { "$ref": "#/$defs/nullableUnsigned" }
+      }
+    }
+  }
+}

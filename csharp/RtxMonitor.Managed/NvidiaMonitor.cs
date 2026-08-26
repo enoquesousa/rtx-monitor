@@ -94,6 +94,37 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
             native.TimestampUnixMilliseconds);
     }
 
+    public PrivateThermalSample ReadPrivateThermalChannels(uint index)
+    {
+        ThrowIfDisposed();
+        NativePrivateThermalSample native = NativePrivateThermalSample.Create();
+        NativeStatus status = NativeMethods.rtxmon_read_private_thermal_channels(
+            context,
+            index,
+            ref native);
+        if (status != NativeStatus.Ok)
+        {
+            Throw(status, $"Não foi possível ler os canais térmicos NVAPI da GPU {index}");
+        }
+        uint required = NativeMethods.PrivateThermalDieValid |
+                        NativeMethods.PrivateThermalHotspotValid;
+        if ((native.ValueFlags & required) != required)
+        {
+            throw new InvalidOperationException("A NVAPI não retornou die e hotspot na mesma amostra.");
+        }
+
+        double die = native.GpuDieTemperatureMillic / 1000.0;
+        double hotspot = native.GpuHotspotTemperatureMillic / 1000.0;
+        return new PrivateThermalSample(
+            native.GpuIndex,
+            die,
+            hotspot,
+            hotspot - die,
+            native.NativeStatus,
+            DateTimeOffset.FromUnixTimeMilliseconds(checked((long)native.TimestampUnixMilliseconds)),
+            native.TimestampUnixMilliseconds);
+    }
+
     public BoardIdentity GetBoardIdentity(uint index)
     {
         ThrowIfDisposed();
@@ -269,6 +300,7 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
 
         int gpuInfoSize = Marshal.SizeOf<NativeGpuInfo>();
         int sampleSize = Marshal.SizeOf<NativeTemperatureSample>();
+        int privateThermalSize = Marshal.SizeOf<NativePrivateThermalSample>();
         int boardIdentitySize = Marshal.SizeOf<NativeBoardIdentity>();
         int providerSize = Marshal.SizeOf<NativeThermalProviderResult>();
         int capabilitySize = Marshal.SizeOf<NativeThermalCapability>();
@@ -278,14 +310,14 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
         int metricOptionsSize = Marshal.SizeOf<NativeComputedMetricOptions>();
         int metricSize = Marshal.SizeOf<NativeComputedMetric>();
         int metricReportSize = Marshal.SizeOf<NativeComputedMetricsReport>();
-        if (gpuInfoSize != 392 || sampleSize != 32 || boardIdentitySize != 240 ||
+        if (gpuInfoSize != 392 || sampleSize != 32 || privateThermalSize != 40 || boardIdentitySize != 240 ||
             providerSize != 16 || capabilitySize != 48 || reportSize != 456 ||
             publicValueSize != 64 || publicReportSize != 3096 || metricOptionsSize != 16 ||
             metricSize != 64 || metricReportSize != 280)
         {
             throw new InvalidOperationException(
                 $"Layout P/Invoke incompatível: gpu_info={gpuInfoSize}, sample={sampleSize}, " +
-                $"board={boardIdentitySize}, provider={providerSize}, capability={capabilitySize}, " +
+                $"private_thermal={privateThermalSize}, board={boardIdentitySize}, provider={providerSize}, capability={capabilitySize}, " +
                 $"report={reportSize}, public_value={publicValueSize}, public_report={publicReportSize}, " +
                 $"metric_options={metricOptionsSize}, metric={metricSize}, metric_report={metricReportSize}.");
         }

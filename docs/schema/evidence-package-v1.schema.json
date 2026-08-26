@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:evidence-package-result:1",
+  "title": "RTX Monitor successful artifact package result",
+  "description": "Exact successful JSON envelope emitted by rtxmon-lab create or anchored verify for the fixed two-entry package. Errors use lab-command-error-v1. This is command output; the package itself contains only manifest.json and artifact/payload.bin.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operation",
+    "status",
+    "package_path",
+    "manifest_sha256",
+    "manifest"
+  ],
+  "properties": {
+    "operation": {
+      "enum": ["create", "verify"]
+    },
+    "status": {
+      "enum": ["created", "verified"]
+    },
+    "package_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "manifest": {
+      "$ref": "#/$defs/manifest"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operation": { "const": "create" }
+        },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "status": { "const": "created" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": { "const": "verify" }
+        },
+        "required": ["operation"]
+      },
+      "then": {
+        "properties": {
+          "status": { "const": "verified" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative_path", "original_file_name", "size_bytes", "sha256"],
+      "properties": {
+        "relative_path": { "const": "artifact/payload.bin" },
+        "original_file_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^(?=.*\\S)[^:/\\\\\\u0000-\\u001f\\u007f-\\u009f]+$",
+          "not": { "enum": [".", ".."] }
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "canonicalNullableGpu": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+        }
+      ]
+    },
+    "canonicalNullableVersion": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+        }
+      ]
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gpu", "driver_version", "vbios_version"],
+      "properties": {
+        "gpu": { "$ref": "#/$defs/canonicalNullableGpu" },
+        "driver_version": { "$ref": "#/$defs/canonicalNullableVersion" },
+        "vbios_version": { "$ref": "#/$defs/canonicalNullableVersion" }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "source_kind", "artifact", "device"],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "source_kind": { "const": "user_provided_local_file" },
+        "artifact": { "$ref": "#/$defs/artifact" },
+        "device": { "$ref": "#/$defs/device" }
+      }
+    }
+  }
+}

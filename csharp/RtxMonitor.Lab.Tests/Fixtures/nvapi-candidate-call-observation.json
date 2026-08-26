@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "source_kind": "nvapi_candidate_call_observation",
+  "captured_utc": "2026-08-25T22:00:00Z",
+  "duration_seconds": 10,
+  "gpuz_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "process_id": 1234,
+  "debugger_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "debugger_file_version": "1.0.0.0",
+  "candidate_inventory_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "capture_mode": "bounded_input_words",
+  "target_scope": "previously_observed_unidentified",
+  "prior_observation_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "target_count": 1,
+  "observed_target_count": 1,
+  "call_count": 2,
+  "targets": [
+    {
+      "module_name": "nvapi_impl.dll",
+      "module_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "rva": "0x00123456",
+      "interface_ids": [
+        "0xdeadbeef"
+      ],
+      "catalog_statuses": [
+        "not_in_public_catalog"
+      ],
+      "public_functions": [],
+      "call_count": 2,
+      "call_sites": [
+        {
+          "caller_module_name": "GPU-Z.exe",
+          "caller_module_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+          "caller_rva": "0x00200000",
+          "thread_ids": [
+            "0x00000001"
+          ],
+          "call_count": 2
+        }
+      ],
+      "bounded_input_patterns": [
+        {
+          "ecx": "0x00000000",
+          "edx": "0x00000000",
+          "stack_dwords": [
+            "0x00000100",
+            "0x00000004",
+            "0x00000000",
+            "0x00000000"
+          ],
+          "call_count": 2
+        }
+      ]
+    }
+  ],
+  "warning": "Synthetic attached call observation used only by hardware-independent tests."
+}
