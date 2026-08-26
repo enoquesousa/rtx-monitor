@@ -139,6 +139,18 @@ public sealed record ThermalReport(
     IReadOnlyList<ThermalProviderResult> Providers,
     IReadOnlyList<ThermalCapability> Capabilities);
 
+public sealed record PrivateThermalSample(
+    uint GpuIndex,
+    double GpuDieTemperatureC,
+    double GpuHotspotTemperatureC,
+    double DeltaC,
+    int NativeStatus,
+    DateTimeOffset CapturedAt,
+    ulong TimestampUnixMilliseconds)
+{
+    public const string Source = "nvapi_thermal_channel";
+}
+
 public enum DataOrigin : uint
 {
     Unknown = 0,

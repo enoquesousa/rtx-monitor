@@ -13,6 +13,7 @@ internal enum RunMode
     List,
     Capabilities,
     Telemetry,
+    ThermalWatch,
     History,
     Export,
 }
@@ -92,6 +93,13 @@ internal static class Program
                 }
 
                 return await WatchAsync(targetUuid, target, options).ConfigureAwait(false);
+            }
+
+            if (options.Mode == RunMode.ThermalWatch)
+            {
+                using NvidiaMonitor thermalMonitor = NvidiaMonitor.Open();
+                GpuInfo thermalGpu = ResolveGpu(thermalMonitor, options);
+                return await ThermalWatchAsync(thermalMonitor, thermalGpu, options).ConfigureAwait(false);
             }
 
             using NvidiaMonitor monitor = NvidiaMonitor.Open();
@@ -213,6 +221,9 @@ internal static class Program
                     break;
                 case "--telemetry":
                     mode = RunMode.Telemetry;
+                    break;
+                case "--thermal-watch":
+                    mode = RunMode.ThermalWatch;
                     break;
                 case "--history":
                     mode = RunMode.History;
@@ -417,6 +428,65 @@ internal static class Program
             queryLimit);
     }
 
+    private static async Task<int> ThermalWatchAsync(
+        NvidiaMonitor monitor,
+        GpuInfo gpu,
+        Options options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler handler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += handler;
+        try
+        {
+            long emitted = 0;
+            while (!cancellation.IsCancellationRequested &&
+                   (options.Count == 0 || emitted < options.Count))
+            {
+                PrivateThermalSample sample = monitor.ReadPrivateThermalChannels(gpu.Index);
+                if (options.Json)
+                {
+                    Console.WriteLine(JsonSerializer.Serialize(new
+                    {
+                        gpu_index = sample.GpuIndex,
+                        gpu_uuid = gpu.Uuid,
+                        captured_at_unix_ms = sample.TimestampUnixMilliseconds,
+                        gpu_die_temperature_c = sample.GpuDieTemperatureC,
+                        gpu_hotspot_temperature_c = sample.GpuHotspotTemperatureC,
+                        delta_c = Math.Round(sample.DeltaC, 3),
+                        source = PrivateThermalSample.Source,
+                    }));
+                }
+                else
+                {
+                    Console.WriteLine(
+                        $"{sample.CapturedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | " +
+                        $"GPU Die {sample.GpuDieTemperatureC:F2} °C | " +
+                        $"Hotspot {sample.GpuHotspotTemperatureC:F2} °C | " +
+                        $"Delta {sample.DeltaC:F2} °C | {PrivateThermalSample.Source}");
+                }
+                emitted++;
+                if (options.Count == 0 || emitted < options.Count)
+                {
+                    await Task.Delay(options.IntervalMilliseconds, cancellation.Token)
+                        .ConfigureAwait(false);
+                }
+            }
+            return 0;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return 0;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= handler;
+        }
+    }
+
     private static string NextValue(string[] args, ref int index, string option)
     {
         if (++index >= args.Length)
@@ -472,6 +542,7 @@ internal static class Program
               dotnet RtxMonitor.Console.dll --list [--json]
               dotnet RtxMonitor.Console.dll --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]
               dotnet RtxMonitor.Console.dll --telemetry [--gpu INDEX | --gpu-uuid UUID] [--json]
+              dotnet RtxMonitor.Console.dll --thermal-watch [--gpu INDEX | --gpu-uuid UUID] [--interval MS] [--count N] [--json]
               dotnet RtxMonitor.Console.dll --history --database PATH [filtros] [--json]
               dotnet RtxMonitor.Console.dll --export --database PATH [filtros]
 
@@ -481,6 +552,7 @@ internal static class Program
               --list          Lista as GPUs NVIDIA
               --capabilities Inventaria capabilities térmicas públicas e o estado das fontes
               --telemetry    Lê o catálogo público documentado e as métricas calculadas
+              --thermal-watch Lê die e hotspot diretamente da NVAPI, sem GPU-Z
               --gpu INDEX     Índice da GPU, começando em zero
               --gpu-uuid UUID Seleciona a GPU por UUID persistente; não use junto com --gpu
               --interval MS   Intervalo de 100 a 60000 ms (padrão: 1000)

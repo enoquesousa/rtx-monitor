@@ -96,7 +96,7 @@ Objetivo: transformar o stream em histórico consultável e reproduzível.
 Entregas:
 
 - SQLite como armazenamento canônico local;
-- migrations explícitas e schema versionado;
+- migrações explícitas e schema versionado;
 - gravação de `sample`, `gap`, `recovered`, `alert_raised` e `alert_cleared`;
 - identidade completa: UUID, PCI, VBIOS, driver, NVML e chave de perfil;
 - WAL, `busy_timeout`, transações curtas e política de retenção limitada;
@@ -106,7 +106,7 @@ Entregas:
 Critério de saída:
 
 - reiniciar o processo não perde eventos já confirmados;
-- migrations, retenção, concorrência, arquivo inválido e recuperação são testados;
+- migrações, retenção, concorrência, arquivo inválido e recuperação são testados;
 - nenhuma lacuna é convertida em amostra e nenhum dado antigo vira leitura atual.
 
 ### v0.6.0 — serviço local headless
@@ -152,65 +152,93 @@ Critério de saída:
 - toda métrica calculada pode ser refeita a partir dos eventos armazenados;
 - nenhuma estimativa recebe o nome de um sensor físico.
 
-### v0.8.0 — laboratório reproduzível
+### v0.8.0 — laboratório de engenharia reversa e aquisição allowlisted
 
-Objetivo: criar os instrumentos que tornam uma hipótese de engenharia reversa verificável.
+Objetivo: produzir a primeira observação binária reproduzível da placa sem transformar o monitor estável em uma ferramenta privilegiada e sem oferecer acesso arbitrário ao hardware.
+
+Estado: em implementação. O pacote verificável de evidência, o parser offline de VBIOS, a referência e correlação do GPU-Z, os marcadores experimentais, a representação pura do protocolo térmico RM e o tracing NVAPI já existem. Na RTX 3060, 100 IDs NVAPI resolveram para código. O startup executou 33 deles; no polling anexado, 19 alvos receberam 465 chamadas, dos quais 11 não constam no catálogo público. O inventário preserva módulo, hash, RVA e nível de evidência sem nomeá-los como sensores.
+
+O canal do helper assinado do GPU-Z também foi observado passivamente, sem emitir chamadas nem ler retornos. O handle foi comprovado como `\Device\GPU-Z-v8`. Em dez segundos de `Sensors`, as camadas Win32 e nativa registraram os mesmos 130 IOCTLs: 110 leituras do MSR Intel `IA32_THERM_STATUS`, referentes à CPU, e 20 leituras de bytes da configuração PCI da RTX. Esses dois caminhos foram identificados e descartados como origem direta do `Hot Spot`. O helper continua excluído como backend porque seu binário contém caminhos de escrita.
+
+O binário NVIDIA fixado por hash liga o candidato privado `0x65fe3aad`/RVA `0x001ad310` a `NvAPI_GPU_ThermChannelGetStatus`. O call site demonstrou uma estrutura v2 de 168 bytes, máscara por canal e valores nas palavras 10/11, codificados como inteiros com sinal em ponto fixo 8. Em uma sessão de polling com crescimento comprovado do log, canal 0 correspondeu a `GPU Temperature` e canal 1 a `Hot Spot`, ambos dentro de `0,05` °C da referência GPU-Z; a associação invertida divergiu mais de 10 °C em média. O resultado está no estágio `matched_external_reference` para a placa, VBIOS, driver e hashes exatos, sem afirmar contrato público ou identidade física além de die/hotspot.
+
+Dois outros candidatos foram atribuídos estaticamente aos subsistemas de tensão e fan/cooler. O próximo gate é provar a ABI do candidato `0x465f9bcf`, separar rails, políticas, estado e valores e correlacionar cada campo com as séries de tensão/potência sem nomeá-lo antes da evidência. A captura de configuração no startup permanece uma trilha complementar. O protocolo RM ainda não possui transporte para o driver Windows, e toda aquisição própria continua sujeita aos portões desta seção.
+
+Ordem obrigatória:
+
+1. registrar a identidade exata da placa e as bases de tempo;
+2. capturar uma linha de base pelas APIs públicas e por uma referência externa;
+3. preservar e analisar offline os artefatos permitidos, incluindo uma VBIOS fornecida localmente;
+4. observar passivamente o caminho já executado por uma ferramenta assinada e provar a origem de cada handle, módulo e call site;
+5. formular uma hipótese de interface, endereço, layout, unidade e comportamento;
+6. revisar um perfil de leitura explícito;
+7. somente então executar uma aquisição privilegiada própria, limitada pela allowlist do helper;
+8. verificar o pacote contra um hash de manifesto ancorado fora dele antes de interpretar ou nomear candidatos.
 
 Entregas:
 
-- manifesto de experimento com placa, IDs PCI, revisão, VBIOS e hash, driver, NVML, sistema e versão GSP quando observável;
-- marcadores de cenário: repouso, carga gráfica, carga de memória e resfriamento;
+- manifesto de experimento com GPU, IDs PCI, revisão, VBIOS e hash, driver, NVML, sistema e versão GSP quando observável;
+- marcadores de cenário para repouso, carga gráfica, carga de memória, resfriamento e anotações controladas;
 - relógio monotônico para correlação e UTC para auditoria;
-- pacote de evidências com dados públicos, artefatos brutos, comandos, hashes e observações;
-- analisador offline para séries temporais, deltas, periodicidade e correlação;
-- protocolo para referência independente, como termopar ou câmera térmica, com posição e limitações registradas;
-- ambiente Linux de pesquisa documentado, separado do produto Windows.
+- pacote de evidências com manifesto, telemetria pública, artefatos brutos, comandos, observações, tamanho e SHA-256 de cada arquivo;
+- ingestão e análise **offline** de VBIOS fornecida pelo operador; o projeto não habilita ROM, não faz dump e não redistribui a imagem;
+- analisador offline para séries temporais, deltas, periodicidade, lag e correlação;
+- observação anexada de chamadas existentes, com assinatura dos executáveis, hashes, identidade do objeto do sistema e entradas estritamente delimitadas;
+- processo experimental separado do coletor estável;
+- helper privilegiado mínimo, quando necessário, com IPC local, perfil exato e operações allowlisted;
+- no Windows, driver KMDF assinado e compatível com HVCI antes da primeira leitura em kernel mode;
+- no Linux, ambiente de pesquisa documentado e separado do produto Windows;
+- protocolo para referência independente, como termopar ou câmera térmica, com posição, incerteza e limitações registradas;
+- ADR, threat model e contratos JSON versionados antes da primeira aquisição privilegiada.
+
+Allowlist não significa uma faixa fornecida livremente pelo cliente. O helper valida novamente, em sua própria fronteira de privilégio, identidade PCI, perfil, espaço, offset, largura, alinhamento, quantidade de amostras e taxa. Um manifesto não assinado não pode ampliar as operações compiladas ou assinadas no helper.
+
+Fontes privilegiadas admitidas nesta versão:
+
+- bytes conhecidos do espaço de configuração PCI, em offsets explícitos;
+- leituras de BAR0/MMIO somente em offsets e larguras previamente revisados para um perfil exato.
+
+Fica fora da v0.8.0:
+
+- varredura cega ou enumeração de offsets de MMIO, I2C, DDC ou SMBus;
+- qualquer caminho de escrita em registradores, configuração PCI, BARs, ROM, firmware ou dispositivo auxiliar;
+- BAR1, VRAM, DMA, memória física arbitrária e mapeamento solicitado pelo cliente;
+- habilitar ou desabilitar a ROM PCI para obter VBIOS;
+- flash de VBIOS, execução ou modificação de firmware;
+- alteração de fan, clock, tensão, limite de potência ou estado de energia;
+- chamar um valor de hotspot, memória ou VRM apenas por correlação.
 
 Critério de saída:
 
-- outra pessoa consegue repetir um experimento usando apenas o manifesto e os artefatos permitidos;
-- duas execuções equivalentes produzem resultados comparáveis;
+- outra pessoa consegue repetir um experimento usando o manifesto e os artefatos permitidos;
+- duas execuções equivalentes produzem resultados comparáveis na mesma base monotônica;
+- cada payload e descritor passa por verificação de tamanho e SHA-256;
+- toda leitura privilegiada é autorizada por perfil e operação exatos; placa, versão, espaço ou offset diferente é recusado;
+- os testes demonstram que o protocolo e o driver não expõem caminho de escrita nem leitura fora da allowlist;
+- remover todo o laboratório não muda o funcionamento da trilha estável;
 - a referência externa é tratada como temperatura do ponto medido, não como prova automática da junção interna.
 
-O Linux é útil nesta etapa porque oferece interfaces PCI e `hwmon` documentadas e porque os módulos de kernel abertos da NVIDIA permitem estudar parte do caminho do driver. Isso não torna o firmware GSP público nem estável: o próprio projeto da NVIDIA informa que a ABI do firmware pode variar entre versões.
+Leitura de MMIO não é automaticamente inofensiva: alguns registradores podem ter efeitos colaterais, como limpar um estado ao serem lidos. Por isso, "somente leitura" também exige conhecimento prévio do endereço, largura e semântica. BAR0 entra somente por hipótese revisada; BAR1 e VRAM permanecem proibidos.
 
-### v0.9.0 — aquisição experimental somente leitura
+O Linux é útil nesta etapa porque oferece interfaces PCI e `hwmon` documentadas e porque os módulos de kernel abertos da NVIDIA permitem estudar parte do caminho do driver. Arquivos `config`, `resourceN` e `rom` do `sysfs` não devem ser confundidos com interfaces exclusivamente de leitura; permissões elevadas não eliminam efeitos colaterais. O firmware GSP também não possui ABI estável entre versões.
 
-Objetivo: observar canais de baixo nível com risco controlado.
+### v0.9.0 — expansão controlada de perfis de aquisição
 
-Ordem de investigação:
-
-1. analisar offline código aberto, tabelas, logs e imagens de firmware fornecidas localmente;
-2. observar espaço de configuração PCI e interfaces documentadas do sistema;
-3. criar perfis de regiões e offsets somente quando houver hipótese e evidência prévias;
-4. usar um helper privilegiado mínimo apenas para leituras que não podem ser feitas com segurança em user mode.
+Objetivo: repetir a aquisição allowlisted em mais execuções e perfis sem relaxar a fronteira criada na v0.8.0.
 
 Entregas:
 
-- processo experimental separado do coletor estável;
-- IPC local com comandos, tamanhos e offsets em allowlist;
-- perfil exato por `vendor:device/subvendor:subdevice`, revisão, VBIOS, driver e GSP;
-- timeouts, limites de taxa, watchdog, auditoria e falha fechada;
-- armazenamento do valor bruto antes de qualquer interpretação;
-- ADR específico e threat model antes da primeira leitura privilegiada.
-
-Não faz parte desta versão:
-
-- varredura cega de MMIO, I2C, DDC ou SMBus;
-- escrita em registradores, BARs, ROM ou firmware;
-- flash de VBIOS;
-- alteração de fan, clock, tensão ou limite de potência;
-- execução de firmware desconhecido;
-- driver Windows próprio antes de a necessidade ser demonstrada no laboratório Linux.
+- revisão independente de novos perfis e operações;
+- regressão por fixtures para cada combinação exata de placa, VBIOS, driver e GSP;
+- comparação Windows/Linux quando as duas plataformas observarem o mesmo canal;
+- revogação de perfil, compatibilidade explícita e auditoria de mudanças da allowlist;
+- testes de falha fechada para identidade, offset, largura, taxa, timeout e versão diferentes.
 
 Critério de saída:
 
-- toda leitura é autorizada por um perfil exato e reproduzível;
-- placa, versão ou offset diferente é recusado;
-- remover o componente experimental não muda o funcionamento da trilha estável;
-- os testes demonstram que não há caminho de escrita no protocolo exposto.
-
-Leitura de MMIO não é automaticamente inofensiva: alguns registradores podem ter efeitos colaterais, como limpar um estado ao serem lidos. Por isso, "somente leitura" também exige conhecimento do endereço, largura e semântica.
+- nenhuma ampliação de perfil ocorre por configuração fornecida pelo usuário;
+- perfis incompatíveis ou revogados não produzem bytes;
+- cada novo perfil mantém um pacote reproduzível e os mesmos limites de segurança da v0.8.0.
 
 ### v0.10.0 — correlação e validação de candidatos
 
@@ -270,16 +298,19 @@ A interface gráfica poderá começar depois desta base, como cliente da API loc
 
 ## Portões obrigatórios da engenharia reversa
 
-Antes de iniciar a v0.9.0, o projeto precisa ter:
+Antes da primeira aquisição privilegiada da v0.8.0, o projeto precisa ter:
 
 - histórico persistente e exportável;
 - identidade exata da placa e das versões envolvidas;
 - protocolo de experimento repetível;
-- ADR da superfície privilegiada;
+- ADR da superfície privilegiada e schemas do laboratório;
 - threat model e revisão do protocolo IPC;
+- eliminação do TOCTOU por pathname na fronteira privilegiada, ou IPC que entregue bytes a um empacotador sem elevação e sem acesso do helper ao path do operador;
 - máquina ou ambiente de laboratório em que uma falha não interrompa trabalho importante;
 - cópia de segurança dos dados, sem depender de backup de VBIOS como justificativa para escritas;
 - revisão das licenças aplicáveis e da legislação local antes de distribuir dumps ou decodificadores.
+
+No Windows, também são obrigatórios assinatura adequada do pacote de driver, compatibilidade testada com HVCI, ACL restrita do device object e validação independente da allowlist em kernel mode. Executar o coordenador como Administrador não substitui esses controles.
 
 O repositório não deve redistribuir firmware, VBIOS ou binários proprietários. Quando um artefato local for necessário, o experimento registra origem, versão e hash; o arquivo permanece com quem realizou a captura.
 

@@ -23,6 +23,7 @@ typedef struct rtxmon_nvapi_api {
     rtxmon_nvapi_gpu_get_bus_id_fn gpu_get_bus_id;
     rtxmon_nvapi_gpu_get_bus_slot_id_fn gpu_get_bus_slot_id;
     rtxmon_nvapi_gpu_get_thermal_settings_fn gpu_get_thermal_settings;
+    rtxmon_nvapi_gpu_therm_channel_get_status_fn gpu_therm_channel_get_status;
 } rtxmon_nvapi_api_t;
 
 rtxmon_nvapi_loader_status_t rtxmon_nvapi_load(

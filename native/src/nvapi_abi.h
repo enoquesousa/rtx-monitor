@@ -63,8 +63,17 @@ enum {
     RTXMON_NVAPI_ID_GPU_GET_PCI_IDENTIFIERS = 0x2ddfb66eU,
     RTXMON_NVAPI_ID_GPU_GET_BUS_ID = 0x1be0b8e5U,
     RTXMON_NVAPI_ID_GPU_GET_BUS_SLOT_ID = 0x2a0a350fU,
-    RTXMON_NVAPI_ID_GPU_GET_THERMAL_SETTINGS = 0xe3640a56U
+    RTXMON_NVAPI_ID_GPU_GET_THERMAL_SETTINGS = 0xe3640a56U,
+    RTXMON_NVAPI_ID_GPU_THERM_CHANNEL_GET_STATUS = 0x65fe3aadU
 };
+
+typedef struct rtxmon_nvapi_therm_channel_status_v2 {
+    uint32_t version;
+    uint32_t channel_mask;
+    uint32_t words[40];
+} rtxmon_nvapi_therm_channel_status_v2_t;
+
+#define RTXMON_NVAPI_THERM_CHANNEL_STATUS_V2_VERSION 0x000200a8U
 
 typedef struct rtxmon_nvapi_thermal_sensor {
     int32_t controller;
@@ -107,5 +116,8 @@ typedef rtxmon_nvapi_status_t(RTXMON_NVAPI_CALL *rtxmon_nvapi_gpu_get_thermal_se
     rtxmon_nvapi_gpu_handle_t handle,
     uint32_t sensor_index,
     rtxmon_nvapi_thermal_settings_v2_t *settings);
+typedef rtxmon_nvapi_status_t(RTXMON_NVAPI_CALL *rtxmon_nvapi_gpu_therm_channel_get_status_fn)(
+    rtxmon_nvapi_gpu_handle_t handle,
+    rtxmon_nvapi_therm_channel_status_v2_t *status);
 
 #endif

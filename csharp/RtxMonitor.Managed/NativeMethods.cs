@@ -64,6 +64,24 @@ internal struct NativeTemperatureSample
     };
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativePrivateThermalSample
+{
+    internal uint StructSize;
+    internal uint GpuIndex;
+    internal uint ValueFlags;
+    internal int NativeStatus;
+    internal int GpuDieTemperatureMillic;
+    internal int GpuHotspotTemperatureMillic;
+    internal int Reserved;
+    internal ulong TimestampUnixMilliseconds;
+
+    internal static NativePrivateThermalSample Create() => new()
+    {
+        StructSize = checked((uint)Marshal.SizeOf<NativePrivateThermalSample>()),
+    };
+}
+
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
 internal struct NativeBoardIdentity
 {
@@ -277,7 +295,9 @@ internal static class NativeMethods
     internal const int MaxPublicFields = 48;
     internal const int MaxComputedMetrics = 4;
     internal const int MaxMetricInputs = 2;
-    internal const uint AbiVersion = 3;
+    internal const uint AbiVersion = 4;
+    internal const uint PrivateThermalDieValid = 1U << 0;
+    internal const uint PrivateThermalHotspotValid = 1U << 1;
     internal const uint ThermalValueCurrentValid = 1U << 0;
     internal const uint ThermalValueDefaultMinimumValid = 1U << 1;
     internal const uint ThermalValueDefaultMaximumValid = 1U << 2;
@@ -356,6 +376,12 @@ internal static class NativeMethods
         SafeRtxmonContext context,
         uint gpuIndex,
         ref NativeTemperatureSample sample);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern NativeStatus rtxmon_read_private_thermal_channels(
+        SafeRtxmonContext context,
+        uint gpuIndex,
+        ref NativePrivateThermalSample sample);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     internal static extern NativeStatus rtxmon_get_board_identity(

@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:experiment-manifest:1",
+  "title": "RTX Monitor reverse-engineering experiment manifest",
+  "description": "Planned full v0.8 experiment contract. It indexes one or more verified single-artifact packages; the current rtxmon-lab MVP does not emit this document yet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "status",
+    "created_at_utc",
+    "started_at_utc",
+    "completed_at_utc",
+    "software",
+    "host",
+    "gpu_profile",
+    "timebase",
+    "allowlist",
+    "scenarios",
+    "markers",
+    "artifact_packages",
+    "external_reference",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "experiment_id": { "type": "string", "format": "uuid" },
+    "status": {
+      "enum": ["planned", "collecting", "completed", "aborted"]
+    },
+    "created_at_utc": { "type": "string", "format": "date-time" },
+    "started_at_utc": { "$ref": "#/$defs/nullableDateTime" },
+    "completed_at_utc": { "$ref": "#/$defs/nullableDateTime" },
+    "software": { "$ref": "#/$defs/software" },
+    "host": { "$ref": "#/$defs/host" },
+    "gpu_profile": { "$ref": "#/$defs/gpuProfile" },
+    "timebase": { "$ref": "#/$defs/timebase" },
+    "allowlist": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/allowlist" }
+      ]
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/scenario" }
+    },
+    "markers": {
+      "type": "array",
+      "maxItems": 1000000,
+      "items": { "$ref": "#/$defs/marker" }
+    },
+    "artifact_packages": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/artifactPackage" }
+    },
+    "external_reference": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/externalReference" }
+      ]
+    },
+    "notes": { "type": "string", "maxLength": 16384 }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["completed", "aborted"] }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "started_at_utc": { "type": "string", "format": "date-time" },
+          "completed_at_utc": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "nullableDateTime": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\\\u0000-\\u001f]+$"
+    },
+    "hex16": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{4}$"
+    },
+    "software": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rtx_monitor_version",
+        "coordinator_version",
+        "helper_version",
+        "analyzer_version"
+      ],
+      "properties": {
+        "rtx_monitor_version": { "type": "string", "minLength": 1 },
+        "coordinator_version": { "type": "string", "minLength": 1 },
+        "helper_version": { "$ref": "#/$defs/nullableString" },
+        "analyzer_version": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "os_version", "kernel_version", "architecture"],
+      "properties": {
+        "os": { "enum": ["windows", "linux"] },
+        "os_version": { "type": "string", "minLength": 1 },
+        "kernel_version": { "$ref": "#/$defs/nullableString" },
+        "architecture": { "type": "string", "minLength": 1 }
+      }
+    },
+    "gpuProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gpu_uuid",
+        "gpu_name",
+        "pci_address",
+        "pci_vendor_id",
+        "pci_device_id",
+        "pci_subsystem_vendor_id",
+        "pci_subsystem_device_id",
+        "pci_revision_id",
+        "profile_key",
+        "vbios_version",
+        "vbios_sha256",
+        "driver_version",
+        "nvml_version",
+        "gsp_version"
+      ],
+      "properties": {
+        "gpu_uuid": { "type": "string", "minLength": 1 },
+        "gpu_name": { "type": "string", "minLength": 1 },
+        "pci_address": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7]$"
+        },
+        "pci_vendor_id": { "$ref": "#/$defs/hex16" },
+        "pci_device_id": { "$ref": "#/$defs/hex16" },
+        "pci_subsystem_vendor_id": { "$ref": "#/$defs/hex16" },
+        "pci_subsystem_device_id": { "$ref": "#/$defs/hex16" },
+        "pci_revision_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{2}$"
+        },
+        "profile_key": { "type": "string", "minLength": 1 },
+        "vbios_version": { "$ref": "#/$defs/nullableString" },
+        "vbios_sha256": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/sha256" }
+          ]
+        },
+        "driver_version": { "type": "string", "minLength": 1 },
+        "nvml_version": { "type": "string", "minLength": 1 },
+        "gsp_version": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "timebase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["utc_clock", "monotonic_clock", "monotonic_frequency_hz"],
+      "properties": {
+        "utc_clock": { "type": "string", "minLength": 1 },
+        "monotonic_clock": { "type": "string", "minLength": 1 },
+        "monotonic_frequency_hz": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "allowlist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowlist_id",
+        "allowlist_sha256",
+        "helper_protocol_version",
+        "operations"
+      ],
+      "properties": {
+        "allowlist_id": { "type": "string", "minLength": 1 },
+        "allowlist_sha256": { "$ref": "#/$defs/sha256" },
+        "helper_protocol_version": { "type": "integer", "minimum": 1 },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/operation" }
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "source_kind",
+        "offset_bytes",
+        "width_bytes",
+        "endianness",
+        "maximum_samples",
+        "minimum_interval_ms",
+        "rationale",
+        "risk_review"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "source_kind": { "enum": ["pci_config", "bar0_mmio"] },
+        "offset_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "width_bytes": { "enum": [1, 2, 4, 8] },
+        "endianness": { "enum": ["little", "big"] },
+        "maximum_samples": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "minimum_interval_ms": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "risk_review": { "type": "string", "minLength": 1, "maxLength": 4096 }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario_id", "kind", "description", "commands"],
+      "properties": {
+        "scenario_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "kind": {
+          "enum": ["idle", "graphics_load", "memory_load", "cooling", "custom"]
+        },
+        "description": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "commands": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        }
+      }
+    },
+    "marker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario_id", "phase", "utc_unix_ms", "monotonic_ns", "note"],
+      "properties": {
+        "scenario_id": { "type": "string", "minLength": 1 },
+        "phase": { "enum": ["begin", "end", "note"] },
+        "utc_unix_ms": { "type": "integer", "minimum": 0 },
+        "monotonic_ns": { "type": "integer", "minimum": 0 },
+        "note": { "$ref": "#/$defs/nullableString" }
+      }
+    },
+    "artifactPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "relative_path", "manifest_sha256"],
+      "properties": {
+        "role": {
+          "enum": [
+            "vbios_offline",
+            "public_telemetry",
+            "privileged_capture",
+            "external_reference",
+            "command_output",
+            "other"
+          ]
+        },
+        "relative_path": { "$ref": "#/$defs/relativePath" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "externalReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instrument",
+        "measurement_point",
+        "unit",
+        "sampling_interval_ms",
+        "uncertainty",
+        "limitations"
+      ],
+      "properties": {
+        "instrument": { "type": "string", "minLength": 1 },
+        "measurement_point": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string", "minLength": 1 },
+        "sampling_interval_ms": { "type": "number", "exclusiveMinimum": 0 },
+        "uncertainty": { "type": "string", "minLength": 1 },
+        "limitations": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

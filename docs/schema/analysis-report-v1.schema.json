@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:analysis-report:1",
+  "title": "RTX Monitor offline reverse-engineering analysis report",
+  "description": "Planned v0.8 offline analysis contract. The current single-artifact package CLI does not emit analysis reports yet.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "analysis_id",
+    "experiment_id",
+    "created_at_utc",
+    "status",
+    "input_experiment_manifest_sha256",
+    "input_package_manifest_sha256s",
+    "analyzer",
+    "candidates",
+    "warnings"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "analysis_id": { "type": "string", "format": "uuid" },
+    "experiment_id": { "type": "string", "format": "uuid" },
+    "created_at_utc": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["complete", "partial", "failed"] },
+    "input_experiment_manifest_sha256": { "$ref": "#/$defs/sha256" },
+    "input_package_manifest_sha256s": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/sha256" }
+    },
+    "analyzer": { "$ref": "#/$defs/analyzer" },
+    "candidates": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": { "$ref": "#/$defs/candidate" }
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableNumber": {
+      "type": ["number", "null"]
+    },
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "analyzer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "parameters"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "parameters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["string", "number", "integer", "boolean", "null"]
+          }
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_id",
+        "stage",
+        "input_package_manifest_sha256",
+        "source_kind",
+        "locator",
+        "hypothesis",
+        "physical_name",
+        "statistics",
+        "correlations",
+        "external_validation",
+        "alternative_hypotheses",
+        "limitations"
+      ],
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "stage": {
+          "enum": ["raw_unknown", "correlated", "externally_validated"]
+        },
+        "input_package_manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "source_kind": {
+          "enum": [
+            "pci_config",
+            "bar0_mmio",
+            "vbios_offline",
+            "public_telemetry",
+            "external_reference"
+          ]
+        },
+        "locator": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/locator" }
+          ]
+        },
+        "hypothesis": { "$ref": "#/$defs/nullableString" },
+        "physical_name": { "$ref": "#/$defs/nullableString" },
+        "statistics": { "$ref": "#/$defs/statistics" },
+        "correlations": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": { "$ref": "#/$defs/correlation" }
+        },
+        "external_validation": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/externalValidation" }
+          ]
+        },
+        "alternative_hypotheses": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "limitations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage": { "enum": ["raw_unknown", "correlated"] }
+            },
+            "required": ["stage"]
+          },
+          "then": {
+            "properties": {
+              "physical_name": { "type": "null" },
+              "external_validation": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "stage": { "const": "externally_validated" }
+            },
+            "required": ["stage"]
+          },
+          "then": {
+            "properties": {
+              "external_validation": { "$ref": "#/$defs/externalValidation" }
+            }
+          }
+        }
+      ]
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "offset_bytes",
+        "width_bytes",
+        "endianness",
+        "signed",
+        "scale",
+        "addend"
+      ],
+      "properties": {
+        "operation_id": { "type": "string", "minLength": 1 },
+        "offset_bytes": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "width_bytes": { "enum": [1, 2, 4, 8] },
+        "endianness": { "enum": ["little", "big"] },
+        "signed": { "type": "boolean" },
+        "scale": { "type": "number" },
+        "addend": { "type": "number" }
+      }
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sample_count",
+        "minimum",
+        "maximum",
+        "mean",
+        "standard_deviation",
+        "update_period_ms"
+      ],
+      "properties": {
+        "sample_count": { "type": "integer", "minimum": 0 },
+        "minimum": { "$ref": "#/$defs/nullableNumber" },
+        "maximum": { "$ref": "#/$defs/nullableNumber" },
+        "mean": { "$ref": "#/$defs/nullableNumber" },
+        "standard_deviation": { "$ref": "#/$defs/nullableNumber" },
+        "update_period_ms": { "$ref": "#/$defs/nullableNumber" }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["against", "method", "coefficient", "lag_ms", "sample_count"],
+      "properties": {
+        "against": { "type": "string", "minLength": 1 },
+        "method": { "enum": ["pearson", "spearman", "cross_correlation"] },
+        "coefficient": { "type": "number", "minimum": -1, "maximum": 1 },
+        "lag_ms": { "type": "number" },
+        "sample_count": { "type": "integer", "minimum": 2 }
+      }
+    },
+    "externalValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reference_package_manifest_sha256",
+        "measurement_point",
+        "cycles",
+        "tolerance",
+        "conclusion"
+      ],
+      "properties": {
+        "reference_package_manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "measurement_point": { "type": "string", "minLength": 1 },
+        "cycles": { "type": "integer", "minimum": 2 },
+        "tolerance": { "type": "string", "minLength": 1 },
+        "conclusion": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

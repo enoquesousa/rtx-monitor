@@ -527,7 +527,7 @@ try {
             $record.store_schema_version -ne 1 -or
             $record.event.schema_version -ne 3 -or
             $record.run.run_id -ne $historyRunId -or
-            $record.run.application_version -ne '0.7.0' -or
+            $record.run.application_version -ne '0.8.0' -or
             $record.device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid -or
             $record.device_snapshot.board.profile_key -ne $cppCapabilities.board.profile_key -or
             $null -eq $record.event.public_telemetry -or
@@ -611,9 +611,9 @@ try {
     }
     if ($null -eq $serviceHealth -or
         -not $serviceHealth.ready -or
-        $serviceHealth.service_version -ne '0.7.0' -or
+        $serviceHealth.service_version -ne '0.8.0' -or
         $serviceHealth.storage.state -ne 'available') {
-        throw 'Local service did not become ready with SQLite and version 0.7.0.'
+        throw 'Local service did not become ready with SQLite and version 0.8.0.'
     }
 
     $serviceDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -646,7 +646,7 @@ try {
         throw "The local service differed by more than 5 C: $($allTemperatures -join ', ')."
     }
     if ($serviceHistory.count -lt 2 -or
-        $serviceHistory.items[0].run.application_version -ne '0.7.0' -or
+        $serviceHistory.items[0].run.application_version -ne '0.8.0' -or
         $serviceHistory.items[0].event.schema_version -ne 3 -or
         $null -eq $serviceHistory.items[0].event.public_telemetry -or
         $serviceHistory.items[0].device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid) {

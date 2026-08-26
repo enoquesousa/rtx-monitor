@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "source_kind": "nvapi_query_interface_resolution_observation",
+  "captured_utc": "2026-08-25T22:41:09Z",
+  "duration_seconds": 15,
+  "gpuz_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "observation_count": 2,
+  "unique_interface_count": 2,
+  "resolved_observation_count": 1,
+  "null_result_count": 1,
+  "modules": [
+    {
+      "module_name": "nvapi.dll",
+      "original_file_name": "nvapi.dll",
+      "size_bytes": 4096,
+      "image_size": 8192,
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "interfaces": [
+    {
+      "interface_id": "0x0150e828",
+      "call_count": 1,
+      "resolved_count": 1,
+      "null_result_count": 0,
+      "targets": [
+        {
+          "module_name": "nvapi.dll",
+          "module_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "rva": "0x00001234",
+          "observation_count": 1
+        }
+      ]
+    },
+    {
+      "interface_id": "0xdeadbeef",
+      "call_count": 1,
+      "resolved_count": 0,
+      "null_result_count": 1,
+      "targets": []
+    }
+  ],
+  "warning": "Synthetic resolution observation used only by hardware-independent tests."
+}

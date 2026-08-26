@@ -8,3 +8,20 @@
 *.suo
 *.VC.db
 *.VC.VC.opendb
+
+# Local reverse-engineering evidence and proprietary firmware inputs.
+/experiments/local/
+/evidence/
+/dumps/
+*.rom
+*.vbios
+*.bin
+*.dump
+*.dmp
+*.raw
+*.mmio
+*.pciconfig
+*.evidence.zip
+*.evidence.tar
+*.evidence.tar.gz
+*.evidence.tar.zst
