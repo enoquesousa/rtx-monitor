@@ -1,6 +1,6 @@
 # Threat model — aquisição experimental v0.8.0
 
-- Estado: obrigatório antes da primeira leitura privilegiada
+- Estado: deferido; obrigatório somente antes de um futuro helper/driver em kernel mode
 - Escopo: coordenador, IPC, helper/driver, perfil allowlisted, artefatos e analisador offline
 - Fora do escopo: monitor e serviço estáveis, que não carregam o helper
 
@@ -111,9 +111,9 @@ O protocolo ainda será especificado em código, mas deve obedecer a estes invar
 
 Esses riscos só são aceitos em máquina de laboratório, com backup e recuperação disponíveis. Qualquer comportamento inesperado revoga a operação até nova revisão.
 
-## Gate de liberação
+## Gate de liberação de um helper futuro
 
-Nenhuma aquisição privilegiada é liberada antes de todos os itens abaixo:
+Este checklist permanece intencionalmente aberto e não é gate de saída da v0.8.0: a versão concluída não implementa helper/driver nem acessa PCI config, BAR ou MMIO. Nenhuma futura aquisição em kernel mode será liberada antes de todos os itens abaixo:
 
 - [ ] ADR 0008 aceito e contratos JSON revisados;
 - [ ] allowlist contém somente identidade e operações necessárias para uma hipótese documentada;

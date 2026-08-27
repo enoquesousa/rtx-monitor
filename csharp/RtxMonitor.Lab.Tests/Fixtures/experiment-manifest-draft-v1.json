@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "experiment_id": "11111111-2222-4333-8444-555555555555",
+  "status": "completed",
+  "created_at_utc": "2026-08-27T12:00:00.0000000Z",
+  "started_at_utc": "2026-08-27T12:01:00.0000000Z",
+  "completed_at_utc": "2026-08-27T12:10:00.0000000Z",
+  "software": {
+    "rtx_monitor_version": "0.8.0",
+    "coordinator_version": "0.8.0",
+    "helper_version": null,
+    "analyzer_version": "0.8.0"
+  },
+  "host": {
+    "os": "windows",
+    "os_version": "fixture",
+    "kernel_version": null,
+    "architecture": "x64"
+  },
+  "gpu_profile": {
+    "gpu_uuid": "GPU-fixture",
+    "gpu_name": "Synthetic RTX fixture",
+    "pci_address": "0000:01:00.0",
+    "pci_vendor_id": "10de",
+    "pci_device_id": "2504",
+    "pci_subsystem_vendor_id": "1b4c",
+    "pci_subsystem_device_id": "1530",
+    "pci_revision_id": "a1",
+    "profile_key": "fixture-gpu",
+    "vbios_version": null,
+    "vbios_sha256": null,
+    "driver_version": "fixture",
+    "nvml_version": "fixture",
+    "gsp_version": null
+  },
+  "timebase": {
+    "utc_clock": "fixture_utc",
+    "monotonic_clock": "fixture_monotonic",
+    "monotonic_frequency_hz": 1000000000
+  },
+  "allowlist": null,
+  "scenarios": [
+    {
+      "scenario_id": "synthetic-transition",
+      "kind": "custom",
+      "description": "Deterministic analyzer fixture.",
+      "commands": []
+    }
+  ],
+  "markers": [
+    {
+      "scenario_id": "synthetic-transition",
+      "phase": "begin",
+      "utc_unix_ms": 1787832060000,
+      "monotonic_ns": 0,
+      "monotonic_frequency_hz": 1000000000,
+      "note": null
+    },
+    {
+      "scenario_id": "synthetic-transition",
+      "phase": "end",
+      "utc_unix_ms": 1787832600000,
+      "monotonic_ns": 7000000000,
+      "monotonic_frequency_hz": 1000000000,
+      "note": "Synthetic fixture completed."
+    }
+  ],
+  "artifact_packages": [
+    {
+      "role": "other",
+      "scenario_id": "synthetic-transition",
+      "relative_path": "series-package",
+      "manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "external_reference": {
+    "instrument": "synthetic fixture",
+    "measurement_point": "synthetic reference series",
+    "unit": "V",
+    "sampling_interval_ms": 1000,
+    "uncertainty": "Not applicable to synthetic fixture.",
+    "limitations": "This fixture does not establish hardware sensor identity."
+  },
+  "notes": "Deterministic completed experiment fixture for rtxmon-lab tests."
+}

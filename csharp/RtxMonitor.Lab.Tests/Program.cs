@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace RtxMonitor.Lab.Tests;
 
@@ -39,17 +40,74 @@ internal static class Program
         Run("CLI requires the manifest anchor", TestCliRequiresManifestAnchor);
         Run("GPU-Z log preserves channels and source scopes", TestGpuzLogAnalysis);
         Run("GPU-Z log rejects malformed rows", TestGpuzLogRejectsMalformedRows);
+        Run(
+            "CSV parsers reject excess sample rows during tokenization",
+            TestCsvParsersRejectExcessSampleRows);
+        Run(
+            "CSV parsers reject excess fields during tokenization",
+            TestCsvParsersRejectExcessFields);
+        Run(
+            "CSV parsers reject excess appended sessions during tokenization",
+            TestCsvParsersRejectExcessSessions);
+        Run(
+            "CSV parsers tolerate blank lines without materializing rows",
+            TestCsvParsersIgnoreBlankLines);
         Run("GPU-Z log accepts identical appended sessions", TestGpuzAppendedSessions);
         Run("GPU-Z log rejects changed appended layouts", TestGpuzChangedSessionLayout);
         Run("CLI emits GPU-Z reference JSON", TestCliGpuzLogAnalysis);
         Run("experiment marker has synchronized clocks", TestExperimentMarker);
         Run("CLI marker validates scenario and phase", TestCliExperimentMarker);
+        Run(
+            "experiment manifest and analysis producers are anchored end to end",
+            TestExperimentManifestAndSeriesAnalysis);
+        Run(
+            "experiment manifest rejects an untrusted package anchor",
+            TestExperimentManifestRejectsUntrustedPackage);
+        Run(
+            "experiment manifest input requires a stable single-link snapshot",
+            TestExperimentManifestInputSnapshot);
+        Run(
+            "analysis uses the anchored payload snapshot after pathname tamper",
+            TestExperimentAnalysisUsesVerifiedPayloadSnapshot);
+        Run(
+            "experiment packages enforce scenario binding and completed evidence",
+            TestExperimentManifestScenarioBinding);
+        Run(
+            "analysis enforces scenario windows and bounded correlation work",
+            TestExperimentAnalysisScenarioWindowAndWorkLimit);
+        Run(
+            "analysis rejects non-finite derived values through the CLI contract",
+            TestExperimentAnalysisRejectsNonFiniteDerivedValues);
         Run("GPU-Z correlation ranks numeric co-movement", TestGpuzCorrelation);
         Run("GPU-Z correlation handles non-computable series", TestGpuzCorrelationLimits);
         Run("GPU-Z correlation isolates appended sessions", TestGpuzSessionCorrelation);
         Run(
             "NVAPI thermal channels correlate with die and hotspot references",
             TestThermChannelCorrelation);
+        Run(
+            "NVAPI thermal v2 isolates sessions and requires the sealed reference",
+            TestThermChannelCorrelationV2);
+        Run(
+            "NVAPI voltage v2 correlates GPU-Z and optional growing HWiNFO",
+            TestVoltageStatusCorrelationV2);
+        Run(
+            "NVAPI voltage v2 isolates the bounded GPU-Z session layout",
+            TestVoltageStatusCorrelationV2ChangedEarlierLayout);
+        Run(
+            "NVAPI voltage v2 rejects profile and raw-layout drift",
+            TestVoltageStatusCorrelationV2RejectsProfileDrift);
+        Run(
+            "NVAPI voltage v2 rejects unanchored or inconsistent references",
+            TestVoltageStatusCorrelationV2RejectsReferenceDrift);
+        Run(
+            "NVAPI voltage v2 rejects oversized observations before parsing",
+            TestVoltageStatusCorrelationV2RejectsOversizedObservation);
+        Run(
+            "ordered resampling remains bounded at maximum contract sizes",
+            TestOrderedResamplingAtContractLimits);
+        Run(
+            "external voltage prefixes reject invalid exact-channel values",
+            TestGpuzVoltagePrefixIsolatesInvalidValues);
         Run("NVAPI IDs are classified against an offline public table", TestNvapiClassification);
         Run("NVAPI classification rejects inconsistent observations", TestNvapiClassificationRejectsCounts);
         Run("NVAPI candidate inventory joins catalog and binary origin", TestNvapiCandidateInventory);
@@ -80,6 +138,23 @@ internal static class Program
                     "/tmp/rtxmon-lab-package",
                     new string('0', 64))),
             "non-Windows verify must fail before opening package paths");
+        Check(
+            Throws<PlatformNotSupportedException>(
+                () => ExperimentManifestProducer.FinalizeFile(
+                    "/dev/null",
+                    "/tmp")),
+            "non-Windows manifest finalization must fail before opening its input path");
+        Check(
+            Throws<PlatformNotSupportedException>(
+                () => ExperimentSeriesAnalyzer.Analyze(
+                    "/dev/null",
+                    new string('0', 64),
+                    "/tmp",
+                    "series-package",
+                    maximumLagSamples: 0,
+                    Guid.Empty,
+                    DateTimeOffset.UnixEpoch)),
+            "non-Windows analysis must fail before opening its manifest path");
     }
 
     private static void TestCreateAndVerify()
@@ -823,6 +898,122 @@ internal static class Program
             "a truncated GPU-Z row must fail closed");
     }
 
+    private static void TestCsvParsersRejectExcessSampleRows()
+    {
+        var gpuz = new StringBuilder("Date,GPU Voltage [V]\n");
+        for (int index = 0; index <= GpuzSensorLog.MaximumSamples; index++)
+        {
+            gpuz.Append("x,0\n");
+        }
+
+        GpuzLogException? gpuzError = CaptureException<GpuzLogException>(() =>
+            GpuzSensorLog.Analyze(
+                Encoding.UTF8.GetBytes(gpuz.ToString()),
+                "too-many-gpuz-samples.csv"));
+        Check(
+            gpuzError?.Message.Contains(
+                $"more than {GpuzSensorLog.MaximumSamples} samples",
+                StringComparison.Ordinal) == true,
+            "GPU-Z must reject sample row 250001 inside CSV parsing");
+
+        var hwinfo = new StringBuilder(
+            "Date,Time,\"GPU Core Voltage [V]\",\"GPU Power [W]\"\n");
+        for (int index = 0; index <= HwinfoVoltageSensorLog.MaximumSamples; index++)
+        {
+            hwinfo.Append("x,x,0,0\n");
+        }
+
+        HwinfoVoltageLogException? hwinfoError =
+            CaptureException<HwinfoVoltageLogException>(() =>
+                HwinfoVoltageSensorLog.Analyze(
+                    Encoding.UTF8.GetBytes(hwinfo.ToString()),
+                    "too-many-hwinfo-samples.csv"));
+        Check(
+            hwinfoError?.Message.Contains(
+                $"{HwinfoVoltageSensorLog.MaximumSamples}-sample-row limit",
+                StringComparison.Ordinal) == true,
+            "HWiNFO must reject sample row 250001 inside CSV parsing");
+    }
+
+    private static void TestCsvParsersRejectExcessFields()
+    {
+        byte[] gpuz = Encoding.UTF8.GetBytes(
+            "Date" + new string(',', GpuzSensorLog.MaximumChannels + 2) + "\n");
+        GpuzLogException? gpuzError = CaptureException<GpuzLogException>(() =>
+            GpuzSensorLog.Analyze(gpuz, "too-wide-gpuz.csv"));
+        Check(
+            gpuzError?.Message.Contains("field parser limit", StringComparison.Ordinal) == true,
+            "GPU-Z must reject a field-count bomb before materializing its header row");
+
+        byte[] hwinfo = Encoding.UTF8.GetBytes(
+            "Date" + new string(',', HwinfoVoltageSensorLog.MaximumFields) + "\n");
+        HwinfoVoltageLogException? hwinfoError =
+            CaptureException<HwinfoVoltageLogException>(() =>
+                HwinfoVoltageSensorLog.Analyze(hwinfo, "too-wide-hwinfo.csv"));
+        Check(
+            hwinfoError?.Message.Contains("field parser limit", StringComparison.Ordinal) == true,
+            "HWiNFO must reject a field-count bomb before materializing its header row");
+    }
+
+    private static void TestCsvParsersRejectExcessSessions()
+    {
+        const string gpuzHeader = "Date,GPU Voltage [V]\n";
+        var gpuz = new StringBuilder(gpuzHeader);
+        for (int index = 0; index < GpuzSensorLog.MaximumSessions; index++)
+        {
+            gpuz.Append(gpuzHeader);
+        }
+
+        GpuzLogException? gpuzError = CaptureException<GpuzLogException>(() =>
+            GpuzSensorLog.Analyze(
+                Encoding.UTF8.GetBytes(gpuz.ToString()),
+                "too-many-gpuz-sessions.csv"));
+        Check(
+            gpuzError?.Message.Contains(
+                $"more than {GpuzSensorLog.MaximumSessions} sessions",
+                StringComparison.Ordinal) == true,
+            "GPU-Z must reject appended session 1025 before storing its header row");
+
+        const string hwinfoHeader =
+            "Date,Time,\"GPU Core Voltage [V]\",\"GPU Power [W]\"\n";
+        var hwinfo = new StringBuilder(hwinfoHeader);
+        for (int index = 0; index < HwinfoVoltageSensorLog.MaximumSessions; index++)
+        {
+            hwinfo.Append(hwinfoHeader);
+        }
+
+        HwinfoVoltageLogException? hwinfoError =
+            CaptureException<HwinfoVoltageLogException>(() =>
+                HwinfoVoltageSensorLog.Analyze(
+                    Encoding.UTF8.GetBytes(hwinfo.ToString()),
+                    "too-many-hwinfo-sessions.csv"));
+        Check(
+            hwinfoError?.Message.Contains(
+                $"more than {HwinfoVoltageSensorLog.MaximumSessions} sessions",
+                StringComparison.Ordinal) == true,
+            "HWiNFO must reject appended session 1025 before storing its header row");
+    }
+
+    private static void TestCsvParsersIgnoreBlankLines()
+    {
+        byte[] gpuz = Encoding.UTF8.GetBytes(
+            "\nDate,GPU Voltage [V]\n\n2026-08-26 18:18:31,1.0\n\n");
+        GpuzLogAnalysis gpuzAnalysis = GpuzSensorLog.Analyze(gpuz, "blank-lines-gpuz.csv");
+        Check(
+            gpuzAnalysis.SampleCount == 1 && gpuzAnalysis.SessionCount == 1,
+            "GPU-Z blank lines must not become stored CSV rows or sessions");
+
+        byte[] hwinfo = Encoding.UTF8.GetBytes(
+            "\nDate,Time,\"GPU Core Voltage [V]\",\"GPU Power [W]\"\n\n" +
+            "26.8.2026,18:18:31.000,1.0,50.0\n\n");
+        HwinfoVoltageLogAnalysis hwinfoAnalysis = HwinfoVoltageSensorLog.Analyze(
+            hwinfo,
+            "blank-lines-hwinfo.csv");
+        Check(
+            hwinfoAnalysis.Samples.Count == 1,
+            "HWiNFO blank lines must not become stored CSV rows or samples");
+    }
+
     private static void TestGpuzAppendedSessions()
     {
         byte[] content = Encoding.UTF8.GetBytes(
@@ -929,6 +1120,411 @@ internal static class Program
             "invalid marker arguments must not write stdout");
         Check(invalid.RootElement.GetProperty("error_code").GetString() == "invalid_arguments",
             "invalid marker arguments must use the machine-readable argument error");
+    }
+
+    private static void TestExperimentManifestAndSeriesAnalysis()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string seriesInput = temporary.WriteInput(
+            "numeric-series-v1.json",
+            FixtureBytes("numeric-series-v1.json"));
+        string seriesPackage = temporary.PackagePath("series-package");
+        LabPackageResult package = LabPackage.Create(seriesInput, seriesPackage);
+        string draftText = Encoding.UTF8.GetString(
+                FixtureBytes("experiment-manifest-draft-v1.json"))
+            .Replace(new string('0', 64), package.ManifestSha256, StringComparison.Ordinal);
+        string draft = temporary.WriteInput(
+            "experiment-manifest-draft.json",
+            Encoding.UTF8.GetBytes(draftText));
+        using var manifestOutput = new StringWriter(CultureInfo.InvariantCulture);
+        using var manifestError = new StringWriter(CultureInfo.InvariantCulture);
+        int manifestExit = LabCli.Run(
+            [
+                "finalize-experiment-manifest",
+                "--input",
+                draft,
+                "--package-root",
+                temporary.RootPath,
+            ],
+            manifestOutput,
+            manifestError);
+
+        Check(manifestExit == 0, "manifest CLI producer must succeed");
+        Check(manifestError.ToString().Length == 0,
+            "manifest CLI producer must not write stderr");
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(manifestOutput.ToString());
+        using (JsonDocument manifestJson = JsonDocument.Parse(manifestBytes))
+        {
+            Check(
+                manifestJson.RootElement.GetProperty("experiment_id").GetString() ==
+                    "11111111-2222-4333-8444-555555555555" &&
+                manifestJson.RootElement.GetProperty("artifact_packages")[0]
+                    .GetProperty("manifest_sha256").GetString() == package.ManifestSha256 &&
+                manifestJson.RootElement.GetProperty("artifact_packages")[0]
+                    .GetProperty("scenario_id").GetString() == "synthetic-transition",
+                "manifest producer must preserve the experiment, scenario, and package anchor");
+        }
+
+        string manifest = temporary.WriteInput("experiment-manifest.json", manifestBytes);
+        string manifestSha256 = Sha256Hex(manifestBytes);
+        ExperimentAnalysisReport report = ExperimentSeriesAnalyzer.Analyze(
+            manifest,
+            manifestSha256,
+            temporary.RootPath,
+            "series-package",
+            maximumLagSamples: 2,
+            Guid.Parse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+            DateTimeOffset.Parse(
+                "2026-08-27T12:20:00.0000000Z",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind));
+        AnalysisCandidate candidate = report.Candidates.Single();
+        AnalysisCorrelation correlation = candidate.Correlations.Single();
+        Check(
+            candidate.Stage == "raw_unknown" &&
+            candidate.PhysicalName is null &&
+            candidate.ValueUnit == "V",
+            "offline analysis must preserve units without promoting a sensor identity");
+        Check(
+            candidate.Statistics.SampleCount == 8 &&
+            candidate.Statistics.Mean == 1.125 &&
+            candidate.Statistics.UpdatePeriodMs == 1000 &&
+            candidate.Statistics.MinimumDelta == -1 &&
+            candidate.Statistics.MaximumDelta == 1 &&
+            candidate.Statistics.MeanDelta == 0,
+            "analysis must emit deterministic statistics, update period, and deltas");
+        Check(
+            correlation.Method == "cross_correlation" &&
+            correlation.Coefficient == 1 &&
+            correlation.LagMs == -1000 &&
+            correlation.SampleCount == 7,
+            "analysis must select the strongest bounded lag without changing identity stage");
+        Check(
+            Throws<ExperimentSeriesAnalysisException>(
+                () => ExperimentSeriesAnalyzer.Analyze(
+                    manifest,
+                    new string('0', 64),
+                    temporary.RootPath,
+                    "series-package",
+                    2,
+                    Guid.NewGuid(),
+                    DateTimeOffset.UtcNow)),
+            "analysis must reject an untrusted experiment manifest anchor");
+
+        using var analysisOutput = new StringWriter(CultureInfo.InvariantCulture);
+        using var analysisError = new StringWriter(CultureInfo.InvariantCulture);
+        int analysisExit = LabCli.Run(
+            [
+                "analyze-experiment-series",
+                "--manifest",
+                manifest,
+                "--expected-manifest-sha256",
+                manifestSha256,
+                "--package-root",
+                temporary.RootPath,
+                "--series-package",
+                "series-package",
+                "--max-lag-samples",
+                "2",
+                "--analysis-id",
+                "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+                "--created-at-utc",
+                "2026-08-27T12:20:00.0000000Z",
+            ],
+            analysisOutput,
+            analysisError);
+        Check(analysisExit == 0 && analysisError.ToString().Length == 0,
+            "analysis CLI producer must succeed offline");
+        using JsonDocument analysisJson = JsonDocument.Parse(analysisOutput.ToString());
+        Check(
+            analysisJson.RootElement.GetProperty("schema_version").GetInt32() == 1 &&
+            analysisJson.RootElement.GetProperty("candidates")[0]
+                .GetProperty("stage").GetString() == "raw_unknown" &&
+            analysisJson.RootElement.GetProperty("candidates")[0]
+                .GetProperty("value_unit").GetString() == "V" &&
+            analysisJson.RootElement.GetProperty("candidates")[0]
+                .GetProperty("statistics").GetProperty("mean_delta").GetDouble() == 0,
+            "analysis CLI must serialize analysis-report-v1 without semantic promotion");
+    }
+
+    private static void TestExperimentManifestRejectsUntrustedPackage()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string seriesInput = temporary.WriteInput(
+            "numeric-series-v1.json",
+            FixtureBytes("numeric-series-v1.json"));
+        _ = LabPackage.Create(
+            seriesInput,
+            temporary.PackagePath("series-package"));
+        string draft = temporary.WriteInput(
+            "untrusted-experiment-manifest.json",
+            FixtureBytes("experiment-manifest-draft-v1.json"));
+
+        Check(
+            Throws<ExperimentManifestException>(
+                () => ExperimentManifestProducer.FinalizeFile(draft, temporary.RootPath)),
+            "manifest production must verify every package against its supplied trust anchor");
+    }
+
+    private static void TestExperimentManifestInputSnapshot()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string target = temporary.WriteInput(
+            "manifest-target.json",
+            FixtureBytes("experiment-manifest-draft-v1.json"));
+        string hardLink = temporary.TrackFile(
+            Path.Combine(temporary.RootPath, "manifest-hardlink.json"));
+        CreateHardLink(hardLink, target);
+
+        Check(
+            Throws<ExperimentManifestException>(
+                () => ExperimentManifestProducer.FinalizeFile(
+                    hardLink,
+                    temporary.RootPath)),
+            "manifest finalization must reject an input with more than one filesystem link");
+    }
+
+    private static void TestExperimentAnalysisUsesVerifiedPayloadSnapshot()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        byte[] originalSeries = FixtureBytes("numeric-series-v1.json");
+        string seriesInput = temporary.WriteInput(
+            "numeric-series-v1.json",
+            originalSeries);
+        string seriesPackage = temporary.PackagePath("series-package");
+        LabPackageResult package = LabPackage.Create(seriesInput, seriesPackage);
+        string draftText = Encoding.UTF8.GetString(
+                FixtureBytes("experiment-manifest-draft-v1.json"))
+            .Replace(new string('0', 64), package.ManifestSha256, StringComparison.Ordinal);
+        string draft = temporary.WriteInput(
+            "experiment-manifest-draft.json",
+            Encoding.UTF8.GetBytes(draftText));
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(
+            ExperimentManifestProducer.FinalizeFile(draft, temporary.RootPath));
+        string manifest = temporary.WriteInput("experiment-manifest.json", manifestBytes);
+        string manifestSha256 = Sha256Hex(manifestBytes);
+        string payload = PayloadPath(seriesPackage);
+        bool tamperedAfterVerifiedRead = false;
+
+        ExperimentAnalysisReport report = ExperimentSeriesAnalyzer.AnalyzeForTesting(
+            manifest,
+            manifestSha256,
+            temporary.RootPath,
+            "series-package",
+            maximumLagSamples: 2,
+            Guid.Parse("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+            DateTimeOffset.Parse(
+                "2026-08-27T12:20:00.0000000Z",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind),
+            afterVerifiedPayloadRead: () =>
+            {
+                File.WriteAllBytes(payload, Enumerable.Repeat((byte)' ', originalSeries.Length).ToArray());
+                tamperedAfterVerifiedRead = true;
+            });
+
+        AnalysisCandidate candidate = report.Candidates.Single();
+        Check(tamperedAfterVerifiedRead,
+            "the regression hook must replace the package pathname after its verified read");
+        Check(candidate.Statistics.SampleCount == 8 && candidate.Statistics.Mean == 1.125,
+            "analysis must parse the exact anchored bytes already read, not the replaced pathname");
+        Check(
+            Throws<LabPackageException>(
+                () => LabPackage.Verify(seriesPackage, package.ManifestSha256)),
+            "a later verification must reject the payload replacement against the old anchor");
+    }
+
+    private static void TestExperimentManifestScenarioBinding()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string seriesInput = temporary.WriteInput(
+            "numeric-series-v1.json",
+            FixtureBytes("numeric-series-v1.json"));
+        string seriesPackage = temporary.PackagePath("series-package");
+        LabPackageResult package = LabPackage.Create(seriesInput, seriesPackage);
+
+        JsonObject unknownScenario = ExperimentManifestFixture(package.ManifestSha256);
+        unknownScenario["artifact_packages"]![0]!["scenario_id"] = "missing-scenario";
+        string unknownDraft = temporary.WriteInput(
+            "unknown-scenario-draft.json",
+            Encoding.UTF8.GetBytes(unknownScenario.ToJsonString()));
+        Check(
+            Throws<ExperimentManifestException>(() =>
+                ExperimentManifestProducer.FinalizeFile(unknownDraft, temporary.RootPath)),
+            "artifact packages must not reference an undeclared scenario");
+
+        JsonObject emptyCompleted = ExperimentManifestFixture(package.ManifestSha256);
+        emptyCompleted["artifact_packages"] = new JsonArray();
+        string emptyDraft = temporary.WriteInput(
+            "empty-completed-draft.json",
+            Encoding.UTF8.GetBytes(emptyCompleted.ToJsonString()));
+        Check(
+            Throws<ExperimentManifestException>(() =>
+                ExperimentManifestProducer.FinalizeFile(emptyDraft, temporary.RootPath)),
+            "completed experiments must retain at least one artifact package");
+
+        JsonObject supportingPackage = ExperimentManifestFixture(package.ManifestSha256);
+        supportingPackage["artifact_packages"]![0]!["scenario_id"] = null;
+        string supportingDraft = temporary.WriteInput(
+            "supporting-package-draft.json",
+            Encoding.UTF8.GetBytes(supportingPackage.ToJsonString()));
+        byte[] supportingManifestBytes = Encoding.UTF8.GetBytes(
+            ExperimentManifestProducer.FinalizeFile(supportingDraft, temporary.RootPath));
+        string supportingManifest = temporary.WriteInput(
+            "supporting-package-manifest.json",
+            supportingManifestBytes);
+        Check(
+            Throws<ExperimentSeriesAnalysisException>(() =>
+                ExperimentSeriesAnalyzer.Analyze(
+                    supportingManifest,
+                    Sha256Hex(supportingManifestBytes),
+                    temporary.RootPath,
+                    "series-package",
+                    2,
+                    Guid.NewGuid(),
+                    DateTimeOffset.UtcNow)),
+            "supporting or historical packages with null scenario_id must not be analyzed as a series");
+    }
+
+    private static void TestExperimentAnalysisScenarioWindowAndWorkLimit()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string seriesInput = temporary.WriteInput(
+            "numeric-series-v1.json",
+            FixtureBytes("numeric-series-v1.json"));
+        string seriesPackage = temporary.PackagePath("series-package");
+        LabPackageResult package = LabPackage.Create(seriesInput, seriesPackage);
+
+        JsonObject outsideWindow = ExperimentManifestFixture(package.ManifestSha256);
+        outsideWindow["markers"]![0]!["monotonic_ns"] = 1;
+        string outsideDraft = temporary.WriteInput(
+            "outside-window-draft.json",
+            Encoding.UTF8.GetBytes(outsideWindow.ToJsonString()));
+        byte[] outsideManifestBytes = Encoding.UTF8.GetBytes(
+            ExperimentManifestProducer.FinalizeFile(outsideDraft, temporary.RootPath));
+        string outsideManifest = temporary.WriteInput(
+            "outside-window-manifest.json",
+            outsideManifestBytes);
+        Check(
+            Throws<ExperimentSeriesAnalysisException>(() =>
+                ExperimentSeriesAnalyzer.Analyze(
+                    outsideManifest,
+                    Sha256Hex(outsideManifestBytes),
+                    temporary.RootPath,
+                    "series-package",
+                    2,
+                    Guid.NewGuid(),
+                    DateTimeOffset.UtcNow)),
+            "every numeric sample must remain inside its bound scenario markers");
+
+        JsonObject largeSeries = JsonNode.Parse(FixtureBytes("numeric-series-v1.json"))!
+            .AsObject();
+        var samples = new JsonArray();
+        var references = new JsonArray();
+        for (int index = 0; index <= 6000; index++)
+        {
+            samples.Add(new JsonObject
+            {
+                ["monotonic_ns"] = index,
+                ["value"] = index % 17,
+            });
+            references.Add(new JsonObject
+            {
+                ["monotonic_ns"] = index,
+                ["value"] = (index + 1) % 17,
+            });
+        }
+
+        largeSeries["samples"] = samples;
+        largeSeries["reference"]!["samples"] = references;
+        string largeInput = temporary.WriteInput(
+            "large-numeric-series-v1.json",
+            Encoding.UTF8.GetBytes(largeSeries.ToJsonString()));
+        string largePackagePath = temporary.PackagePath("large-series-package");
+        LabPackageResult largePackage = LabPackage.Create(largeInput, largePackagePath);
+        JsonObject largeManifestRoot = ExperimentManifestFixture(largePackage.ManifestSha256);
+        largeManifestRoot["artifact_packages"]![0]!["relative_path"] =
+            "large-series-package";
+        string largeDraft = temporary.WriteInput(
+            "large-series-draft.json",
+            Encoding.UTF8.GetBytes(largeManifestRoot.ToJsonString()));
+        byte[] largeManifestBytes = Encoding.UTF8.GetBytes(
+            ExperimentManifestProducer.FinalizeFile(largeDraft, temporary.RootPath));
+        string largeManifest = temporary.WriteInput(
+            "large-series-manifest.json",
+            largeManifestBytes);
+        Check(
+            Throws<ExperimentSeriesAnalysisException>(() =>
+                ExperimentSeriesAnalyzer.Analyze(
+                    largeManifest,
+                    Sha256Hex(largeManifestBytes),
+                    temporary.RootPath,
+                    "large-series-package",
+                    1000,
+                    Guid.NewGuid(),
+                    DateTimeOffset.UtcNow)),
+            "correlation must reject workloads above the defensive pair-evaluation limit");
+    }
+
+    private static void TestExperimentAnalysisRejectsNonFiniteDerivedValues()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        JsonObject extremeSeries = JsonNode.Parse(FixtureBytes("numeric-series-v1.json"))!
+            .AsObject();
+        foreach (JsonNode? sample in extremeSeries["samples"]!.AsArray())
+        {
+            sample!["value"] = 1e308;
+        }
+
+        string seriesInput = temporary.WriteInput(
+            "extreme-numeric-series-v1.json",
+            Encoding.UTF8.GetBytes(extremeSeries.ToJsonString()));
+        string seriesPackagePath = temporary.PackagePath("extreme-series-package");
+        LabPackageResult seriesPackage = LabPackage.Create(seriesInput, seriesPackagePath);
+        JsonObject manifestRoot = ExperimentManifestFixture(seriesPackage.ManifestSha256);
+        manifestRoot["artifact_packages"]![0]!["relative_path"] = "extreme-series-package";
+        string draft = temporary.WriteInput(
+            "extreme-series-draft.json",
+            Encoding.UTF8.GetBytes(manifestRoot.ToJsonString()));
+        byte[] manifestBytes = Encoding.UTF8.GetBytes(
+            ExperimentManifestProducer.FinalizeFile(draft, temporary.RootPath));
+        string manifest = temporary.WriteInput("extreme-series-manifest.json", manifestBytes);
+
+        using var output = new StringWriter(CultureInfo.InvariantCulture);
+        using var error = new StringWriter(CultureInfo.InvariantCulture);
+        int exitCode = LabCli.Run(
+            [
+                "analyze-experiment-series",
+                "--manifest",
+                manifest,
+                "--expected-manifest-sha256",
+                Sha256Hex(manifestBytes),
+                "--package-root",
+                temporary.RootPath,
+                "--series-package",
+                "extreme-series-package",
+            ],
+            output,
+            error);
+
+        Check(exitCode == 1, "non-finite derived values must return the analysis failure code");
+        Check(output.ToString().Length == 0,
+            "non-finite derived values must not emit a partial report");
+        using JsonDocument errorJson = JsonDocument.Parse(error.ToString());
+        Check(
+            errorJson.RootElement.GetProperty("error_code").GetString() == "analysis_error" &&
+            errorJson.RootElement.GetProperty("message").GetString()!
+                .Contains("non-finite", StringComparison.Ordinal),
+            "non-finite derived values must use the structured analysis_error contract");
+    }
+
+    private static JsonObject ExperimentManifestFixture(string packageManifestSha256)
+    {
+        JsonObject root = JsonNode.Parse(
+                FixtureBytes("experiment-manifest-draft-v1.json"))!
+            .AsObject();
+        root["artifact_packages"]![0]!["manifest_sha256"] = packageManifestSha256;
+        return root;
     }
 
     private static void TestGpuzCorrelation()
@@ -1069,6 +1665,513 @@ internal static class Program
                 () => ThermChannelCorrelation.AnalyzeFiles(invalidObservation, log)),
             "thermal correlation must reject a changed channel layout");
     }
+
+    private static void TestThermChannelCorrelationV2()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string gpuz = temporary.WriteInput(
+            "gpuz-therm-channel-reference-v2.csv",
+            FixtureBytes("gpuz-therm-channel-reference-v2.csv"));
+        string observation = temporary.WriteInput(
+            "nvapi-therm-channel-v2-observation-v2.json",
+            FixtureBytes("nvapi-therm-channel-v2-observation-v2.json"));
+
+        ThermChannelCorrelationReportV2 report =
+            ThermChannelCorrelationV2.AnalyzeFiles(observation, gpuz);
+        Check(
+            report.SchemaVersion == 2 &&
+            report.MappingStatus == "matched_external_reference" &&
+            report.Selection.SelectedSessionIndex == 2 &&
+            report.Selection.IgnoredSessionIndicesWithoutExactChannels.SequenceEqual([0]) &&
+            report.Selection.RejectedSessionIndicesWithInvalidExactChannelData.SequenceEqual([1]) &&
+            report.DirectComparison.Mappings[0].ReferenceChannel == "GPU Temperature" &&
+            report.DirectComparison.Mappings[1].ReferenceChannel == "Hot Spot" &&
+            report.InvertedComparison.CombinedMeanAbsoluteErrorCelsius >= 10,
+            "thermal v2 must isolate the incompatible session and preserve direct/inverted evidence");
+
+        using var output = new StringWriter(CultureInfo.InvariantCulture);
+        using var error = new StringWriter(CultureInfo.InvariantCulture);
+        int exitCode = LabCli.Run(
+            [
+                "correlate-nvapi-therm-channel-v2",
+                "--observation",
+                observation,
+                "--gpuz-log",
+                gpuz,
+            ],
+            output,
+            error);
+        using JsonDocument cli = JsonDocument.Parse(output.ToString());
+        Check(
+            exitCode == 0 && error.ToString().Length == 0 &&
+            cli.RootElement.GetProperty("schema_version").GetInt32() == 2 &&
+            cli.RootElement.GetProperty("selection")
+                .GetProperty("selected_session_index").GetInt32() == 2,
+            "thermal v2 CLI must serialize the hardened correlation contract");
+
+        JsonObject wrongProfile = JsonNode.Parse(
+            FixtureBytes("nvapi-therm-channel-v2-observation-v2.json"))!.AsObject();
+        wrongProfile["profile"]!["gpu"]!["uuid"] =
+            "GPU-00000000-0000-0000-0000-000000000000";
+        string wrongObservation = temporary.WriteInput(
+            "wrong-thermal-profile-v2.json",
+            Encoding.UTF8.GetBytes(wrongProfile.ToJsonString()));
+        Check(
+            Throws<ThermChannelCorrelationV2Exception>(() =>
+                ThermChannelCorrelationV2.AnalyzeFiles(wrongObservation, gpuz)),
+            "thermal v2 must reject a different physical GPU UUID before correlation");
+    }
+
+    private static void TestVoltageStatusCorrelationV2()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string gpuz = temporary.WriteInput(
+            "gpuz-voltage-reference.csv",
+            FixtureBytes("gpuz-voltage-reference.csv"));
+        string hwinfo = temporary.WriteInput(
+            "hwinfo-voltage-reference.csv",
+            FixtureBytes("hwinfo-voltage-reference.csv"));
+        string observation = temporary.WriteInput(
+            "voltage-observation-v2.json",
+            FixtureBytes("nvapi-voltage-status-v1-observation-v2.json"));
+
+        VoltageStatusCorrelationReportV2 report =
+            VoltageStatusCorrelationV2.AnalyzeFiles(observation, gpuz, hwinfo);
+        Check(
+            report.SchemaVersion == 2 &&
+            report.SourceKind == "nvapi_voltage_status_reference_correlation" &&
+            report.MappingStatus == "matched_external_reference",
+            "voltage v2 correlation must declare and match the fixed profile");
+        Check(
+            report.Mapping.WordIndex == 10 &&
+            report.Mapping.OffsetBytes == 40 &&
+            report.Mapping.DistinctRawValueCount == 3,
+            "voltage v2 must retain the bounded word-10 mapping and independent values");
+        Check(
+            report.GpuzReference.Source == "GPU-Z" &&
+            report.GpuzReference.MaximumAbsoluteErrorVolts <= 0.001 &&
+            report.GpuzReference.AlignmentMethod ==
+                "bounded_session_order_linear_resampling",
+            "GPU-Z comparison must use time-bounded ordered alignment, not error search");
+        Check(
+            report.HwinfoReference is not null &&
+            report.HwinfoReference.Source == "HWiNFO" &&
+            report.HwinfoReference.MaximumAbsoluteErrorVolts <= 0.002 &&
+            report.HwinfoReference.MaximumAlignmentDeltaMs == 0,
+            "a growing HWiNFO prefix must be retained as explicit corroboration");
+
+        using var output = new StringWriter(CultureInfo.InvariantCulture);
+        using var error = new StringWriter(CultureInfo.InvariantCulture);
+        int exitCode = LabCli.Run(
+            [
+                "correlate-nvapi-voltage-status-v2",
+                "--observation",
+                observation,
+                "--gpuz-log",
+                gpuz,
+                "--hwinfo-log",
+                hwinfo,
+            ],
+            output,
+            error);
+        Check(
+            exitCode == 0 && error.ToString().Length == 0,
+            "voltage v2 CLI must succeed with both anchored references");
+        using (JsonDocument document = JsonDocument.Parse(output.ToString()))
+        {
+            Check(
+                document.RootElement.GetProperty("mapping_status").GetString() ==
+                    "matched_external_reference" &&
+                document.RootElement.GetProperty("hwinfo_reference").ValueKind ==
+                    JsonValueKind.Object,
+                "voltage v2 CLI must explicitly serialize GPU-Z plus HWiNFO mode");
+        }
+
+        JsonObject gpuzOnlyRoot = VoltageObservationFixture();
+        gpuzOnlyRoot["references"]!.AsObject()["hwinfo"] = null;
+        string gpuzOnlyObservation = temporary.WriteInput(
+            "voltage-observation-gpuz-only.json",
+            Encoding.UTF8.GetBytes(gpuzOnlyRoot.ToJsonString()));
+        VoltageStatusCorrelationReportV2 gpuzOnly =
+            VoltageStatusCorrelationV2.AnalyzeFiles(gpuzOnlyObservation, gpuz);
+        Check(
+            gpuzOnly.MappingStatus == "matched_external_reference" &&
+            gpuzOnly.HwinfoReference is null &&
+            gpuzOnly.Warnings.Any(warning => warning.Contains(
+                "sole external reference",
+                StringComparison.Ordinal)),
+            "GPU-Z-only mode must remain valid and be explicit in the report");
+    }
+
+    private static void TestVoltageStatusCorrelationV2RejectsProfileDrift()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string gpuz = temporary.WriteInput(
+            "gpuz-voltage-reference.csv",
+            FixtureBytes("gpuz-voltage-reference.csv"));
+        string hwinfo = temporary.WriteInput(
+            "hwinfo-voltage-reference.csv",
+            FixtureBytes("hwinfo-voltage-reference.csv"));
+
+        JsonObject driverRoot = VoltageObservationFixture();
+        driverRoot["profile"]!["gpu"]!["driver_version"] = "611.00";
+        string wrongDriver = temporary.WriteInput(
+            "wrong-driver.json",
+            Encoding.UTF8.GetBytes(driverRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(wrongDriver, gpuz, hwinfo)),
+            "a different driver must fail closed even with matching PCI IDs");
+
+        JsonObject vbiosRoot = VoltageObservationFixture();
+        vbiosRoot["profile"]!["gpu"]!["vbios_version"] = "94.06.25.00.fd";
+        string wrongVbios = temporary.WriteInput(
+            "wrong-vbios.json",
+            Encoding.UTF8.GetBytes(vbiosRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(wrongVbios, gpuz, hwinfo)),
+            "a different VBIOS must fail closed");
+
+        JsonObject loadedModuleRoot = VoltageObservationFixture();
+        loadedModuleRoot["profile"]!["loaded_nvapi_module"]!["file_sha256"] =
+            new string('0', 64);
+        string wrongLoadedModule = temporary.WriteInput(
+            "wrong-loaded-module.json",
+            Encoding.UTF8.GetBytes(loadedModuleRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(
+                    wrongLoadedModule,
+                    gpuz,
+                    hwinfo)),
+            "the debugger-proven loaded NVAPI image must match the allowlisted digest");
+
+        JsonObject loadedRangeRoot = VoltageObservationFixture();
+        loadedRangeRoot["profile"]!["loaded_nvapi_module"]!["end_address"] =
+            "0x68198010";
+        string wrongLoadedRange = temporary.WriteInput(
+            "wrong-loaded-module-range.json",
+            Encoding.UTF8.GetBytes(loadedRangeRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(
+                    wrongLoadedRange,
+                    gpuz,
+                    hwinfo)),
+            "the debugger-proven module range must contain the allowlisted function RVA");
+
+        JsonObject rawRoot = VoltageObservationFixture();
+        rawRoot["samples"]!.AsArray()[1]!["raw_words"]!.AsArray()[10] =
+            "0x00000001";
+        string inconsistentWord = temporary.WriteInput(
+            "inconsistent-word.json",
+            Encoding.UTF8.GetBytes(rawRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(
+                    inconsistentWord,
+                    gpuz,
+                    hwinfo)),
+            "selected microvolts must equal raw_words[10]");
+    }
+
+    private static void TestVoltageStatusCorrelationV2ChangedEarlierLayout()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        byte[] currentSession = FixtureBytes("gpuz-voltage-reference.csv");
+        byte[] previousSession = Encoding.UTF8.GetBytes(
+            "Date,Crossbar Clock [MHz],Board Power Draw [W],\n" +
+            "2026-08-26 17:00:00,900.0,62.0,\n" +
+            "2026-08-26 17:00:01,901.0,62.1,\n" +
+            "2026-08-26 17:00:02,902.0,62.2,\n");
+        byte[] combined = previousSession.Concat(currentSession).ToArray();
+        string gpuz = temporary.WriteInput("gpuz-voltage-reference.csv", combined);
+
+        JsonObject root = VoltageObservationFixture();
+        root["references"]!.AsObject()["hwinfo"] = null;
+        JsonObject reference = root["references"]!["gpuz"]!.AsObject();
+        reference["prefix_sha256"] = Sha256Hex(combined);
+        reference["size_bytes_before"] = combined.LongLength - 2;
+        reference["size_bytes_midpoint"] = combined.LongLength - 1;
+        reference["size_bytes_after"] = combined.LongLength;
+        string observation = temporary.WriteInput(
+            "changed-earlier-layout.json",
+            Encoding.UTF8.GetBytes(root.ToJsonString()));
+
+        VoltageStatusCorrelationReportV2 report =
+            VoltageStatusCorrelationV2.AnalyzeFiles(observation, gpuz);
+        Check(
+            report.MappingStatus == "matched_external_reference" &&
+            report.GpuzReference.SelectedSessionIndex == 1,
+            "v2 must preserve the whole-prefix hash while selecting only the bounded current layout");
+        Check(
+            Throws<GpuzLogException>(() =>
+                GpuzSensorLog.Analyze(combined, "changed-layout.csv")),
+            "the global GPU-Z parser must continue rejecting changed appended layouts");
+    }
+
+    private static void TestVoltageStatusCorrelationV2RejectsReferenceDrift()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string gpuz = temporary.WriteInput(
+            "gpuz-voltage-reference.csv",
+            FixtureBytes("gpuz-voltage-reference.csv"));
+        string hwinfo = temporary.WriteInput(
+            "hwinfo-voltage-reference.csv",
+            FixtureBytes("hwinfo-voltage-reference.csv"));
+        string observation = temporary.WriteInput(
+            "voltage-observation-v2.json",
+            FixtureBytes("nvapi-voltage-status-v1-observation-v2.json"));
+
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(observation, gpuz)),
+            "an observation that records HWiNFO must require its exact prefix path");
+
+        JsonObject gpuzOnlyRoot = VoltageObservationFixture();
+        gpuzOnlyRoot["references"]!.AsObject()["hwinfo"] = null;
+        string gpuzOnly = temporary.WriteInput(
+            "gpuz-only.json",
+            Encoding.UTF8.GetBytes(gpuzOnlyRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(gpuzOnly, gpuz, hwinfo)),
+            "GPU-Z-only observations must reject an unrecorded HWiNFO input");
+
+        JsonObject incompleteWindowRoot = VoltageObservationFixture();
+        incompleteWindowRoot["references"]!.AsObject()["hwinfo"] = null;
+        JsonObject incompleteReference =
+            incompleteWindowRoot["references"]!["gpuz"]!.AsObject();
+        incompleteReference["last_sample_local_before"] = "2026-08-26 18:18:20";
+        incompleteReference["last_sample_local_midpoint"] = "2026-08-26 18:18:32";
+        incompleteReference["last_sample_local_after"] = "2026-08-26 18:18:40";
+        string incompleteWindow = temporary.WriteInput(
+            "incomplete-gpuz-window.json",
+            Encoding.UTF8.GetBytes(incompleteWindowRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(incompleteWindow, gpuz)),
+            "GPU-Z points only inside the interval must not substitute for before/midpoint/after boundary coverage");
+
+        JsonObject staleRoot = VoltageObservationFixture();
+        staleRoot["references"]!["hwinfo"]!["grew_during_capture"] = false;
+        string stale = temporary.WriteInput(
+            "stale-hwinfo.json",
+            Encoding.UTF8.GetBytes(staleRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(stale, gpuz, hwinfo)),
+            "HWiNFO evidence without strict recorded growth must fail closed");
+
+        JsonObject hashRoot = VoltageObservationFixture();
+        hashRoot["references"]!["gpuz"]!["prefix_sha256"] = new string('0', 64);
+        string wrongHash = temporary.WriteInput(
+            "wrong-prefix-hash.json",
+            Encoding.UTF8.GetBytes(hashRoot.ToJsonString()));
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(wrongHash, gpuz, hwinfo)),
+            "a changed reference prefix hash must fail before correlation");
+
+        byte[] duplicateHeader = Encoding.UTF8.GetBytes(
+            "Date,Time,\"GPU Core Voltage [V]\",\"GPU Core Voltage [V]\"\n" +
+            "26.8.2026,18:18:31.000,1.081,1.081\n");
+        Check(
+            Throws<HwinfoVoltageLogException>(() =>
+                HwinfoVoltageSensorLog.Analyze(duplicateHeader, "duplicate.csv")),
+            "HWiNFO must contain exactly one core-voltage channel");
+    }
+
+    private static void TestVoltageStatusCorrelationV2RejectsOversizedObservation()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        string oversizedObservation = temporary.CreateSparseInput(
+            "oversized-voltage-observation-v2.json",
+            16L * 1024 * 1024 + 1);
+        string gpuz = temporary.WriteInput(
+            "gpuz-voltage-reference.csv",
+            FixtureBytes("gpuz-voltage-reference.csv"));
+
+        Check(
+            Throws<VoltageStatusCorrelationV2Exception>(() =>
+                VoltageStatusCorrelationV2.AnalyzeFiles(oversizedObservation, gpuz)),
+            "voltage v2 must reject an observation above 16 MiB before JSON parsing");
+
+        using var output = new StringWriter(CultureInfo.InvariantCulture);
+        using var error = new StringWriter(CultureInfo.InvariantCulture);
+        int exitCode = LabCli.Run(
+            [
+                "correlate-nvapi-voltage-status-v2",
+                "--observation",
+                oversizedObservation,
+                "--gpuz-log",
+                gpuz,
+            ],
+            output,
+            error);
+
+        Check(exitCode == 1, "an oversized voltage observation must fail the CLI");
+        Check(
+            output.ToString().Length == 0,
+            "an oversized voltage observation must not emit a partial report");
+        using JsonDocument errorJson = JsonDocument.Parse(error.ToString());
+        Check(
+            errorJson.RootElement.GetProperty("error_code").GetString() ==
+                "analysis_error" &&
+            errorJson.RootElement.GetProperty("message").GetString()!
+                .Contains("outside the analysis limit", StringComparison.Ordinal),
+            "an oversized voltage observation must use the structured analysis_error contract");
+    }
+
+    private static void TestGpuzVoltagePrefixIsolatesInvalidValues()
+    {
+        using var temporary = new TemporaryLabDirectory();
+        foreach (string invalid in new[] { "garbage", "NaN", "0", "0.099", "2.001", "1e308" })
+        {
+            byte[] content = Encoding.UTF8.GetBytes(
+                "Date,GPU Voltage [V],Board Power Draw [W],\n" +
+                "2026-08-26 18:18:31,1.0810,110.9,\n" +
+                $"2026-08-26 18:18:32,{invalid},46.9,\n" +
+                "2026-08-26 18:18:33,0.9370,72.0,\n");
+            string path = temporary.WriteInput(
+                $"invalid-gpuz-voltage-{invalid}.csv",
+                content);
+            GpuzVoltagePrefixAnalysis analysis =
+                GpuzVoltageSessionLog.AnalyzeFilePrefix(path, content.LongLength);
+            Check(
+                analysis.Sessions.Single().Samples.Count == 2 &&
+                analysis.Sessions.Single().InvalidSampleTimestamps.SequenceEqual(
+                    [new DateTime(2026, 8, 26, 18, 18, 32)]),
+                $"GPU-Z voltage token '{invalid}' must be retained as a timestamped invalid sample");
+        }
+
+        byte[] missingContent = Encoding.UTF8.GetBytes(
+            "Date,GPU Voltage [V],Board Power Draw [W],\n" +
+            "2026-08-26 18:18:31,1.0810,110.9,\n" +
+            "2026-08-26 18:18:32,-,46.9,\n" +
+            "2026-08-26 18:18:33,,72.0,\n" +
+            "2026-08-26 18:18:34,0.9370,72.0,\n");
+        string missingPath = temporary.WriteInput(
+            "missing-gpuz-voltage.csv",
+            missingContent);
+        GpuzVoltagePrefixAnalysis missing = GpuzVoltageSessionLog.AnalyzeFilePrefix(
+            missingPath,
+            missingContent.LongLength);
+        Check(
+            missing.Sessions.Single().Samples.Count == 2 &&
+            missing.Sessions.Single().InvalidSampleTimestamps.Count == 0,
+            "only '-' and an empty exact-channel token may be treated as missing");
+
+        byte[] gpuzFixture = FixtureBytes("gpuz-voltage-reference.csv");
+        int headerEnd = Array.IndexOf(gpuzFixture, (byte)'\n') + 1;
+        byte[] historicalInvalid = Encoding.UTF8.GetBytes(
+            "2026-08-26 17:00:00,0.0000,32.0,\n");
+        byte[] gpuzWithHistoricalInvalid = gpuzFixture[..headerEnd]
+            .Concat(historicalInvalid)
+            .Concat(gpuzFixture[headerEnd..])
+            .ToArray();
+        string historicalGpuzFileName = "gpuz-voltage-with-historical-invalid.csv";
+        string historicalGpuz = temporary.WriteInput(
+            historicalGpuzFileName,
+            gpuzWithHistoricalInvalid);
+        JsonObject historicalRoot = VoltageObservationFixture();
+        historicalRoot["references"]!.AsObject()["hwinfo"] = null;
+        JsonObject historicalReference =
+            historicalRoot["references"]!["gpuz"]!.AsObject();
+        historicalReference["file_name"] = historicalGpuzFileName;
+        historicalReference["prefix_sha256"] = Sha256Hex(gpuzWithHistoricalInvalid);
+        historicalReference["size_bytes_before"] =
+            historicalReference["size_bytes_before"]!.GetValue<long>() +
+            historicalInvalid.LongLength;
+        historicalReference["size_bytes_midpoint"] =
+            historicalReference["size_bytes_midpoint"]!.GetValue<long>() +
+            historicalInvalid.LongLength;
+        historicalReference["size_bytes_after"] = gpuzWithHistoricalInvalid.LongLength;
+        string historicalObservation = temporary.WriteInput(
+            "voltage-observation-with-historical-invalid.json",
+            Encoding.UTF8.GetBytes(historicalRoot.ToJsonString()));
+        VoltageStatusCorrelationReportV2 historicalReport =
+            VoltageStatusCorrelationV2.AnalyzeFiles(
+                historicalObservation,
+                historicalGpuz);
+        Check(
+            historicalReport.MappingStatus == "matched_external_reference" &&
+            historicalReport.GpuzReference.SelectedSessionIndex == 0,
+            "an invalid historical GPU-Z sample outside the bounded capture window must be isolated");
+
+        byte[] invalidHwinfo = Encoding.UTF8.GetBytes(
+            "Date,Time,\"GPU Core Voltage [V]\",\"GPU Power [W]\"\n" +
+            "26.8.2026,18:18:31.000,1e308,110.9\n");
+        Check(
+            Throws<HwinfoVoltageLogException>(() =>
+                HwinfoVoltageSensorLog.Analyze(invalidHwinfo, "invalid-hwinfo.csv")),
+            "HWiNFO must reject a finite value that can overflow derived metrics");
+
+        string invalidGpuzText = Encoding.UTF8.GetString(gpuzFixture)
+            .Replace("1.0810", "1e308 ", StringComparison.Ordinal);
+        byte[] invalidGpuzFixture = Encoding.UTF8.GetBytes(invalidGpuzText);
+        Check(
+            invalidGpuzFixture.LongLength == gpuzFixture.LongLength,
+            "the adversarial GPU-Z fixture must preserve the anchored prefix length");
+        string gpuz = temporary.WriteInput(
+            "gpuz-voltage-reference.csv",
+            invalidGpuzFixture);
+        string hwinfo = temporary.WriteInput(
+            "hwinfo-voltage-reference.csv",
+            FixtureBytes("hwinfo-voltage-reference.csv"));
+        string observation = temporary.WriteInput(
+            "voltage-observation-v2.json",
+            FixtureBytes("nvapi-voltage-status-v1-observation-v2.json"));
+        using var output = new StringWriter(CultureInfo.InvariantCulture);
+        using var error = new StringWriter(CultureInfo.InvariantCulture);
+        int exitCode = LabCli.Run(
+            [
+                "correlate-nvapi-voltage-status-v2",
+                "--observation",
+                observation,
+                "--gpuz-log",
+                gpuz,
+                "--hwinfo-log",
+                hwinfo,
+            ],
+            output,
+            error);
+        Check(
+            exitCode == 1 && output.ToString().Length == 0,
+            "an extreme finite GPU-Z voltage must fail without a partial report");
+        using JsonDocument errorJson = JsonDocument.Parse(error.ToString());
+        Check(
+            errorJson.RootElement.GetProperty("error_code").GetString() == "analysis_error",
+            "an extreme finite GPU-Z voltage must use the structured analysis_error contract");
+    }
+
+    private static void TestOrderedResamplingAtContractLimits()
+    {
+        const int sourceCount = 250_000;
+        const int selectedCount = 100_000;
+        int[] voltage = VoltageStatusCorrelationV2.EvenlySpacedIndices(
+            sourceCount,
+            selectedCount);
+        int[] thermal = ThermChannelCorrelationV2.EvenlySpacedIndices(
+            sourceCount,
+            selectedCount);
+
+        Check(
+            voltage.Length == selectedCount && voltage[0] == 0 &&
+            voltage[^1] == sourceCount - 1 &&
+            voltage.Zip(voltage.Skip(1)).All(pair => pair.First < pair.Second),
+            "voltage resampling must not overflow or leave the bounded source range");
+        Check(
+            thermal.Length == selectedCount && thermal[0] == 0 &&
+            thermal[^1] == sourceCount - 1 &&
+            thermal.Zip(thermal.Skip(1)).All(pair => pair.First < pair.Second),
+            "thermal resampling must not overflow or leave the bounded source range");
+    }
+
+    private static JsonObject VoltageObservationFixture() =>
+        JsonNode.Parse(FixtureBytes("nvapi-voltage-status-v1-observation-v2.json"))!
+            .AsObject();
 
     private static void TestNvapiClassification()
     {
@@ -1378,6 +2481,9 @@ internal static class Program
     private static byte[] SyntheticArtifact() =>
         Enumerable.Range(0, 4097).Select(index => (byte)((index * 31) & 0xff)).ToArray();
 
+    private static byte[] FixtureBytes(string fileName) =>
+        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", fileName));
+
     private static void Run(string name, Action test)
     {
         try
@@ -1401,6 +2507,20 @@ internal static class Program
         catch (TException)
         {
             return true;
+        }
+    }
+
+    private static TException? CaptureException<TException>(Action action)
+        where TException : Exception
+    {
+        try
+        {
+            action();
+            return null;
+        }
+        catch (TException error)
+        {
+            return error;
         }
     }
 

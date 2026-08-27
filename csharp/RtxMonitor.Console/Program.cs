@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -14,6 +15,7 @@ internal enum RunMode
     Capabilities,
     Telemetry,
     ThermalWatch,
+    VoltageWatch,
     History,
     Export,
 }
@@ -100,6 +102,12 @@ internal static class Program
                 using NvidiaMonitor thermalMonitor = NvidiaMonitor.Open();
                 GpuInfo thermalGpu = ResolveGpu(thermalMonitor, options);
                 return await ThermalWatchAsync(thermalMonitor, thermalGpu, options).ConfigureAwait(false);
+            }
+            if (options.Mode == RunMode.VoltageWatch)
+            {
+                using NvidiaMonitor voltageMonitor = NvidiaMonitor.Open();
+                GpuInfo voltageGpu = ResolveGpu(voltageMonitor, options);
+                return await VoltageWatchAsync(voltageMonitor, voltageGpu, options).ConfigureAwait(false);
             }
 
             using NvidiaMonitor monitor = NvidiaMonitor.Open();
@@ -224,6 +232,9 @@ internal static class Program
                     break;
                 case "--thermal-watch":
                     mode = RunMode.ThermalWatch;
+                    break;
+                case "--voltage-watch":
+                    mode = RunMode.VoltageWatch;
                     break;
                 case "--history":
                     mode = RunMode.History;
@@ -447,17 +458,29 @@ internal static class Program
                    (options.Count == 0 || emitted < options.Count))
             {
                 PrivateThermalSample sample = monitor.ReadPrivateThermalChannels(gpu.Index);
+                long monotonicNs = GetMonotonicNanoseconds();
                 if (options.Json)
                 {
                     Console.WriteLine(JsonSerializer.Serialize(new
                     {
+                        schema_version = 1,
+                        source_kind = PrivateThermalSample.SourceKind,
                         gpu_index = sample.GpuIndex,
                         gpu_uuid = gpu.Uuid,
+                        captured_at_utc = sample.CapturedAt.ToString("O"),
                         captured_at_unix_ms = sample.TimestampUnixMilliseconds,
+                        monotonic_ns = monotonicNs,
+                        monotonic_frequency_hz = Stopwatch.Frequency,
                         gpu_die_temperature_c = sample.GpuDieTemperatureC,
                         gpu_hotspot_temperature_c = sample.GpuHotspotTemperatureC,
                         delta_c = Math.Round(sample.DeltaC, 3),
-                        source = PrivateThermalSample.Source,
+                        native_status = sample.NativeStatus,
+                        profile_evidence_stage = PrivateThermalSample.ProfileEvidenceStage,
+                        profile_name = PrivateThermalSample.Profile,
+                        interface_id = PrivateThermalSample.InterfaceId,
+                        structure_version = PrivateThermalSample.StructureVersion,
+                        nvapi_module_sha256 = PrivateThermalSample.NvapiModuleSha256,
+                        function_rva = PrivateThermalSample.FunctionRva,
                     }));
                 }
                 else
@@ -466,7 +489,8 @@ internal static class Program
                         $"{sample.CapturedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | " +
                         $"GPU Die {sample.GpuDieTemperatureC:F2} °C | " +
                         $"Hotspot {sample.GpuHotspotTemperatureC:F2} °C | " +
-                        $"Delta {sample.DeltaC:F2} °C | {PrivateThermalSample.Source}");
+                        $"Delta {sample.DeltaC:F2} °C | {PrivateThermalSample.SourceKind} | " +
+                        PrivateThermalSample.ProfileEvidenceStage);
                 }
                 emitted++;
                 if (options.Count == 0 || emitted < options.Count)
@@ -486,6 +510,81 @@ internal static class Program
             Console.CancelKeyPress -= handler;
         }
     }
+
+    private static async Task<int> VoltageWatchAsync(
+        NvidiaMonitor monitor,
+        GpuInfo gpu,
+        Options options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler handler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += handler;
+        try
+        {
+            long emitted = 0;
+            while (!cancellation.IsCancellationRequested &&
+                   (options.Count == 0 || emitted < options.Count))
+            {
+                PrivateVoltageSample sample = monitor.ReadPrivateVoltageStatus(gpu.Index);
+                long monotonicNs = GetMonotonicNanoseconds();
+                if (options.Json)
+                {
+                    Console.WriteLine(JsonSerializer.Serialize(new
+                    {
+                        schema_version = 1,
+                        source_kind = PrivateVoltageSample.SourceKind,
+                        gpu_index = sample.GpuIndex,
+                        gpu_uuid = gpu.Uuid,
+                        captured_at_utc = sample.CapturedAt.ToString("O"),
+                        captured_at_unix_ms = sample.TimestampUnixMilliseconds,
+                        monotonic_ns = monotonicNs,
+                        monotonic_frequency_hz = Stopwatch.Frequency,
+                        gpu_core_voltage_microvolts = sample.GpuCoreVoltageMicrovolts,
+                        gpu_core_voltage_v = sample.GpuCoreVoltageV,
+                        native_status = sample.NativeStatus,
+                        profile_evidence_stage = PrivateVoltageSample.ProfileEvidenceStage,
+                        profile_name = PrivateVoltageSample.Profile,
+                        interface_id = PrivateVoltageSample.InterfaceId,
+                        structure_version = PrivateVoltageSample.StructureVersion,
+                        nvapi_module_sha256 = PrivateVoltageSample.NvapiModuleSha256,
+                        function_rva = PrivateVoltageSample.FunctionRva,
+                    }));
+                }
+                else
+                {
+                    Console.WriteLine(
+                        $"{sample.CapturedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | " +
+                        $"GPU Core {sample.GpuCoreVoltageV:F6} V " +
+                        $"({sample.GpuCoreVoltageMicrovolts} µV) | " +
+                        $"{PrivateVoltageSample.SourceKind} | " +
+                        PrivateVoltageSample.ProfileEvidenceStage);
+                }
+                emitted++;
+                if (options.Count == 0 || emitted < options.Count)
+                {
+                    await Task.Delay(options.IntervalMilliseconds, cancellation.Token)
+                        .ConfigureAwait(false);
+                }
+            }
+            return 0;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return 0;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= handler;
+        }
+    }
+
+    private static long GetMonotonicNanoseconds() => checked(
+        (long)(((Int128)Stopwatch.GetTimestamp() * 1_000_000_000L) /
+            Stopwatch.Frequency));
 
     private static string NextValue(string[] args, ref int index, string option)
     {
@@ -543,6 +642,7 @@ internal static class Program
               dotnet RtxMonitor.Console.dll --capabilities [--gpu INDEX | --gpu-uuid UUID] [--json]
               dotnet RtxMonitor.Console.dll --telemetry [--gpu INDEX | --gpu-uuid UUID] [--json]
               dotnet RtxMonitor.Console.dll --thermal-watch [--gpu INDEX | --gpu-uuid UUID] [--interval MS] [--count N] [--json]
+              dotnet RtxMonitor.Console.dll --voltage-watch [--gpu INDEX | --gpu-uuid UUID] [--interval MS] [--count N] [--json]
               dotnet RtxMonitor.Console.dll --history --database PATH [filtros] [--json]
               dotnet RtxMonitor.Console.dll --export --database PATH [filtros]
 
@@ -553,6 +653,7 @@ internal static class Program
               --capabilities Inventaria capabilities térmicas públicas e o estado das fontes
               --telemetry    Lê o catálogo público documentado e as métricas calculadas
               --thermal-watch Lê die e hotspot diretamente da NVAPI, sem GPU-Z
+              --voltage-watch Lê tensão experimental somente no perfil RTX 3060 validado
               --gpu INDEX     Índice da GPU, começando em zero
               --gpu-uuid UUID Seleciona a GPU por UUID persistente; não use junto com --gpu
               --interval MS   Intervalo de 100 a 60000 ms (padrão: 1000)

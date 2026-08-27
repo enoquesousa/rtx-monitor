@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:rtx-monitor:schema:analysis-report:1",
   "title": "RTX Monitor offline reverse-engineering analysis report",
-  "description": "Planned v0.8 offline analysis contract. The current single-artifact package CLI does not emit analysis reports yet.",
+  "description": "Versioned v0.8 offline analysis contract emitted by rtxmon-lab from anchored experiment and package manifests.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -77,6 +77,7 @@
         "stage",
         "input_package_manifest_sha256",
         "source_kind",
+        "value_unit",
         "locator",
         "hypothesis",
         "physical_name",
@@ -99,11 +100,13 @@
           "enum": [
             "pci_config",
             "bar0_mmio",
+            "private_interface",
             "vbios_offline",
             "public_telemetry",
             "external_reference"
           ]
         },
+        "value_unit": { "type": "string", "minLength": 1, "maxLength": 128 },
         "locator": {
           "oneOf": [
             { "type": "null" },
@@ -197,7 +200,10 @@
         "maximum",
         "mean",
         "standard_deviation",
-        "update_period_ms"
+        "update_period_ms",
+        "minimum_delta",
+        "maximum_delta",
+        "mean_delta"
       ],
       "properties": {
         "sample_count": { "type": "integer", "minimum": 0 },
@@ -205,7 +211,10 @@
         "maximum": { "$ref": "#/$defs/nullableNumber" },
         "mean": { "$ref": "#/$defs/nullableNumber" },
         "standard_deviation": { "$ref": "#/$defs/nullableNumber" },
-        "update_period_ms": { "$ref": "#/$defs/nullableNumber" }
+        "update_period_ms": { "$ref": "#/$defs/nullableNumber" },
+        "minimum_delta": { "$ref": "#/$defs/nullableNumber" },
+        "maximum_delta": { "$ref": "#/$defs/nullableNumber" },
+        "mean_delta": { "$ref": "#/$defs/nullableNumber" }
       }
     },
     "correlation": {

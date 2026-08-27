@@ -16,7 +16,7 @@ Com ele, você pode responder duas perguntas de forma objetiva:
 | **GPU die** | Sensor `NVML_TEMPERATURE_GPU` da NVML | É a leitura principal exibida pelo monitor |
 | **Memória** | Campo `NVML_FI_DEV_MEMORY_TEMP` | Aparece somente quando o driver oferece suporte |
 | **Canais térmicos adicionais** | Inventário público da NVML e, no Windows, da NVAPI | Mantém o nome e a origem informados pelo driver |
-| **Hotspot** | Canal térmico direto da NVAPI no Windows | Provedor detectado em tempo de execução; não depende do GPU-Z |
+| **Hotspot** | Aquisição experimental NVAPI opt-in no Windows | Disponível somente no perfil fixo validado; não depende do GPU-Z em runtime |
 | **VRM** | Somente se uma interface validada identificar esse alvo | Nunca é deduzido a partir de outro sensor |
 | **Valores estimados** | Não são usados | O projeto não interpola nem fabrica temperaturas |
 
@@ -89,10 +89,23 @@ O aplicativo C# consulta os dois canais diretamente na NVAPI instalada com o dri
 Exemplo de saída real:
 
 ```text
-2026-08-26 20:20:35.850 +00:00 | GPU Die 35.00 °C | Hotspot 45.59 °C | Delta 10.59 °C | nvapi_thermal_channel
+2026-08-26 20:20:35.850 +00:00 | GPU Die 35.00 °C | Hotspot 45.59 °C | Delta 10.59 °C | nvapi_thermal_channel | matched_external_reference
 ```
 
-Use `--count 1` para uma única leitura ou `--json` para JSON Lines. O provedor resolve, em tempo de execução, a interface térmica `0x65fe3aad`, usa a estrutura v2 de 168 bytes e falha explicitamente se o driver não oferecer essa ABI. O GPU-Z foi usado somente na pesquisa de validação e não participa da execução deste comando.
+Use `--count 1` para uma única leitura ou `--json` para JSON Lines. O JSON direto segue [`private-thermal-sample-v1.schema.json`](docs/schema/private-thermal-sample-v1.schema.json) e separa `profile_evidence_stage` de confiança pública. O comando resolve a interface térmica `0x65fe3aad`, usa a estrutura v2 de 168 bytes e só produz valor no perfil RTX 3060 validado. UUID físico, PCI/subsystem, VBIOS, driver, hash e RVA do módulo dono do ponteiro, versão, máscara e os dois canais precisam corresponder exatamente; qualquer divergência falha fechada sem publicar amostra parcial. O GPU-Z foi usado somente como referência de laboratório e não participa da execução deste comando.
+
+### Monitore a tensão experimental sem GPU-Z
+
+No mesmo perfil fixo, a leitura direta da palavra de tensão correlacionada é opt-in:
+
+```powershell
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe `
+  --voltage-watch `
+  --interval 1000 `
+  --json
+```
+
+A saída segue [`private-voltage-sample-v1.schema.json`](docs/schema/private-voltage-sample-v1.schema.json) e preserva relógio UTC e monotônico, microvolts brutos, volts derivados, `profile_evidence_stage`, UUID físico, perfil, interface `0x465f9bcf`, estrutura `0x0001004c`, hash do `nvapi64_impl.dll` e RVA. Em 2026-08-27, a leitura direta devolveu `956250 µV` (`0,95625 V`) enquanto o GPU-Z registrava `0,9560 V`. Este comando não é um provider geral: ele não entra no serviço, HTTP/SSE, SQLite, exportação ou telemetria pública e retorna indisponível fora da combinação exata registrada no [ADR 0010](docs/adr/0010-fixed-profile-private-nvapi-acquisition.md).
 
 Para receber também lacunas e recuperações como eventos JSON Lines:
 
@@ -346,7 +359,7 @@ $created = & .\csharp\RtxMonitor.Lab\bin\Release\net8.0\rtxmon-lab.exe create `
   --expected-manifest-sha256 $created.manifest_sha256
 ```
 
-O pacote contém somente `manifest.json` e `artifact/payload.bin`, com payload limitado a 256 MiB. O CLI de empacotamento v0.8 é restrito ao Windows para validar os detalhes do filesystem sem prometer uma proteção Unix ainda não implementada. Guarde `manifest_sha256` fora da pasta — por exemplo, no futuro manifesto do experimento. `verify` exige esse hash externo; assim, alterar o payload **e** reescrever o manifesto não transforma o pacote adulterado em evidência válida. Destino existente, layout extra, caminho inseguro, reparse point, hardlink ou divergência fazem a operação falhar. Se a validação detectar uma corrida depois da publicação do diretório, `create` não devolve sucesso nem âncora e mantém o destino como não confiável para evitar um apagamento inseguro por pathname.
+O pacote contém somente `manifest.json` e `artifact/payload.bin`, com payload limitado a 256 MiB. O CLI de empacotamento v0.8 é restrito ao Windows para validar os detalhes do filesystem sem prometer uma proteção Unix ainda não implementada. Guarde `manifest_sha256` fora da pasta — por exemplo, no manifesto do experimento. `verify` exige esse hash externo; assim, alterar o payload **e** reescrever o manifesto não transforma o pacote adulterado em evidência válida. Destino existente, layout extra, caminho inseguro, reparse point, hardlink ou divergência fazem a operação falhar. Se a validação detectar uma corrida depois da publicação do diretório, `create` não devolve sucesso nem âncora e mantém o destino como não confiável para evitar um apagamento inseguro por pathname.
 
 Execute `rtxmon-lab` como usuário comum e use um diretório privado, não compartilhado com outro usuário ou processo não confiável. A v0.8 detecta adulteração concorrente conhecida, mas ainda usa operações de filesystem por pathname; eliminá-las por completo exigirá operações relativas a handles de diretório antes de integrar qualquer aquisição privilegiada.
 
@@ -374,6 +387,28 @@ dotnet run --project .\csharp\RtxMonitor.Lab -- mark `
 ```
 
 Cada linha é independente e segue um contrato estável. Isso permite alinhar os logs do RTX Monitor, do GPU-Z e das ferramentas de carga sem tratar horários locais sem fuso como se fossem automaticamente equivalentes.
+
+Depois de empacotar os artefatos e ancorar cada `manifest.json`, finalize e analise a execução completa:
+
+```powershell
+.\csharp\RtxMonitor.Lab\bin\Release\net8.0\rtxmon-lab.exe `
+  finalize-experiment-manifest `
+  --input C:\evidence-local\experiment-draft.json `
+  --package-root C:\evidence-local > C:\evidence-local\experiment-manifest.json
+
+$manifestSha = (Get-FileHash C:\evidence-local\experiment-manifest.json `
+  -Algorithm SHA256).Hash.ToLowerInvariant()
+
+.\csharp\RtxMonitor.Lab\bin\Release\net8.0\rtxmon-lab.exe `
+  analyze-experiment-series `
+  --manifest C:\evidence-local\experiment-manifest.json `
+  --expected-manifest-sha256 $manifestSha `
+  --package-root C:\evidence-local `
+  --series-package series-package `
+  --max-lag-samples 2 > C:\evidence-local\analysis-report.json
+```
+
+O primeiro comando verifica novamente todos os pacotes contra suas âncoras. O segundo aceita somente uma série versionada, calcula estatísticas, deltas, período e correlação com lag e mantém o candidato em `raw_unknown`; análise descritiva não autoriza um provider.
 
 Calcule uma primeira linha de base estatística entre os canais numéricos do log:
 
@@ -442,6 +477,8 @@ Para o perfil térmico já demonstrado por análise estática, o coletor especia
   -GpuzProcessId 1234 `
   -CandidateInventoryPath C:\evidence-local\nvapi-candidates.json `
   -PriorObservationPath C:\evidence-local\nvapi-polling-report.json `
+  -GpuzLogPath "C:\evidence-local\GPU-Z Sensor Log.txt" `
+  -OutputDirectory .\evidence\thermal-v2 `
   -DurationSeconds 10
 ```
 
@@ -451,12 +488,12 @@ Compare a observação com o prefixo exato do log:
 
 ```powershell
 dotnet run --project .\csharp\RtxMonitor.Lab -- `
-  correlate-nvapi-therm-channel `
-  --observation C:\evidence-local\nvapi-therm-channel-v2-report.json `
-  --gpuz-log "C:\evidence-local\GPU-Z Sensor Log.txt"
+  correlate-nvapi-therm-channel-v2 `
+  --observation .\evidence\thermal-v2\nvapi-therm-channel-v2-observation-v2.json `
+  --gpuz-log .\evidence\thermal-v2\sealed-gpuz-thermal-reference.csv
 ```
 
-No perfil testado — RTX 3060 `10de:2504`, subsystem `10de:1536`, VBIOS `94.06.25.00.fc`, driver 610.88 e binários ancorados por SHA-256 — o canal 0 correspondeu a `GPU Temperature` e o canal 1 a `Hot Spot`. Os erros máximos foram `0,04375` °C e `0,05` °C; a associação invertida errou `10,3565625` °C em média. Isso identifica o caminho usado pelo GPU-Z nesse perfil, não cria uma API pública NVIDIA nem prova um termistor físico separado.
+O capturador atual emite o contrato v2, comprova a `nvapi_impl.dll` realmente carregada por `lmv`, sela o prefixo LF-completo ao lado da observação e registra os três limites temporais. O correlator v2 isola sessões com layouts anteriores, rejeita e reporta por índice sessões que contenham dados inválidos nos canais exatos, aceita timestamps iguais de resolução de um segundo sem aceitar retrocesso e seleciona apenas por cobertura temporal e midpoint; erro térmico não participa da seleção. Ele relata as hipóteses direta e invertida. No perfil testado — RTX 3060 `10de:2504`, subsystem `10de:1536`, VBIOS `94.06.25.00.fc`, driver 610.88 e binários ancorados por SHA-256 — o canal 0 correspondeu a `GPU Temperature` e o canal 1 a `Hot Spot`. Isso identifica o caminho usado pelo GPU-Z nesse perfil, não cria uma API pública NVIDIA nem prova um termistor físico separado.
 
 Para observar o polling real, abra o GPU-Z normalmente na aba `Sensors`, ative o log e execute em um PowerShell elevado:
 
@@ -476,7 +513,11 @@ dotnet run --project .\csharp\RtxMonitor.Lab -- `
 
 Na RTX 3060, o handle foi identificado como `\\.\GPU-Z-v8`. As camadas Win32 e nativa observaram exatamente as mesmas 130 chamadas em dez segundos. O código `0x80006040` lê o MSR Intel `IA32_THERM_STATUS`, ou seja, temperatura/estado térmico da CPU. O código `0x800060c0` lê bytes de configuração PCI da RTX. Nenhum dos dois fornece diretamente o `Hot Spot`.
 
-Duas passagens do candidato de tensão `0x465f9bcf` comprovaram uma estrutura v1 de 76 bytes. No perfil fixo, a palavra 10/offset `0x28`, dividida por 1.000.000, reproduziu a tensão do núcleo em repouso e sob carga: 868.750, 937.500 e 1.081.250 corresponderam a `0,8680`, `0,9370` e `1,0810 V` no GPU-Z. O HWiNFO forneceu a segunda referência externa. O resultado continua experimental e específico do perfil; ainda não identifica rails, corrente ou potência dentro da estrutura. Consulte [a correlação multipatamar de tensão](docs/research/2026-08-26-rtx3060-nvapi-voltage-status-v1.md) e os [caminhos de runtime do GPU-Z](docs/research/2026-08-25-gpuz-runtime-paths.md).
+Duas passagens do candidato de tensão `0x465f9bcf` comprovaram uma estrutura v1 de 76 bytes. No perfil fixo, a palavra 10/offset `0x28`, dividida por 1.000.000, reproduziu a tensão do núcleo em repouso e sob carga: 868.750, 937.500 e 1.081.250 corresponderam a `0,8680`, `0,9370` e `1,0810 V` no GPU-Z. O HWiNFO forneceu a segunda referência externa histórica. Consulte [a correlação multipatamar de tensão](docs/research/2026-08-26-rtx3060-nvapi-voltage-status-v1.md) e os [caminhos de runtime do GPU-Z](docs/research/2026-08-25-gpuz-runtime-paths.md).
+
+A repetição independente usa [`capture-gpuz-nvapi-voltage-status-v1.ps1`](scripts/capture-gpuz-nvapi-voltage-status-v1.ps1). Ela fixa identidade completa, hashes, call site, 19 DWORDs, três pontos de crescimento do log e detach `qqd`; HWiNFO só entra quando um CSV corrente também cresce nos três pontos. Na sessão final de 2026-08-27, 20 retornos repetiram `956250 µV`, o GPU-Z mostrou `0,9560 V` em 20 pares e o erro máximo foi `0,00025 V`. A referência passou `matched_rounding_tolerance`; o relatório da sessão permaneceu prudentemente `ambiguous_or_outside_tolerance` porque houve apenas um valor bruto distinto nessa janela.
+
+O candidato cooler/fan `0x35aed5e8` possui agora um gate passivo separado em [`capture-gpuz-nvapi-cooler-status-v1.ps1`](scripts/capture-gpuz-nvapi-cooler-status-v1.ps1). O contrato endurecido v2 fixa GPU, PCI/subsystem, VBIOS, driver, inventário, observação anterior, binário do GPU-Z e comprova pelo `ModLoad` do processo-alvo o `nvapi_impl.dll` realmente carregado antes de aceitar o RVA. A sessão real preservou 36 retornos — 18 em cada call site — com estrutura v1 de 1.704 bytes, 426 DWORDs e duas entradas observadas. Os quatro campos por entrada continuam `raw_field_words`: não receberam nome, unidade, índice de fan, RPM/PWM ou semântica de controle e não existe provider de cooler; o schema v1 permanece histórico.
 
 A investigação do snapshot oficial `open-gpu-kernel-modules-610.57.04` encontrou o protocolo RM `THERMAL_SYSTEM_EXECUTE_V2`, capaz de enumerar sensores e consultar provedor, alvo, faixa e leitura. A biblioteca pura [`rm_thermal_protocol.hpp`](cpp/include/rtxmon/lab/rm_thermal_protocol.hpp) fixa esse ABI e valida respostas, mas deliberadamente não possui transporte para o driver. Ela não é executada contra o driver Windows 610.88 enquanto versão, handles e rota WDDM não forem comprovados.
 
@@ -598,7 +639,7 @@ A prioridade agora é construir evidência, não uma interface gráfica. Cada et
 | **v0.5.0** | Persistência SQLite concluída |
 | **v0.6.0** | Serviço local headless, HTTP/SSE e Windows Service concluídos |
 | **v0.7.0** | Telemetria pública e métricas rastreáveis concluídas |
-| **v0.8.0** | Em andamento: ABI térmica v2 e canais die/hotspot identificados; tensão privada com schema e correlator offline no perfil exato, ainda pendente de repetição independente |
+| **v0.8.0** | Concluída: laboratório ancorado, análise de séries, leitura térmica/tensão opt-in em perfil fixo, repetição independente de tensão e observação bruta de cooler |
 | **v0.9.0** | Expandir e repetir perfis de aquisição sem relaxar a fronteira de segurança |
 | **v0.10.0** | Validar candidatos com repetição e referências independentes |
 | **v0.11.0** | Publicar candidatos validados em um provedor experimental separado |
@@ -611,7 +652,7 @@ Os critérios completos estão no [roadmap de engenharia](docs/ROADMAP.md). A re
 - O acesso do projeto ao hardware da GPU é **somente leitura**; SQLite, pacotes de evidência e instalação do serviço escrevem apenas no host.
 - Não altera ventoinha, clock, tensão ou limite de energia.
 - O monitor estável e o laboratório offline não exigem privilégio administrativo.
-- A v0.8 atual não captura ROM da placa nem lê I2C, DDC, SMBus, MMIO ou registradores privados. Os coletores genéricos registram apenas entradas delimitadas; o perfil térmico fixo lê somente a estrutura de 168 bytes já fornecida pelo GPU-Z, depois da chamada, sem invocar a interface ou modificar o buffer.
+- A v0.8 não captura ROM da placa nem lê PCI config, I2C, DDC, SMBus, MMIO, BAR ou VRAM. Os coletores anexados apenas observam buffers que o GPU-Z já recebeu. Os comandos diretos `--thermal-watch` e `--voltage-watch` invocam somente duas interfaces NVAPI privadas em user mode, compiladas para o perfil exato e cercadas por gates de identidade, versão, hash, RVA, estrutura e valor.
 - No Windows, o CLI de VBIOS lê somente o caminho fornecido pelo operador, impõe limite de tamanho e não executa seu conteúdo; rejeita UNC, dispositivo, stream alternativo, drive remoto e reparse point. Em outros sistemas, a v0.8 retorna `unsupported_platform` antes de inspecionar o caminho; a biblioteca pura continua apta a analisar bytes já carregados por um chamador confiável.
 - Uma futura leitura PCI/MMIO exigirá operação allowlisted, driver assinado e HVCI ativo; Administrador sozinho não basta.
 - BAR1, VRAM, varredura cega e qualquer escrita permanecem fora do escopo.
@@ -620,7 +661,7 @@ Os critérios completos estão no [roadmap de engenharia](docs/ROADMAP.md). A re
 - A identidade entre NVML e NVAPI é correlacionada pelo endereço PCI, não pela ordem em que as APIs listam as placas.
 - A camada nativa já possui um caminho de carregamento para Linux, mas os scripts de compilação e validação desta versão são voltados ao Windows x64.
 
-A v0.8 inicia a engenharia reversa em um modo experimental separado e opt-in. A parte offline preserva e analisa arquivos fornecidos pelo operador; as ferramentas anexadas observam somente chamadas que um processo assinado já executa. A futura aquisição allowlisted será restrita a perfis exatos de placa, VBIOS e driver. O coletor estável continua usando APIs documentadas e sem privilégio administrativo. Veja os marcos e os critérios de evidência no [roadmap de engenharia](docs/ROADMAP.md).
+A v0.8 conclui a primeira trilha experimental separada e opt-in. A parte offline preserva, ancora e analisa arquivos fornecidos pelo operador; as ferramentas anexadas observam somente chamadas que um processo assinado já executa; e as duas aquisições diretas são fixas ao perfil validado, sem entrar no coletor estável. Expandir perfis ou publicar um provider experimental geral continua nos marcos seguintes. Veja os critérios de evidência no [roadmap de engenharia](docs/ROADMAP.md).
 
 ## Documentação técnica
 
@@ -645,6 +686,7 @@ A v0.8 inicia a engenharia reversa em um modo experimental separado e opt-in. A 
 - [ADR 0007 — telemetria pública e métricas calculadas](docs/adr/0007-public-telemetry-and-computed-metrics.md)
 - [ADR 0008 — laboratório reproduzível e aquisição allowlisted](docs/adr/0008-reproducible-reverse-engineering-lab.md)
 - [ADR 0009 — telemetria Windows com identidade DXGI/PCI](docs/adr/0009-windows-telemetry-identity-gate.md)
+- [ADR 0010 — aquisição NVAPI privada com perfil fixo](docs/adr/0010-fixed-profile-private-nvapi-acquisition.md)
 - [OpenAPI do serviço local — v1](docs/openapi/service-v1.openapi.json)
 - [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
 - [Schema JSON do catálogo público atual — v2](docs/schema/public-telemetry-v2.schema.json)
@@ -662,6 +704,11 @@ A v0.8 inicia a engenharia reversa em um modo experimental separado e opt-in. A 
 - [Schema da análise offline de VBIOS — v1](docs/schema/vbios-analysis-v1.schema.json)
 - [Schema da referência de sensores GPU-Z — v1](docs/schema/gpuz-reference-analysis-v1.schema.json)
 - [Schema de marcador experimental — v1](docs/schema/experiment-marker-v1.schema.json)
+- [Schema do manifesto de experimento — v1](docs/schema/experiment-manifest-v1.schema.json)
+- [Schema de série numérica — v1](docs/schema/numeric-series-v1.schema.json)
+- [Schema do relatório de análise — v1](docs/schema/analysis-report-v1.schema.json)
+- [Schema da amostra térmica privada direta — v1](docs/schema/private-thermal-sample-v1.schema.json)
+- [Schema da amostra de tensão privada direta — v1](docs/schema/private-voltage-sample-v1.schema.json)
 - [Schema de correlação interna do GPU-Z — v1](docs/schema/gpuz-correlation-v1.schema.json)
 - [Schema de observação de IDs NVAPI — v1](docs/schema/nvapi-query-observation-v1.schema.json)
 - [Schema de classificação de IDs NVAPI — v1](docs/schema/nvapi-interface-classification-v1.schema.json)
@@ -671,6 +718,14 @@ A v0.8 inicia a engenharia reversa em um modo experimental separado e opt-in. A 
 - [Schema de chamadas anexadas dos candidatos NVAPI — v1](docs/schema/nvapi-candidate-call-observation-v1.schema.json)
 - [Schema da observação térmica NVAPI v2 — v1](docs/schema/nvapi-therm-channel-v2-observation-v1.schema.json)
 - [Schema da correlação die/hotspot — v1](docs/schema/nvapi-therm-channel-correlation-v1.schema.json)
+- [Schema endurecido da observação térmica NVAPI — v2](docs/schema/nvapi-therm-channel-v2-observation-v2.schema.json)
+- [Schema endurecido da correlação die/hotspot — v2](docs/schema/nvapi-therm-channel-correlation-v2.schema.json)
+- [Schema histórico da observação de tensão NVAPI — v1](docs/schema/nvapi-voltage-status-v1-observation-v1.schema.json)
+- [Schema endurecido da observação de tensão NVAPI — v2](docs/schema/nvapi-voltage-status-v1-observation-v2.schema.json)
+- [Schema histórico da correlação de tensão NVAPI — v1](docs/schema/nvapi-voltage-status-correlation-v1.schema.json)
+- [Schema endurecido da correlação de tensão NVAPI — v2](docs/schema/nvapi-voltage-status-correlation-v2.schema.json)
+- [Schema histórico da observação de cooler NVAPI — v1](docs/schema/nvapi-cooler-status-v1-observation-v1.schema.json)
+- [Schema endurecido da observação de cooler NVAPI — v2](docs/schema/nvapi-cooler-status-v1-observation-v2.schema.json)
 - [Schema de observação de IOCTLs do GPU-Z — v1](docs/schema/gpuz-device-io-control-observation-v1.schema.json)
 - [Schema de entradas limitadas de IOCTLs do GPU-Z — v1](docs/schema/gpuz-device-io-control-input-v1.schema.json)
 - [Schema de identidade de handle Windows — v1](docs/schema/windows-handle-identity-v1.schema.json)

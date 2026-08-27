@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:private-thermal-sample:1",
+  "title": "RTX Monitor fixed-profile private thermal sample v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "gpu_index",
+    "gpu_uuid",
+    "captured_at_utc",
+    "captured_at_unix_ms",
+    "monotonic_ns",
+    "monotonic_frequency_hz",
+    "gpu_die_temperature_c",
+    "gpu_hotspot_temperature_c",
+    "delta_c",
+    "native_status",
+    "profile_evidence_stage",
+    "profile_name",
+    "interface_id",
+    "structure_version",
+    "nvapi_module_sha256",
+    "function_rva"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source_kind": { "const": "nvapi_thermal_channel" },
+    "gpu_index": { "type": "integer", "minimum": 0, "maximum": 63 },
+    "gpu_uuid": { "const": "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd" },
+    "captured_at_utc": { "type": "string", "format": "date-time" },
+    "captured_at_unix_ms": { "type": "integer", "minimum": 0 },
+    "monotonic_ns": { "type": "integer", "minimum": 0 },
+    "monotonic_frequency_hz": { "type": "integer", "minimum": 1 },
+    "gpu_die_temperature_c": { "type": "number", "minimum": -40, "maximum": 125 },
+    "gpu_hotspot_temperature_c": { "type": "number", "minimum": -40, "maximum": 150 },
+    "delta_c": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 80,
+      "description": "Derived by the trusted producer as gpu_hotspot_temperature_c - gpu_die_temperature_c; consumers that ingest untrusted JSON must enforce this arithmetic relation semantically."
+    },
+    "native_status": { "const": 0 },
+    "profile_evidence_stage": { "const": "matched_external_reference" },
+    "profile_name": { "const": "rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88" },
+    "interface_id": { "const": "0x65fe3aad" },
+    "structure_version": { "const": "0x000200a8" },
+    "nvapi_module_sha256": { "const": "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4" },
+    "function_rva": { "const": "0x001e0bc0" }
+  }
+}

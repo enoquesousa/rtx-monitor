@@ -130,7 +130,7 @@ A janela padrão é 5 segundos, o limiar padrão é 80 °C e o limite padrão é
 
 ## Reprodutibilidade e versões
 
-- ABI nativa: versão 3;
+- ABI nativa: versão 5;
 - relatório avulso de `--telemetry --json`: [`public-telemetry-v2`](schema/public-telemetry-v2.schema.json); v1 permanece preservado;
 - eventos `--watch --events`: `telemetry-event-v4`; v1, v2 e v3 permanecem preservados;
 - SQLite: schema 1, sem migration estrutural; o JSON v4 é armazenado integralmente;

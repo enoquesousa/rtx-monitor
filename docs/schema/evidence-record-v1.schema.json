@@ -89,7 +89,7 @@
           "format": "uuid"
         },
         "event_schema_version": {
-          "enum": [2, 3]
+          "enum": [2, 3, 4]
         },
         "started_at_unix_ms": {
           "type": "integer",

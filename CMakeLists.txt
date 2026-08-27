@@ -25,8 +25,10 @@ add_library(rtxmon_native SHARED
     cpp/src/metrics.cpp
     native/src/nvapi_loader.c
     native/src/nvml_loader.c
+    native/src/private_module_profile.c
     native/src/public_telemetry.c
     native/src/private_thermal.c
+    native/src/private_voltage.c
     native/src/rtxmon.c
     native/src/thermal_scan.c
 )
@@ -46,7 +48,7 @@ target_compile_definitions(rtxmon_native
 )
 
 if(WIN32)
-    # The loaders use absolute System32/NVSMI paths and need no import libraries.
+    target_link_libraries(rtxmon_native PRIVATE bcrypt)
 elseif(UNIX)
     target_link_libraries(rtxmon_native PRIVATE ${CMAKE_DL_LIBS})
 else()
@@ -127,6 +129,32 @@ if(RTXMON_BUILD_TESTS)
 
     add_test(NAME rtxmon_abi COMMAND rtxmon_abi_tests)
     set_tests_properties(rtxmon_abi PROPERTIES LABELS "unit;abi;no-gpu")
+
+    add_executable(rtxmon_private_profile_tests
+        native/tests/private_profile_tests.c
+    )
+    target_include_directories(rtxmon_private_profile_tests PRIVATE native/src)
+    if(MSVC)
+        target_compile_options(rtxmon_private_profile_tests PRIVATE /W4 /WX /utf-8)
+    else()
+        target_compile_options(rtxmon_private_profile_tests PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME rtxmon_private_profile COMMAND rtxmon_private_profile_tests)
+    set_tests_properties(rtxmon_private_profile PROPERTIES LABELS "unit;profile;no-gpu")
+
+    add_executable(rtxmon_private_module_profile_tests
+        native/src/private_module_profile.c
+        native/tests/private_module_profile_tests.c
+    )
+    target_include_directories(rtxmon_private_module_profile_tests PRIVATE native/src)
+    if(MSVC)
+        target_compile_options(rtxmon_private_module_profile_tests PRIVATE /W4 /WX /utf-8)
+        target_link_libraries(rtxmon_private_module_profile_tests PRIVATE bcrypt)
+    else()
+        target_compile_options(rtxmon_private_module_profile_tests PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME rtxmon_private_module_profile COMMAND rtxmon_private_module_profile_tests)
+    set_tests_properties(rtxmon_private_module_profile PROPERTIES LABELS "unit;profile;security;no-gpu")
 
     add_executable(rtxmon_sampler_tests
         cpp/tests/sampler_tests.cpp

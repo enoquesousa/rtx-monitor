@@ -143,12 +143,37 @@ public sealed record PrivateThermalSample(
     uint GpuIndex,
     double GpuDieTemperatureC,
     double GpuHotspotTemperatureC,
-    double DeltaC,
     int NativeStatus,
     DateTimeOffset CapturedAt,
     ulong TimestampUnixMilliseconds)
 {
-    public const string Source = "nvapi_thermal_channel";
+    public double DeltaC => GpuHotspotTemperatureC - GpuDieTemperatureC;
+
+    public const string SourceKind = "nvapi_thermal_channel";
+    public const string ProfileEvidenceStage = "matched_external_reference";
+    public const string Profile = "rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88";
+    public const string InterfaceId = "0x65fe3aad";
+    public const string StructureVersion = "0x000200a8";
+    public const string NvapiModuleSha256 = "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4";
+    public const string FunctionRva = "0x001e0bc0";
+}
+
+public sealed record PrivateVoltageSample(
+    uint GpuIndex,
+    uint GpuCoreVoltageMicrovolts,
+    int NativeStatus,
+    DateTimeOffset CapturedAt,
+    ulong TimestampUnixMilliseconds)
+{
+    public double GpuCoreVoltageV => GpuCoreVoltageMicrovolts / 1_000_000.0;
+
+    public const string SourceKind = "nvapi_voltage_status";
+    public const string ProfileEvidenceStage = "matched_external_reference";
+    public const string Profile = "rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88";
+    public const string InterfaceId = "0x465f9bcf";
+    public const string StructureVersion = "0x0001004c";
+    public const string NvapiModuleSha256 = "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4";
+    public const string FunctionRva = "0x001c9070";
 }
 
 public enum DataOrigin : uint

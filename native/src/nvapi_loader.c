@@ -1,4 +1,5 @@
 #include "nvapi_loader.h"
+#include "private_module_profile.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -71,6 +72,11 @@ static void rtxmon_nvapi_close(void *library)
             return RTXMON_NVAPI_LOADER_INTERFACE_MISSING;                           \
         }                                                                            \
     } while (0)
+
+#define RTXMON_PRIVATE_NVAPI64_IMPL_SHA256 \
+    "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4"
+#define RTXMON_PRIVATE_THERMAL_X64_RVA 0x001e0bc0U
+#define RTXMON_PRIVATE_VOLTAGE_X64_RVA 0x001c9070U
 
 rtxmon_nvapi_loader_status_t rtxmon_nvapi_load(
     rtxmon_nvapi_api_t *api,
@@ -150,9 +156,26 @@ rtxmon_nvapi_loader_status_t rtxmon_nvapi_load(
         "NvAPI_GPU_GetThermalSettings");
 
     /* Private, optional driver interface used by established monitoring tools. */
-    api->gpu_therm_channel_get_status =
-        (rtxmon_nvapi_gpu_therm_channel_get_status_fn)api->query_interface(
-            RTXMON_NVAPI_ID_GPU_THERM_CHANNEL_GET_STATUS);
+    {
+        void *private_pointer = api->query_interface(RTXMON_NVAPI_ID_GPU_THERM_CHANNEL_GET_STATUS);
+        if (rtxmon_private_module_pointer_matches(
+                private_pointer,
+                RTXMON_PRIVATE_THERMAL_X64_RVA,
+                RTXMON_PRIVATE_NVAPI64_IMPL_SHA256)) {
+            api->gpu_therm_channel_get_status =
+                (rtxmon_nvapi_gpu_therm_channel_get_status_fn)private_pointer;
+        }
+    }
+    {
+        void *private_pointer = api->query_interface(RTXMON_NVAPI_ID_GPU_VOLTAGE_STATUS);
+        if (rtxmon_private_module_pointer_matches(
+                private_pointer,
+                RTXMON_PRIVATE_VOLTAGE_X64_RVA,
+                RTXMON_PRIVATE_NVAPI64_IMPL_SHA256)) {
+            api->gpu_voltage_status =
+                (rtxmon_nvapi_gpu_voltage_status_fn)private_pointer;
+        }
+    }
 
     rtxmon_nvapi_loader_error(error, error_capacity, "");
     return RTXMON_NVAPI_LOADER_OK;

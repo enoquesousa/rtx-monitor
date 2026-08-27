@@ -70,6 +70,9 @@ public static class GpuzSensorLog
     public const long MaximumInputSizeBytes = 16L * 1024 * 1024;
     public const int MaximumChannels = 256;
     public const int MaximumSamples = 250_000;
+    public const int MaximumSessions = 1_024;
+
+    private const int MaximumCsvFields = MaximumChannels + 2;
 
     private static readonly string[] TimestampFormats =
     [
@@ -222,7 +225,9 @@ public static class GpuzSensorLog
         }
 
         (string text, string encoding) = DecodeText(content);
-        IReadOnlyList<IReadOnlyList<string>> rows = ParseCsv(text);
+        (IReadOnlyList<IReadOnlyList<string>> Rows, int SampleCount) parsedCsv =
+            ParseCsv(text);
+        IReadOnlyList<IReadOnlyList<string>> rows = parsedCsv.Rows;
         if (rows.Count < 2)
         {
             throw new GpuzLogException(
@@ -256,12 +261,7 @@ public static class GpuzSensorLog
             channelHeaders.Add((name, unit));
         }
 
-        int sampleCapacity = rows.Count - 1;
-        if (sampleCapacity > MaximumSamples)
-        {
-            throw new GpuzLogException(
-                $"The GPU-Z log contains more than {MaximumSamples} samples.");
-        }
+        int sampleCapacity = parsedCsv.SampleCount;
 
         var samples = new List<GpuzLogSample>(sampleCapacity);
         var timestamps = new List<DateTime>(sampleCapacity);
@@ -523,12 +523,17 @@ public static class GpuzSensorLog
         }
     }
 
-    private static IReadOnlyList<IReadOnlyList<string>> ParseCsv(string text)
+    private static (IReadOnlyList<IReadOnlyList<string>> Rows, int SampleCount) ParseCsv(
+        string text)
     {
         var rows = new List<IReadOnlyList<string>>();
         var row = new List<string>();
         var field = new StringBuilder();
         bool quoted = false;
+        int expectedFieldCount = 0;
+        int sampleCount = 0;
+        int sessionCount = 0;
+        int rowNumber = 0;
 
         for (int index = 0; index < text.Length; index++)
         {
@@ -561,8 +566,7 @@ public static class GpuzSensorLog
                     quoted = true;
                     break;
                 case ',':
-                    row.Add(field.ToString());
-                    field.Clear();
+                    AddCsvField(row, field);
                     break;
                 case '\r':
                     if (index + 1 < text.Length && text[index + 1] == '\n')
@@ -570,10 +574,24 @@ public static class GpuzSensorLog
                         index++;
                     }
 
-                    CompleteRow(rows, row, field);
+                    CompleteRow(
+                        rows,
+                        row,
+                        field,
+                        ref expectedFieldCount,
+                        ref sampleCount,
+                        ref sessionCount,
+                        ref rowNumber);
                     break;
                 case '\n':
-                    CompleteRow(rows, row, field);
+                    CompleteRow(
+                        rows,
+                        row,
+                        field,
+                        ref expectedFieldCount,
+                        ref sampleCount,
+                        ref sessionCount,
+                        ref rowNumber);
                     break;
                 default:
                     field.Append(character);
@@ -588,19 +606,101 @@ public static class GpuzSensorLog
 
         if (field.Length > 0 || row.Count > 0)
         {
-            CompleteRow(rows, row, field);
+            CompleteRow(
+                rows,
+                row,
+                field,
+                ref expectedFieldCount,
+                ref sampleCount,
+                ref sessionCount,
+                ref rowNumber);
         }
 
-        return rows;
+        return (rows, sampleCount);
+    }
+
+    private static void AddCsvField(ICollection<string> row, StringBuilder field)
+    {
+        if (row.Count >= MaximumCsvFields)
+        {
+            throw new GpuzLogException(
+                $"A GPU-Z CSV row exceeds the {MaximumCsvFields}-field parser limit.");
+        }
+
+        row.Add(field.ToString());
+        field.Clear();
     }
 
     private static void CompleteRow(
-        ICollection<IReadOnlyList<string>> rows,
-        ICollection<string> row,
-        StringBuilder field)
+        IList<IReadOnlyList<string>> rows,
+        IList<string> row,
+        StringBuilder field,
+        ref int expectedFieldCount,
+        ref int sampleCount,
+        ref int sessionCount,
+        ref int rowNumber)
     {
-        row.Add(field.ToString());
-        field.Clear();
+        rowNumber++;
+        AddCsvField(row, field);
+        bool blank = row.Count == 1 && string.IsNullOrWhiteSpace(row[0]);
+        if (blank)
+        {
+            row.Clear();
+            return;
+        }
+
+        int fieldCount = row.Count;
+        if (fieldCount > 0 && string.IsNullOrWhiteSpace(row[^1]))
+        {
+            fieldCount--;
+        }
+
+        if (rows.Count == 0)
+        {
+            if (fieldCount < 2 ||
+                !string.Equals(row[0].Trim(), "Date", StringComparison.Ordinal))
+            {
+                throw new GpuzLogException(
+                    "The first GPU-Z log column must be 'Date'.");
+            }
+            if (fieldCount > MaximumChannels + 1)
+            {
+                throw new GpuzLogException(
+                    $"The GPU-Z log contains more than {MaximumChannels} channels.");
+            }
+
+            expectedFieldCount = fieldCount;
+            sessionCount = 1;
+        }
+        else
+        {
+            if (fieldCount != expectedFieldCount)
+            {
+                throw new GpuzLogException(
+                    $"GPU-Z log row {rowNumber} has {fieldCount} fields; " +
+                    $"expected {expectedFieldCount}.");
+            }
+
+            if (string.Equals(row[0].Trim(), "Date", StringComparison.Ordinal))
+            {
+                sessionCount++;
+                if (sessionCount > MaximumSessions)
+                {
+                    throw new GpuzLogException(
+                        $"The GPU-Z log contains more than {MaximumSessions} sessions.");
+                }
+            }
+            else
+            {
+                sampleCount++;
+                if (sampleCount > MaximumSamples)
+                {
+                    throw new GpuzLogException(
+                        $"The GPU-Z log contains more than {MaximumSamples} samples.");
+                }
+            }
+        }
+
         rows.Add(row.ToArray());
         row.Clear();
     }

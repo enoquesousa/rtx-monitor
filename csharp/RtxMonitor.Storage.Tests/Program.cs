@@ -72,6 +72,9 @@ internal static class Program
             root.GetProperty("event").GetProperty("schema_version").GetInt32() == 4,
             "exportação deve incorporar o evento v4 sem alterar seu contrato");
         Check(
+            root.GetProperty("run").GetProperty("event_schema_version").GetInt32() == 4,
+            "exportação deve declarar o schema v4 também na proveniência do run");
+        Check(
             root.GetProperty("device_snapshot")
                 .GetProperty("board")
                 .GetProperty("profile_key")

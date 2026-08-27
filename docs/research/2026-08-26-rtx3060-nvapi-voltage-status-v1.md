@@ -64,3 +64,5 @@ O estágio de evidência permanece `matched_external_reference`, agora com escal
 O schema de observação `nvapi-voltage-status-v1-observation-v1` e o correlator offline `correlate-nvapi-voltage-status` preservam o valor bruto, a conversão, os hashes e a janela da referência. A fixture multipatamar é validada no CI sem acesso à GPU.
 
 O próximo gate é repetir em uma sessão separada para testar reprodutibilidade antes de expor o valor por um provedor experimental.
+
+Atualização de fechamento (2026-08-27): a repetição separada foi executada e a aquisição direta foi implementada como modo opt-in de perfil fixo, não como provider. A janela atual confirmou a referência GPU-Z dentro da tolerância, mas permaneceu globalmente ambígua por conter um único patamar; os limites estão no [ADR 0010](../adr/0010-fixed-profile-private-nvapi-acquisition.md).

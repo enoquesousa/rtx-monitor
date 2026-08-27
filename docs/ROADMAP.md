@@ -24,9 +24,11 @@ flowchart LR
     CORE --> STORE["Persistência C#<br/>evidências e histórico"]
     STORE --> SERVICE["Serviço local<br/>HTTP e SSE"]
 
-    GPU -. acesso opt-in .-> HELPER["Helper experimental<br/>privilegiado e somente leitura"]
-    HELPER --> RAW["Artefatos brutos<br/>com hash e proveniência"]
-    RAW --> ANALYZER["Analisador C++<br/>correlação e decodificação"]
+    GPU -. acesso opt-in em user mode .-> LAB["Aquisição experimental<br/>de perfil fixo"]
+    LAB --> RAW["Artefatos brutos<br/>com hash e proveniência"]
+    GPU -. somente se um marco futuro exigir kernel mode .-> HELPER["Helper privilegiado<br/>allowlisted"]
+    HELPER -.-> RAW
+    RAW --> ANALYZER["Analisadores offline C++/C#<br/>correlação e decodificação"]
     ANALYZER --> PROFILES["Perfis validados<br/>por placa e versão"]
     PROFILES -. somente após validação .-> STORE
 ```
@@ -157,13 +159,17 @@ Critério de saída:
 
 Objetivo: produzir a primeira observação binária reproduzível da placa sem transformar o monitor estável em uma ferramenta privilegiada e sem oferecer acesso arbitrário ao hardware.
 
-Estado: em implementação. O pacote verificável de evidência, o parser offline de VBIOS, a referência e correlação do GPU-Z, os marcadores experimentais, a representação pura do protocolo térmico RM e o tracing NVAPI já existem. Na RTX 3060, 100 IDs NVAPI resolveram para código. O startup executou 33 deles; no polling anexado, 19 alvos receberam 465 chamadas, dos quais 11 não constam no catálogo público. O inventário preserva módulo, hash, RVA e nível de evidência sem nomeá-los como sensores.
+Estado: concluída no perfil RTX 3060 registrado. O pacote verificável de evidência, o parser offline de VBIOS, as referências GPU-Z/HWiNFO, os marcadores, o manifesto multipacote, o analisador de séries, a representação pura do protocolo térmico RM e o tracing NVAPI estão implementados e cobertos pelo CI. Na RTX 3060, 100 IDs NVAPI resolveram para código. O startup executou 33 deles; no polling anexado, 19 alvos receberam 465 chamadas, dos quais 11 não constam no catálogo público. O inventário preserva módulo, hash, RVA e nível de evidência sem nomeá-los como sensores.
 
 O canal do helper assinado do GPU-Z também foi observado passivamente, sem emitir chamadas nem ler retornos. O handle foi comprovado como `\Device\GPU-Z-v8`. Em dez segundos de `Sensors`, as camadas Win32 e nativa registraram os mesmos 130 IOCTLs: 110 leituras do MSR Intel `IA32_THERM_STATUS`, referentes à CPU, e 20 leituras de bytes da configuração PCI da RTX. Esses dois caminhos foram identificados e descartados como origem direta do `Hot Spot`. O helper continua excluído como backend porque seu binário contém caminhos de escrita.
 
-O binário NVIDIA fixado por hash liga o candidato privado `0x65fe3aad`/RVA `0x001ad310` a `NvAPI_GPU_ThermChannelGetStatus`. O call site demonstrou uma estrutura v2 de 168 bytes, máscara por canal e valores nas palavras 10/11, codificados como inteiros com sinal em ponto fixo 8. Em uma sessão de polling com crescimento comprovado do log, canal 0 correspondeu a `GPU Temperature` e canal 1 a `Hot Spot`, ambos dentro de `0,05` °C da referência GPU-Z; a associação invertida divergiu mais de 10 °C em média. O resultado está no estágio `matched_external_reference` para a placa, VBIOS, driver e hashes exatos, sem afirmar contrato público ou identidade física além de die/hotspot.
+O binário NVIDIA x86 fixado por hash liga o candidato privado `0x65fe3aad`/RVA `0x001ad310` a `NvAPI_GPU_ThermChannelGetStatus`. O call site demonstrou uma estrutura v2 de 168 bytes, máscara por canal e valores nas palavras 10/11, codificados como inteiros com sinal em ponto fixo 8. Em uma sessão de polling com crescimento comprovado do log, canal 0 correspondeu a `GPU Temperature` e canal 1 a `Hot Spot`, ambos dentro de `0,05` °C da referência GPU-Z; a associação invertida divergiu mais de 10 °C em média. A leitura direta opt-in usa o módulo x64 `nvapi64_impl.dll` versão `32.0.16.1088`, SHA-256 `df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4` e RVA `0x001e0bc0`, além de identidade/VBIOS/driver/estrutura exatos. O resultado está no estágio `matched_external_reference` apenas para esse perfil.
 
-Dois outros candidatos foram atribuídos estaticamente aos subsistemas de tensão e fan/cooler. Para `0x465f9bcf`, duas passagens comprovaram a estrutura v1 de 76 bytes e correlacionaram a palavra 10/offset `0x28` com a tensão do núcleo em duas referências externas. Os valores 868.750, 937.500 e 1.081.250 reproduziram os degraus exibidos pelo GPU-Z quando interpretados como microvolts. O resultado é `matched_external_reference` para o perfil exato e agora possui schema, fixture multipatamar e correlator offline; o próximo gate é testar reprodutibilidade em uma sessão independente, sem nomear rails, políticas, potência ou status antes da evidência. A captura de configuração no startup permanece uma trilha complementar. O protocolo RM ainda não possui transporte para o driver Windows, e toda aquisição própria continua sujeita aos portões desta seção.
+Dois outros candidatos foram atribuídos estaticamente aos subsistemas de tensão e fan/cooler. Para `0x465f9bcf`, duas passagens comprovaram a estrutura v1 de 76 bytes e correlacionaram a palavra 10/offset `0x28` com a tensão do núcleo em duas referências externas. Os valores históricos 868.750, 937.500 e 1.081.250 reproduziram os degraus exibidos pelo GPU-Z quando interpretados como microvolts. Em uma sessão independente de 2026-08-27, 20 retornos repetiram `956250 µV` contra `0,9560 V` em 20 pares do GPU-Z, erro máximo `0,00025 V`, com log crescendo antes/meio/depois e detach confirmado. O match da referência passou; a janela isolada permaneceu ambígua por ter um único patamar. A leitura direta opt-in fixa o módulo x64 acima e RVA `0x001c9070`.
+
+Para `0x35aed5e8`, a captura passiva final usa o contrato v2, que fixa identidade GPU/PCI/subsystem/VBIOS/driver, hashes dos artefatos anteriores e a imagem NVAPI carregada comprovada por `ModLoad`; ela preservou 36 retornos, 18 em cada um dos dois call sites, sempre com estrutura v1 de 1.704 bytes, 426 DWORDs e duas entradas. Os quatro campos por entrada continuam brutos, sem nome, unidade, fan index ou semântica. A v0.8 encerra esse candidato como evidência reproduzível `raw_unknown`; promovê-lo exige novos estímulos e referências nos marcos seguintes.
+
+O fluxo completo final foi executado com 14 pacotes ancorados, seis cenários e 12 marcadores. O manifesto real `experiment-manifest-v1` tem ID `2a31a9be-d107-4cf2-ba6f-4826d7b35741` e SHA-256 `57bcc29e1a951bf83c115a66ad4ca7636fe1b8f8dc8e8c912cfb71c9f6e507b5`; o relatório `analysis-report-v1`, `6a52a6bffbd4940d5742c192d27060091d4462a8913e9925405afce938a18db9`. O analisador calculou estatísticas/deltas de oito amostras diretas, preservou a unidade `V` e manteve o candidato em `raw_unknown`, pois a janela não tinha série externa sincronizada. Nenhuma leitura PCI/MMIO/kernel foi necessária ou executada; o protocolo RM continua sem transporte Windows.
 
 Ordem obrigatória:
 
@@ -173,7 +179,7 @@ Ordem obrigatória:
 4. observar passivamente o caminho já executado por uma ferramenta assinada e provar a origem de cada handle, módulo e call site;
 5. formular uma hipótese de interface, endereço, layout, unidade e comportamento;
 6. revisar um perfil de leitura explícito;
-7. somente então executar uma aquisição privilegiada própria, limitada pela allowlist do helper;
+7. somente então executar a menor aquisição própria necessária e allowlisted; na v0.8 ela ficou em user mode e perfil fixo, reservando helper para um marco futuro que realmente exija kernel mode;
 8. verificar o pacote contra um hash de manifesto ancorado fora dele antes de interpretar ou nomear candidatos.
 
 Entregas:
@@ -183,20 +189,20 @@ Entregas:
 - relógio monotônico para correlação e UTC para auditoria;
 - pacote de evidências com manifesto, telemetria pública, artefatos brutos, comandos, observações, tamanho e SHA-256 de cada arquivo;
 - ingestão e análise **offline** de VBIOS fornecida pelo operador; o projeto não habilita ROM, não faz dump e não redistribui a imagem;
-- analisador offline para séries temporais, deltas, periodicidade, lag e correlação;
+- analisador offline implementado para séries temporais, deltas, periodicidade, lag e correlação;
 - observação anexada de chamadas existentes, com assinatura dos executáveis, hashes, identidade do objeto do sistema e entradas estritamente delimitadas;
 - processo experimental separado do coletor estável;
-- helper privilegiado mínimo, quando necessário, com IPC local, perfil exato e operações allowlisted;
-- no Windows, driver KMDF assinado e compatível com HVCI antes da primeira leitura em kernel mode;
+- helper privilegiado mínimo somente quando uma hipótese futura realmente exigir kernel mode, com IPC local, perfil exato e operações allowlisted;
+- no Windows, driver KMDF assinado e compatível com HVCI antes de qualquer futura leitura em kernel mode; a v0.8 concluída não executa essa classe de leitura;
 - no Linux, ambiente de pesquisa documentado e separado do produto Windows;
 - protocolo para referência independente, como termopar ou câmera térmica, com posição, incerteza e limitações registradas;
 - ADR, threat model e contratos JSON versionados antes da primeira aquisição privilegiada.
 
 Allowlist não significa uma faixa fornecida livremente pelo cliente. O helper valida novamente, em sua própria fronteira de privilégio, identidade PCI, perfil, espaço, offset, largura, alinhamento, quantidade de amostras e taxa. Um manifesto não assinado não pode ampliar as operações compiladas ou assinadas no helper.
 
-Fontes privilegiadas admitidas nesta versão:
+Categorias reservadas para um eventual helper futuro, não implementadas nem exercitadas na v0.8 concluída:
 
-- bytes conhecidos do espaço de configuração PCI, em offsets explícitos;
+- bytes conhecidos do espaço de configuração PCI, em offsets explícitos e somente depois de nova revisão;
 - leituras de BAR0/MMIO somente em offsets e larguras previamente revisados para um perfil exato.
 
 Fica fora da v0.8.0:
@@ -214,10 +220,12 @@ Critério de saída:
 - outra pessoa consegue repetir um experimento usando o manifesto e os artefatos permitidos;
 - duas execuções equivalentes produzem resultados comparáveis na mesma base monotônica;
 - cada payload e descritor passa por verificação de tamanho e SHA-256;
-- toda leitura privilegiada é autorizada por perfil e operação exatos; placa, versão, espaço ou offset diferente é recusado;
-- os testes demonstram que o protocolo e o driver não expõem caminho de escrita nem leitura fora da allowlist;
+- se um marco futuro introduzir leitura em kernel mode, ela será autorizada por perfil e operação exatos; placa, versão, espaço ou offset diferente será recusado;
+- se um helper/driver futuro existir, seus testes deverão demonstrar que o protocolo não expõe caminho de escrita nem leitura fora da allowlist;
 - remover todo o laboratório não muda o funcionamento da trilha estável;
 - a referência externa é tratada como temperatura do ponto medido, não como prova automática da junção interna.
+
+Gate encerrado em 2026-08-27: pacotes e produtores são reproduzíveis, a repetição independente de tensão foi comparável à evidência multipatamar, toda evidência possui tamanho/hash/schema, as aquisições diretas falham por perfil exato e os testes negativos não expõem caminho configurável de leitura ou escrita. Como nenhuma aquisição privilegiada PCI/MMIO foi executada, driver/helper permanecem uma fronteira futura e não um requisito operacional oculto desta versão.
 
 Leitura de MMIO não é automaticamente inofensiva: alguns registradores podem ter efeitos colaterais, como limpar um estado ao serem lidos. Por isso, "somente leitura" também exige conhecimento prévio do endereço, largura e semântica. BAR0 entra somente por hipótese revisada; BAR1 e VRAM permanecem proibidos.
 
@@ -299,7 +307,7 @@ A interface gráfica poderá começar depois desta base, como cliente da API loc
 
 ## Portões obrigatórios da engenharia reversa
 
-Antes da primeira aquisição privilegiada da v0.8.0, o projeto precisa ter:
+Antes de qualquer primeira aquisição própria em kernel mode num marco futuro, o projeto precisa ter:
 
 - histórico persistente e exportável;
 - identidade exata da placa e das versões envolvidas;

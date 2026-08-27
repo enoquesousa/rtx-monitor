@@ -119,7 +119,31 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
             native.GpuIndex,
             die,
             hotspot,
-            hotspot - die,
+            native.NativeStatus,
+            DateTimeOffset.FromUnixTimeMilliseconds(checked((long)native.TimestampUnixMilliseconds)),
+            native.TimestampUnixMilliseconds);
+    }
+
+    public PrivateVoltageSample ReadPrivateVoltageStatus(uint index)
+    {
+        ThrowIfDisposed();
+        NativePrivateVoltageSample native = NativePrivateVoltageSample.Create();
+        NativeStatus status = NativeMethods.ReadPrivateVoltageStatus(
+            context,
+            index,
+            ref native);
+        if (status != NativeStatus.Ok)
+        {
+            Throw(status, $"Não foi possível ler a tensão NVAPI experimental da GPU {index}");
+        }
+        if ((native.ValueFlags & NativeMethods.PrivateVoltageCoreValid) == 0)
+        {
+            throw new InvalidOperationException("A NVAPI não retornou a tensão do núcleo na amostra.");
+        }
+
+        return new PrivateVoltageSample(
+            native.GpuIndex,
+            native.GpuCoreVoltageMicrovolts,
             native.NativeStatus,
             DateTimeOffset.FromUnixTimeMilliseconds(checked((long)native.TimestampUnixMilliseconds)),
             native.TimestampUnixMilliseconds);
@@ -301,6 +325,7 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
         int gpuInfoSize = Marshal.SizeOf<NativeGpuInfo>();
         int sampleSize = Marshal.SizeOf<NativeTemperatureSample>();
         int privateThermalSize = Marshal.SizeOf<NativePrivateThermalSample>();
+        int privateVoltageSize = Marshal.SizeOf<NativePrivateVoltageSample>();
         int boardIdentitySize = Marshal.SizeOf<NativeBoardIdentity>();
         int providerSize = Marshal.SizeOf<NativeThermalProviderResult>();
         int capabilitySize = Marshal.SizeOf<NativeThermalCapability>();
@@ -310,14 +335,14 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
         int metricOptionsSize = Marshal.SizeOf<NativeComputedMetricOptions>();
         int metricSize = Marshal.SizeOf<NativeComputedMetric>();
         int metricReportSize = Marshal.SizeOf<NativeComputedMetricsReport>();
-        if (gpuInfoSize != 392 || sampleSize != 32 || privateThermalSize != 40 || boardIdentitySize != 240 ||
+        if (gpuInfoSize != 392 || sampleSize != 32 || privateThermalSize != 40 || privateVoltageSize != 32 || boardIdentitySize != 240 ||
             providerSize != 16 || capabilitySize != 48 || reportSize != 456 ||
             publicValueSize != 64 || publicReportSize != 3096 || metricOptionsSize != 16 ||
             metricSize != 64 || metricReportSize != 280)
         {
             throw new InvalidOperationException(
                 $"Layout P/Invoke incompatível: gpu_info={gpuInfoSize}, sample={sampleSize}, " +
-                $"private_thermal={privateThermalSize}, board={boardIdentitySize}, provider={providerSize}, capability={capabilitySize}, " +
+                $"private_thermal={privateThermalSize}, private_voltage={privateVoltageSize}, board={boardIdentitySize}, provider={providerSize}, capability={capabilitySize}, " +
                 $"report={reportSize}, public_value={publicValueSize}, public_report={publicReportSize}, " +
                 $"metric_options={metricOptionsSize}, metric={metricSize}, metric_report={metricReportSize}.");
         }
