@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:nvapi-therm-channel-v2-observation:2",
+  "title": "RTX Monitor NVAPI thermal channel v2 observation v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "capture_session_id",
+    "capture_started_utc",
+    "captured_utc",
+    "duration_seconds",
+    "process_id",
+    "profile",
+    "references",
+    "call_count",
+    "samples",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "source_kind": { "const": "nvapi_therm_channel_v2_observation" },
+    "capture_session_id": { "type": "string", "format": "uuid" },
+    "capture_started_utc": { "type": "string", "format": "date-time" },
+    "captured_utc": { "type": "string", "format": "date-time" },
+    "duration_seconds": { "type": "integer", "minimum": 10, "maximum": 60 },
+    "process_id": { "type": "integer", "minimum": 1 },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_name",
+        "gpu",
+        "identity_probe_sha256",
+        "gpuz_sha256",
+        "debugger_sha256",
+        "debugger_file_version",
+        "candidate_inventory_sha256",
+        "prior_observation_sha256",
+        "nvapi_module_sha256",
+        "loaded_nvapi_module",
+        "interface_id",
+        "function_rva",
+        "caller_module_name",
+        "caller_rva",
+        "buffer_ebp_displacement_bytes",
+        "structure_version",
+        "structure_size_bytes",
+        "fixed_point_fractional_bits",
+        "value_word_indices"
+      ],
+      "properties": {
+        "profile_name": {
+          "const": "gpuz-2.70.0-nvapi-610.88-therm-channel-status-v2"
+        },
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "uuid",
+            "driver_version",
+            "nvml_version",
+            "pci_bus_id",
+            "pci_vendor_id",
+            "pci_device_id",
+            "pci_subsystem_vendor_id",
+            "pci_subsystem_device_id",
+            "vbios_version"
+          ],
+          "properties": {
+            "name": { "const": "NVIDIA GeForce RTX 3060" },
+            "uuid": { "const": "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd" },
+            "driver_version": { "const": "610.88" },
+            "nvml_version": { "const": "13.610.88" },
+            "pci_bus_id": { "const": "00000000:01:00.0" },
+            "pci_vendor_id": { "const": "0x10de" },
+            "pci_device_id": { "const": "0x2504" },
+            "pci_subsystem_vendor_id": { "const": "0x10de" },
+            "pci_subsystem_device_id": { "const": "0x1536" },
+            "vbios_version": { "const": "94.06.25.00.fc" }
+          }
+        },
+        "identity_probe_sha256": { "$ref": "#/$defs/sha256" },
+        "gpuz_sha256": {
+          "const": "6cb0ef29682452de81a9576808881685161411a1fad00938ba04131159979c29"
+        },
+        "debugger_sha256": { "$ref": "#/$defs/sha256" },
+        "debugger_file_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "candidate_inventory_sha256": {
+          "const": "3aaada9b367dacca7cf74511bae8532bd79b7f8bd06b9bb609056f3d9da1f1d7"
+        },
+        "prior_observation_sha256": {
+          "const": "c7a63df5e6a30bccbba5ad8c1a62a9251c40d512cd74060e69e043cfc54f77b3"
+        },
+        "nvapi_module_sha256": {
+          "const": "fbc9aed43bfa5bda19b7f83a809a081a0ce454b6d6003dcabc565ecb3e6afdaf"
+        },
+        "loaded_nvapi_module": { "$ref": "#/$defs/loaded_nvapi_module" },
+        "interface_id": { "const": "0x65fe3aad" },
+        "function_rva": { "const": "0x001ad310" },
+        "caller_module_name": { "const": "GPU-Z.exe" },
+        "caller_rva": { "const": "0x002225b5" },
+        "buffer_ebp_displacement_bytes": { "const": -172 },
+        "structure_version": { "const": "0x000200a8" },
+        "structure_size_bytes": { "const": 168 },
+        "fixed_point_fractional_bits": { "const": 8 },
+        "value_word_indices": {
+          "type": "array",
+          "prefixItems": [{ "const": 10 }, { "const": 11 }],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "references": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gpuz"],
+      "properties": {
+        "gpuz": { "$ref": "#/$defs/growing_log_reference" }
+      }
+    },
+    "call_count": { "type": "integer", "minimum": 6, "maximum": 100000 },
+    "samples": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sequence",
+          "thread_id",
+          "caller_rva",
+          "channel_index",
+          "return_status",
+          "structure_version",
+          "channel_mask",
+          "raw_words",
+          "selected_word_index",
+          "selected_raw_fixed_8",
+          "selected_celsius"
+        ],
+        "properties": {
+          "sequence": { "type": "integer", "minimum": 1 },
+          "thread_id": { "$ref": "#/$defs/hex32" },
+          "caller_rva": { "const": "0x002225b5" },
+          "channel_index": { "type": "integer", "minimum": 0, "maximum": 1 },
+          "return_status": { "const": "0x00000000" },
+          "structure_version": { "const": "0x000200a8" },
+          "channel_mask": {
+            "enum": ["0x00000001", "0x00000002"]
+          },
+          "raw_words": {
+            "type": "array",
+            "prefixItems": [{ "const": "0x000200a8" }],
+            "items": { "$ref": "#/$defs/hex32" },
+            "minItems": 42,
+            "maxItems": 42
+          },
+          "selected_word_index": { "enum": [10, 11] },
+          "selected_raw_fixed_8": {
+            "type": "integer",
+            "minimum": -25600,
+            "maximum": 76800
+          },
+          "selected_celsius": {
+            "type": "number",
+            "minimum": -100,
+            "maximum": 300
+          }
+        }
+      }
+    },
+    "warning": { "type": "string", "minLength": 1, "maxLength": 2000 }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hex32": { "type": "string", "pattern": "^0x[0-9a-f]{8}$" },
+    "local_timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?$"
+    },
+    "loaded_nvapi_module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_name",
+        "proof_command",
+        "file_sha256",
+        "mapped_start",
+        "mapped_end_exclusive",
+        "mapped_size_bytes"
+      ],
+      "properties": {
+        "module_name": { "const": "nvapi_impl.dll" },
+        "proof_command": { "const": "lmv m nvapi_impl" },
+        "file_sha256": {
+          "const": "fbc9aed43bfa5bda19b7f83a809a081a0ce454b6d6003dcabc565ecb3e6afdaf"
+        },
+        "mapped_start": { "$ref": "#/$defs/hex32" },
+        "mapped_end_exclusive": { "$ref": "#/$defs/hex32" },
+        "mapped_size_bytes": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+      }
+    },
+    "growing_log_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file_name",
+        "sealed_relative_path",
+        "prefix_sha256",
+        "prefix_size_bytes",
+        "size_bytes_before",
+        "size_bytes_midpoint",
+        "size_bytes_after",
+        "last_write_utc_before",
+        "last_write_utc_midpoint",
+        "last_write_utc_after",
+        "last_sample_local_before",
+        "last_sample_local_midpoint",
+        "last_sample_local_after",
+        "grew_during_capture"
+      ],
+      "properties": {
+        "file_name": { "type": "string", "minLength": 1, "maxLength": 260 },
+        "sealed_relative_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 260,
+          "pattern": "^[^/\\\\]+$"
+        },
+        "prefix_sha256": { "$ref": "#/$defs/sha256" },
+        "prefix_size_bytes": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+        "size_bytes_before": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+        "size_bytes_midpoint": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+        "size_bytes_after": { "type": "integer", "minimum": 1, "maximum": 16777216 },
+        "last_write_utc_before": { "type": "string", "format": "date-time" },
+        "last_write_utc_midpoint": { "type": "string", "format": "date-time" },
+        "last_write_utc_after": { "type": "string", "format": "date-time" },
+        "last_sample_local_before": { "$ref": "#/$defs/local_timestamp" },
+        "last_sample_local_midpoint": { "$ref": "#/$defs/local_timestamp" },
+        "last_sample_local_after": { "$ref": "#/$defs/local_timestamp" },
+        "grew_during_capture": { "const": true }
+      }
+    }
+  }
+}

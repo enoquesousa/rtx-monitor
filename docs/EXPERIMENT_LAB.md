@@ -168,25 +168,37 @@ Depois que análise estática e disassembly do call site provaram ID, RVA, dois 
   -GpuzProcessId 1234 `
   -CandidateInventoryPath C:\evidence-local\nvapi-candidates.json `
   -PriorObservationPath C:\evidence-local\nvapi-polling-report.json `
+  -GpuzLogPath "C:\evidence-local\GPU-Z Sensor Log.txt" `
+  -OutputDirectory .\evidence\thermal-v2 `
   -DurationSeconds 10
 ```
 
 O script aceita somente GPU-Z, CDB x86, `nvapi_impl.dll`, interface `0x65fe3aad`, função RVA `0x001ad310`, call site GPU-Z RVA `0x002225b5` e estrutura `0x000200a8` fixados no código e por SHA-256. Ele coloca o breakpoint depois do retorno, exige status zero e lê exatamente os 42 DWORDs já inicializados pelo GPU-Z. Não chama NVAPI, não altera a estrutura e desconecta com `qqd`.
 
-A ABI observada usa a máscara `1 << channel`. O canal 0 está na palavra 10 (`offset 0x28`) e o canal 1 na palavra 11 (`offset 0x2c`); ambos são inteiros com sinal em ponto fixo 8 e usam `raw / 256` °C. O relatório segue [`nvapi-therm-channel-v2-observation-v1.schema.json`](schema/nvapi-therm-channel-v2-observation-v1.schema.json) e inclui o prefixo temporal do log externo.
+A ABI observada usa a máscara `1 << channel`. O canal 0 está na palavra 10 (`offset 0x28`) e o canal 1 na palavra 11 (`offset 0x2c`); ambos são inteiros com sinal em ponto fixo 8 e usam `raw / 256` °C. O relatório atual segue [`nvapi-therm-channel-v2-observation-v2.schema.json`](schema/nvapi-therm-channel-v2-observation-v2.schema.json), comprova por `lmv` o módulo carregado e sela no diretório da captura o prefixo LF-completo do log. O contrato v1 permanece histórico.
 
 Faça a associação offline sem manter o debugger ou o GPU-Z anexado:
 
 ```powershell
 dotnet run --project .\csharp\RtxMonitor.Lab -- `
-  correlate-nvapi-therm-channel `
-  --observation C:\evidence-local\nvapi-therm-channel-v2-report.json `
-  --gpuz-log "C:\evidence-local\GPU-Z Sensor Log.txt"
+  correlate-nvapi-therm-channel-v2 `
+  --observation .\evidence\thermal-v2\nvapi-therm-channel-v2-observation-v2.json `
+  --gpuz-log .\evidence\thermal-v2\sealed-gpuz-thermal-reference.csv
 ```
 
-O analisador lê somente o tamanho de prefixo registrado, verifica os hashes e busca uma janela contígua dentro dos limites capturados. Ele compara a associação direta e a invertida e emite [`nvapi-therm-channel-correlation-v1.schema.json`](schema/nvapi-therm-channel-correlation-v1.schema.json). No ensaio real, canal 0 → `GPU Temperature` e canal 1 → `Hot Spot` ficaram dentro de `0,05` °C, enquanto a alternativa invertida divergiu mais de 10 °C em média.
+O analisador v2 verifica nome/tamanho/hash e localização do prefixo selado, ignora sessões sem o par exato de canais e escolhe a janela somente pelas fronteiras before/midpoint/after. Erros térmicos não participam da seleção. Ele compara a associação direta e a invertida e emite [`nvapi-therm-channel-correlation-v2.schema.json`](schema/nvapi-therm-channel-correlation-v2.schema.json). O analisador v1 e seus resultados anteriores permanecem históricos.
 
 O estado `matched_external_reference` vale para o perfil binário exato. Ele não declara uma ABI pública da NVIDIA, não identifica a construção física do sensor e não habilita esse valor no monitor estável.
+
+### Tensão v1 e cooler bruto
+
+[`capture-gpuz-nvapi-voltage-status-v1.ps1`](../scripts/capture-gpuz-nvapi-voltage-status-v1.ps1) fixa `0x465f9bcf`, RVA x86 `0x00198010`, call site GPU-Z `0x0021cee7`, estrutura `0x0001004c` de 76 bytes e exatamente 19 DWORDs. Identidade completa da GPU, VBIOS, driver, binários e evidências anteriores são comparados antes do anexo. GPU-Z é obrigatório; HWiNFO só é incluído quando um CSV corrente cresce antes, no meio e depois da janela. O correlator `correlate-nvapi-voltage-status-v2` preserva o hash do prefixo inteiro e separa sessões GPU-Z com headers diferentes.
+
+Na sessão final de 2026-08-27, 20 retornos produziram `956250 µV`; o GPU-Z apresentou `0,9560 V` em 20 pares, erro máximo `0,00025 V`. A referência passou a tolerância de arredondamento. Como a janela continha um único patamar, seu `mapping_status` permaneceu `ambiguous_or_outside_tolerance`; a evidência multipatamar anterior continua separada e ancorada. O HWiNFO estava em execução, mas seu CSV não crescia e foi registrado como `null`.
+
+[`capture-gpuz-nvapi-cooler-status-v1.ps1`](../scripts/capture-gpuz-nvapi-cooler-status-v1.ps1) fixa `0x35aed5e8`, RVA x86 `0x001b9f10`, dois call sites e estrutura `0x000106a8` de 1.704 bytes. O relatório v2 exige identidade exata de GPU/PCI/subsystem/VBIOS/driver, hashes fixos do inventário e da observação anterior e prova `ModLoad` da imagem `nvapi_impl.dll` realmente carregada, incluindo hash, range e RVA. Ele preserva os 426 DWORDs completos e quatro campos por entrada como `raw_field_words`. A captura final obteve 36 retornos, 18 por site, com duas entradas; nenhum campo foi nomeado como RPM, PWM, fan index ou controle. O contrato v1 permanece histórico.
+
+As leituras diretas `--thermal-watch` e `--voltage-watch` são uma superfície separada, opt-in e fixa ao perfil. Elas verificam PCI/subsystem, VBIOS, driver, módulo x64, SHA-256, RVA, estrutura e limites antes de produzir valor; não entram no serviço, SQLite, HTTP/SSE ou telemetria estável. Veja o [ADR 0010](adr/0010-fixed-profile-private-nvapi-acquisition.md).
 
 ### Anexo tardio ao canal do helper
 
@@ -218,11 +230,26 @@ O helper proprietário do GPU-Z não pode ser reutilizado. A análise estática 
 
 Os códigos de saída são: `0` para uma ROM válida, `1` para arquivo analisado sem ROM válida, `2` para uso incorreto e `3` para plataforma não suportada, falha de abertura/leitura/tamanho ou limite de recurso. Essas falhas produzem diagnóstico JSON v1 quando a análise foi iniciada.
 
-## Planejado nesta versão
+## Manifesto e análise implementados
 
-O manifesto completo de execução, múltiplos pacotes e allowlist ainda serão implementados na v0.8. O marcador autônomo já é executável, mas ainda não é agregado automaticamente ao manifesto. O contrato planejado é [`experiment-manifest-v1.schema.json`](schema/experiment-manifest-v1.schema.json); ele indexa pacotes MVP já verificados pelo SHA-256 de cada `manifest.json`. O relatório derivado amplo planejado segue [`analysis-report-v1.schema.json`](schema/analysis-report-v1.schema.json). O perfil térmico já promoveu dois campos a `matched_external_reference` para uma combinação exata de binários e placa, mas ainda não os oferece como provider do monitor nem como validação física independente.
+`finalize-experiment-manifest` valida e emite [`experiment-manifest-v1.schema.json`](schema/experiment-manifest-v1.schema.json). Cada pacote é verificado novamente pelo SHA-256 externo de seu `manifest.json` e declara `scenario_id`: o valor identifica um cenário existente ou é `null` somente para material auxiliar/histórico. Caminhos duplicados, hashes duplicados, traversal, cenário inexistente, marcador incoerente, identidade incompleta, experimento concluído sem pacote ou `privileged_capture` sem allowlist falham fechados.
 
-Até esses produtores existirem, os dois schemas são contratos de implementação, não formatos que o CLI atual afirme emitir.
+`analyze-experiment-series` exige o hash externo do manifesto, revalida e lê o pacote solicitado pelo mesmo handle usado para validar tamanho, identidade e SHA-256, e consome esses bytes já ancorados conforme [`numeric-series-v1.schema.json`](schema/numeric-series-v1.schema.json). O pacote selecionado precisa de `scenario_id` não nulo, e todas as amostras `monotonic_ns` precisam estar entre os markers `begin` e `end` desse cenário. A saída [`analysis-report-v1.schema.json`](schema/analysis-report-v1.schema.json) preserva `value_unit`, estatísticas, deltas, período de atualização e correlação com lag. O custo da correlação é limitado a 10.000.000 de pares, e o analisador nunca promove automaticamente o candidato além de `raw_unknown`.
+
+```powershell
+rtxmon-lab finalize-experiment-manifest `
+  --input experiment-draft.json `
+  --package-root C:\evidence-local > experiment-manifest.json
+
+$sha = (Get-FileHash experiment-manifest.json -Algorithm SHA256).Hash.ToLowerInvariant()
+
+rtxmon-lab analyze-experiment-series `
+  --manifest experiment-manifest.json `
+  --expected-manifest-sha256 $sha `
+  --package-root C:\evidence-local `
+  --series-package series-package `
+  --max-lag-samples 2 > analysis-report.json
+```
 
 ## Matriz de privilégios
 
@@ -235,13 +262,15 @@ Até esses produtores existirem, os dois schemas são contratos de implementaç�
 | Ler PCI config allowlisted | Sem acesso direto | Pode abrir o device object restrito | Driver valida identidade, operação, offset e largura | Permissão elevada pode ser necessária; usar coletor equivalente e nunca escrever |
 | Ler BAR0 allowlisted | Sem acesso direto | Pode solicitar uma operação conhecida | Driver lê apenas o offset pontual e copia bytes limitados | Somente helper/perfil equivalente em máquina de laboratório |
 | Varredura, escrita, BAR1, VRAM ou ROM da placa | Proibida | Proibida | Não existe IOCTL para isso | Proibida mesmo como root |
-| Analisador de séries/candidatos | Permitida | Desnecessário elevar | Não participa | Permitida offline, sem hardware |
+| Analisador de séries/candidatos | Permitida | Desnecessário elevar | Não participa | CLI v0.8 ainda não suportado: a verificação ancorada do pacote depende da identidade de arquivo por handle implementada no Windows |
 
 Elevação de usuário e privilégio de kernel são fronteiras diferentes. Ser Administrador permite gerenciar um driver aprovado; não concede uma API legítima para mapear BARs e não autoriza endereços fora da allowlist.
 
-## Pacote de experimento planejado
+## Pacote de experimento
 
-O experimento completo não altera um pacote MVP. Ele mantém `experiment-manifest.json` ao lado de diretórios de pacotes fechados por contrato e referencia cada um por caminho relativo e SHA-256 do respectivo `manifest.json`. A análise é derivada e referencia os mesmos hashes; não reescreve o payload nem o manifesto original.
+O experimento completo não altera um pacote MVP. Ele mantém `experiment-manifest.json` ao lado de diretórios de pacotes fechados por contrato e referencia cada um por caminho relativo, SHA-256 do respectivo `manifest.json` e `scenario_id`. Pacotes que pertencem à janela medida apontam para um cenário declarado; material apenas auxiliar ou histórico usa `null` e não pode ser selecionado como série pelo analisador. A análise é derivada e referencia os mesmos hashes; não reescreve o payload nem o manifesto original.
+
+Na v0.8, `finalize-experiment-manifest` e `analyze-experiment-series` herdam a verificação Windows-only de `LabPackage`. Torná-los portáveis exige provar arquivo regular, identidade, link count e leitura/hash pelo mesmo handle em cada ABI Unix suportada; o CLI não reduz essa garantia silenciosamente fora do Windows.
 
 Todos os caminhos registrados são relativos, usam `/`, não contêm `..`, unidade, UNC ou symlink. O manifesto de experimento também recebe SHA-256 antes da análise, e o relatório registra esse hash como `input_experiment_manifest_sha256`.
 
@@ -271,7 +300,7 @@ O manifesto registra as fontes dos dois relógios e a frequência nominal do mon
 
 ## Cenários
 
-Os cenários mínimos são:
+Os tipos de cenário disponíveis são:
 
 - `idle`: repouso com carga e clocks estabilizados;
 - `graphics_load`: carga predominantemente gráfica;
@@ -279,9 +308,9 @@ Os cenários mínimos são:
 - `cooling`: carga encerrada e curva de resfriamento;
 - `custom`: estímulo adicional descrito sem ambiguidade.
 
-Cada cenário tem comando declarado, duração prevista e marcadores `begin`, `end` ou `note`. O laboratório não inicia uma carga arbitrária a partir de texto recebido pelo helper; comandos pertencem ao coordenador sem privilégio e aparecem no log.
+Cada cenário registra os comandos escolhidos pelo coordenador e usa marcadores `begin`, `end` ou `note`; no contrato v1, a duração efetiva é derivada do par monotônico `begin`/`end`, não de um campo de duração prevista. O laboratório não inicia uma carga arbitrária a partir de texto recebido pelo helper; comandos pertencem ao coordenador sem privilégio e aparecem no log.
 
-## Fluxo planejado da execução completa
+## Fluxo da execução completa
 
 ### 1. Preparar o ambiente
 
@@ -300,7 +329,7 @@ Colete capabilities, telemetria pública e `nvidia-smi` somente como referência
 
 ### 4. Ingerir VBIOS offline, quando aplicável
 
-Copie para uma pasta local ignorada um arquivo que o operador já possua e use `rtxmon-lab create`. O pacote registra `source_kind: user_provided_local_file`; o papel `vbios_offline` pertence ao futuro manifesto de experimento, não ao manifesto MVP.
+Copie para uma pasta local ignorada um arquivo que o operador já possua e use `rtxmon-lab create`. O pacote registra `source_kind: user_provided_local_file`; o papel `vbios_offline` pertence ao manifesto de experimento, não ao manifesto MVP.
 
 Não use `/sys/.../rom`, ferramentas de flash ou escrita para produzir esse arquivo como parte da v0.8.0.
 
@@ -316,17 +345,17 @@ Uma solicitação privilegiada precisa declarar:
 - limite de amostras, intervalo mínimo e timeout;
 - resultado esperado que poderia refutar a hipótese.
 
-### 6. Executar aquisição allowlisted
+### 6. Executar aquisição allowlisted, se necessária
 
-O coordenador abre uma sessão para a GPU por identidade, nunca por posição transitória. O helper resolve `operation_id` em sua própria allowlist, verifica o perfil e recusa divergências. Cada resposta inclui status, bytes efetivos e base de tempo. Falha parcial produz artefato/diagnóstico explícito; bytes ausentes não são preenchidos com zero.
+As aquisições NVAPI em user mode da v0.8 usam perfis compilados e não exigem helper. Se uma hipótese futura exigir PCI config/BAR0 em kernel mode, o coordenador abrirá uma sessão por identidade, nunca por posição transitória; o helper deverá resolver `operation_id` em sua própria allowlist, verificar o perfil e recusar divergências. A v0.8 concluída não executou essa classe de leitura.
 
 ### 7. Verificar e indexar evidências
 
-Cada payload passa por `rtxmon-lab create` e depois por `rtxmon-lab verify`. O manifesto de experimento planejado registra o papel do artefato, o caminho relativo do pacote e o SHA-256 do `manifest.json`. Hash divergente encerra a operação; o analisador nunca “repara” evidência.
+Cada payload passa por `rtxmon-lab create` e depois por `rtxmon-lab verify`. O manifesto de experimento registra o papel do artefato, o vínculo de cenário ou `null` auxiliar, o caminho relativo do pacote e o SHA-256 do `manifest.json`. Hash divergente encerra a operação; o analisador nunca “repara” evidência nem reabre por pathname os bytes já verificados.
 
 ### 8. Analisar offline
 
-O analisador recebe apenas o caminho do pacote. Ele calcula séries, deltas, período de atualização, lag e correlação, preserva parâmetros e versão, e produz candidatos inicialmente `raw_unknown`. Correlação repetível pode promover a `correlated`. Somente comparação externa em várias faixas permite `externally_validated`.
+O analisador recebe o manifesto e seu SHA-256 externo, a raiz de pacotes, o caminho relativo do pacote de série e o lag máximo. Ele revalida a âncora, exige vínculo a um cenário com janela completa, calcula séries, deltas, período de atualização, lag e correlação dentro do limite defensivo, preserva unidade, parâmetros e versão, e mantém o candidato em `raw_unknown`. Promoção de estágio exige outro fluxo revisado e evidência adicional; este comando não a executa.
 
 ## Referência térmica externa
 

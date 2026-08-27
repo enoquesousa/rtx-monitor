@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-#define RTXMON_ABI_VERSION 4U
+#define RTXMON_ABI_VERSION 5U
 #define RTXMON_TEXT_CAPACITY 96U
 #define RTXMON_MAX_THERMAL_PROVIDERS 3U
 #define RTXMON_MAX_THERMAL_CAPABILITIES 8U
@@ -255,6 +255,20 @@ typedef struct rtxmon_private_thermal_sample {
     uint64_t timestamp_unix_ms;
 } rtxmon_private_thermal_sample_t;
 
+enum {
+    RTXMON_PRIVATE_VOLTAGE_CORE_VALID = 1U << 0U
+};
+
+typedef struct rtxmon_private_voltage_sample {
+    uint32_t struct_size;
+    uint32_t gpu_index;
+    uint32_t value_flags;
+    int32_t native_status;
+    uint32_t gpu_core_voltage_microvolts;
+    uint32_t reserved;
+    uint64_t timestamp_unix_ms;
+} rtxmon_private_voltage_sample_t;
+
 typedef struct rtxmon_board_identity {
     uint32_t struct_size;
     uint32_t gpu_index;
@@ -415,12 +429,27 @@ rtxmon_read_gpu_die_temperature(
     uint32_t gpu_index,
     rtxmon_temperature_sample_t *out_sample);
 
-/* Reads driver thermal channels directly through NVAPI; GPU-Z is not used. */
+/*
+ * Reads the fixed-profile experimental thermal channels directly through
+ * NVAPI. The call fails closed unless PCI identity, VBIOS, driver, interface,
+ * and ABI all match the validated RTX 3060 profile. GPU-Z is not used.
+ */
 RTXMON_API rtxmon_status_t RTXMON_CALL
 rtxmon_read_private_thermal_channels(
     rtxmon_context_t *context,
     uint32_t gpu_index,
     rtxmon_private_thermal_sample_t *out_sample);
+
+/*
+ * Reads the fixed-profile experimental core-voltage status. The call fails
+ * closed unless PCI identity, VBIOS, driver, interface, and ABI all match the
+ * validated RTX 3060 profile.
+ */
+RTXMON_API rtxmon_status_t RTXMON_CALL
+rtxmon_read_private_voltage_status(
+    rtxmon_context_t *context,
+    uint32_t gpu_index,
+    rtxmon_private_voltage_sample_t *out_sample);
 
 /* Set out_report->struct_size to sizeof(rtxmon_thermal_report_t). */
 RTXMON_API rtxmon_status_t RTXMON_CALL

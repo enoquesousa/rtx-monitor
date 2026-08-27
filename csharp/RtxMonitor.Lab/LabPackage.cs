@@ -30,6 +30,10 @@ public sealed record LabPackageResult(
     string ManifestSha256,
     LabPackageManifest Manifest);
 
+internal sealed record VerifiedLabPayload(
+    LabPackageResult Package,
+    byte[] PayloadBytes);
+
 public sealed class LabPackageException : Exception
 {
     public LabPackageException(string message)
@@ -62,6 +66,39 @@ public static class LabPackage
     private const int MaximumWindowsPathBuffer = 32_768;
     private const string ExtendedPathPrefix = @"\\?\";
     private const string ExtendedUncPrefix = @"\\?\UNC\";
+
+    internal static byte[] ReadRegularFileSnapshot(
+        string path,
+        string description,
+        long maximumLength)
+    {
+        EnsureSupportedPlatform();
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        if (maximumLength is < 1 or > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumLength));
+        }
+
+        string resolved = ResolvePath(path, description);
+        using FileStream stream = OpenRegularFileForRead(
+            resolved,
+            description,
+            maximumLength,
+            allowEmpty: false,
+            requireSingleLink: true,
+            out long length,
+            out WindowsFileIdentity identity);
+        (byte[] content, _) = ReadAndHashBoundedStream(
+            stream,
+            length,
+            maximumLength,
+            maximumLength,
+            description,
+            resolved,
+            identity,
+            requireSingleLink: true);
+        return content;
+    }
 
     public static LabPackageResult Create(
         string inputPath,
@@ -283,7 +320,28 @@ public static class LabPackage
 
     public static LabPackageResult Verify(
         string packagePath,
-        string expectedManifestSha256)
+        string expectedManifestSha256) =>
+        VerifyCore(packagePath, expectedManifestSha256, payloadReadLimit: null).Package;
+
+    internal static VerifiedLabPayload VerifyAndReadPayload(
+        string packagePath,
+        string expectedManifestSha256,
+        long maximumPayloadBytes)
+    {
+        if (maximumPayloadBytes is < 0 or > MaximumPayloadSizeBytes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumPayloadBytes),
+                $"The payload read limit must be between 0 and {MaximumPayloadSizeBytes} bytes.");
+        }
+
+        return VerifyCore(packagePath, expectedManifestSha256, maximumPayloadBytes);
+    }
+
+    private static VerifiedLabPayload VerifyCore(
+        string packagePath,
+        string expectedManifestSha256,
+        long? payloadReadLimit)
     {
         EnsureSupportedPlatform();
         ValidateSha256(expectedManifestSha256, "expected manifest SHA-256");
@@ -341,14 +399,32 @@ public static class LabPackage
                     $"Artifact size mismatch: expected {manifest.Artifact.SizeBytes}, found {payloadLength}.");
             }
 
-            byte[] actualPayloadHash = HashBoundedStream(
-                payload,
-                payloadLength,
-                MaximumPayloadSizeBytes,
-                "artifact payload",
-                artifactPath,
-                payloadIdentity,
-                requireSingleLink: true);
+            byte[] payloadBytes = [];
+            byte[] actualPayloadHash;
+            if (payloadReadLimit is long readLimit)
+            {
+                (payloadBytes, actualPayloadHash) = ReadAndHashBoundedStream(
+                    payload,
+                    payloadLength,
+                    MaximumPayloadSizeBytes,
+                    readLimit,
+                    "artifact payload",
+                    artifactPath,
+                    payloadIdentity,
+                    requireSingleLink: true);
+            }
+            else
+            {
+                actualPayloadHash = HashBoundedStream(
+                    payload,
+                    payloadLength,
+                    MaximumPayloadSizeBytes,
+                    "artifact payload",
+                    artifactPath,
+                    payloadIdentity,
+                    requireSingleLink: true);
+            }
+
             byte[] expectedPayloadHash = Convert.FromHexString(manifest.Artifact.Sha256);
             if (!CryptographicOperations.FixedTimeEquals(
                     expectedPayloadHash,
@@ -357,10 +433,12 @@ public static class LabPackage
                 throw new LabPackageException("Artifact SHA-256 mismatch.");
             }
 
-            return new LabPackageResult(
-                resolvedPackage,
-                Convert.ToHexString(actualManifestHash).ToLowerInvariant(),
-                manifest);
+            return new VerifiedLabPayload(
+                new LabPackageResult(
+                    resolvedPackage,
+                    Convert.ToHexString(actualManifestHash).ToLowerInvariant(),
+                    manifest),
+                payloadBytes);
         }
         catch (LabPackageException)
         {
@@ -734,6 +812,57 @@ public static class LabPackage
             requireSingleLink);
 
         return hash.GetHashAndReset();
+    }
+
+    private static (byte[] Content, byte[] Sha256) ReadAndHashBoundedStream(
+        FileStream stream,
+        long expectedLength,
+        long maximumLength,
+        long maximumContentLength,
+        string description,
+        string path,
+        WindowsFileIdentity identity,
+        bool requireSingleLink)
+    {
+        if (expectedLength > maximumContentLength || expectedLength > int.MaxValue)
+        {
+            throw new LabPackageException(
+                $"The {description} exceeds the {maximumContentLength}-byte read limit.");
+        }
+
+        byte[] content = new byte[checked((int)expectedLength)];
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        int totalRead = 0;
+        while (totalRead < content.Length)
+        {
+            int read = stream.Read(content, totalRead, content.Length - totalRead);
+            if (read == 0)
+            {
+                throw new LabPackageException(
+                    $"The {description} changed while it was being read.");
+            }
+
+            hash.AppendData(content, totalRead, read);
+            totalRead += read;
+        }
+
+        if (stream.ReadByte() != -1 ||
+            totalRead != expectedLength ||
+            stream.Length != expectedLength ||
+            expectedLength > maximumLength)
+        {
+            throw new LabPackageException(
+                $"The {description} changed or exceeded its limit while it was being verified.");
+        }
+
+        ValidateOpenedFileIdentity(
+            stream,
+            path,
+            description,
+            identity,
+            requireSingleLink);
+
+        return (content, hash.GetHashAndReset());
     }
 
     private static WindowsFileIdentity CaptureOpenedFileIdentity(

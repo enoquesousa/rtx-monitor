@@ -1,6 +1,9 @@
 #include <rtxmon/rtxmon.h>
+#include "../src/rtxmon_internal.h"
+#include "../src/private_profile.h"
 
 _Static_assert(sizeof(rtxmon_private_thermal_sample_t) == 40U, "private thermal ABI changed");
+_Static_assert(sizeof(rtxmon_private_voltage_sample_t) == 32U, "private voltage ABI changed");
 
 #include <stdio.h>
 #include <string.h>
@@ -43,6 +46,281 @@ static int check(int condition, const char *message)
 
     (void)fprintf(stderr, "FAILED: %s\n", message);
     return 1;
+}
+
+static const char *mock_uuid = RTXMON_PRIVATE_PROFILE_UUID;
+static uint32_t mock_thermal_call_count;
+static uint32_t mock_voltage_call_count;
+static int mock_fail_second_thermal_call;
+static int mock_return_wrong_second_mask;
+static int32_t mock_thermal_channel0_raw = 40 * 256;
+static int32_t mock_thermal_channel1_raw = 50 * 256;
+
+static nvmlReturn_t RTXMON_NVML_CALL mock_device_get_handle_by_index(
+    uint32_t index,
+    nvmlDevice_t *device)
+{
+    if (index != 0U || device == NULL) {
+        return NVML_ERROR_NOT_FOUND;
+    }
+    *device = (nvmlDevice_t)(uintptr_t)1U;
+    return NVML_SUCCESS;
+}
+
+static nvmlReturn_t RTXMON_NVML_CALL mock_device_get_uuid(
+    nvmlDevice_t device,
+    char *uuid,
+    uint32_t length)
+{
+    (void)device;
+    if (uuid == NULL || length == 0U) {
+        return NVML_ERROR_INVALID_ARGUMENT;
+    }
+    (void)snprintf(uuid, length, "%s", mock_uuid);
+    uuid[length - 1U] = '\0';
+    return NVML_SUCCESS;
+}
+
+static nvmlReturn_t RTXMON_NVML_CALL mock_device_get_pci_info(
+    nvmlDevice_t device,
+    rtxmon_nvml_pci_info_t *pci)
+{
+    (void)device;
+    if (pci == NULL) {
+        return NVML_ERROR_INVALID_ARGUMENT;
+    }
+    (void)memset(pci, 0, sizeof(*pci));
+    pci->bus = 1U;
+    pci->device = 0U;
+    pci->pci_device_id = (0x2504U << 16U) | 0x10deU;
+    pci->pci_subsystem_id = (0x1536U << 16U) | 0x10deU;
+    return NVML_SUCCESS;
+}
+
+static nvmlReturn_t RTXMON_NVML_CALL mock_device_get_vbios_version(
+    nvmlDevice_t device,
+    char *version,
+    uint32_t length)
+{
+    (void)device;
+    if (version == NULL || length == 0U) {
+        return NVML_ERROR_INVALID_ARGUMENT;
+    }
+    (void)snprintf(version, length, "%s", RTXMON_PRIVATE_PROFILE_VBIOS);
+    version[length - 1U] = '\0';
+    return NVML_SUCCESS;
+}
+
+static nvmlReturn_t RTXMON_NVML_CALL mock_system_get_driver_version(
+    char *version,
+    uint32_t length)
+{
+    if (version == NULL || length == 0U) {
+        return NVML_ERROR_INVALID_ARGUMENT;
+    }
+    (void)snprintf(version, length, "%s", RTXMON_PRIVATE_PROFILE_DRIVER);
+    version[length - 1U] = '\0';
+    return NVML_SUCCESS;
+}
+
+static rtxmon_nvapi_status_t RTXMON_NVAPI_CALL mock_enum_physical_gpus(
+    rtxmon_nvapi_gpu_handle_t handles[RTXMON_NVAPI_MAX_PHYSICAL_GPUS],
+    uint32_t *count)
+{
+    handles[0] = (rtxmon_nvapi_gpu_handle_t)(uintptr_t)2U;
+    *count = 1U;
+    return RTXMON_NVAPI_OK;
+}
+
+static rtxmon_nvapi_status_t RTXMON_NVAPI_CALL mock_gpu_get_bus_id(
+    rtxmon_nvapi_gpu_handle_t handle,
+    uint32_t *bus_id)
+{
+    (void)handle;
+    *bus_id = 1U;
+    return RTXMON_NVAPI_OK;
+}
+
+static rtxmon_nvapi_status_t RTXMON_NVAPI_CALL mock_gpu_get_bus_slot_id(
+    rtxmon_nvapi_gpu_handle_t handle,
+    uint32_t *slot_id)
+{
+    (void)handle;
+    *slot_id = 0U;
+    return RTXMON_NVAPI_OK;
+}
+
+static rtxmon_nvapi_status_t RTXMON_NVAPI_CALL mock_gpu_get_pci_identifiers(
+    rtxmon_nvapi_gpu_handle_t handle,
+    uint32_t *device_id,
+    uint32_t *subsystem_id,
+    uint32_t *revision_id,
+    uint32_t *extended_device_id)
+{
+    (void)handle;
+    *device_id = (0x2504U << 16U) | 0x10deU;
+    *subsystem_id = (0x1536U << 16U) | 0x10deU;
+    *revision_id = 0U;
+    *extended_device_id = 0U;
+    return RTXMON_NVAPI_OK;
+}
+
+static rtxmon_nvapi_status_t RTXMON_NVAPI_CALL mock_gpu_therm_channel_get_status(
+    rtxmon_nvapi_gpu_handle_t handle,
+    rtxmon_nvapi_therm_channel_status_v2_t *status)
+{
+    const uint32_t requested_mask = status->channel_mask;
+    (void)handle;
+    ++mock_thermal_call_count;
+    if (mock_fail_second_thermal_call != 0 && mock_thermal_call_count == 2U) {
+        return RTXMON_NVAPI_ERROR;
+    }
+    status->version = RTXMON_NVAPI_THERM_CHANNEL_STATUS_V2_VERSION;
+    if (requested_mask == 1U) {
+        status->words[8] = (uint32_t)mock_thermal_channel0_raw;
+    } else if (requested_mask == 2U) {
+        status->words[9] = (uint32_t)mock_thermal_channel1_raw;
+    }
+    if (mock_return_wrong_second_mask != 0 && mock_thermal_call_count == 2U) {
+        status->channel_mask = 1U;
+    }
+    return RTXMON_NVAPI_OK;
+}
+
+static rtxmon_nvapi_status_t RTXMON_NVAPI_CALL mock_gpu_voltage_status(
+    rtxmon_nvapi_gpu_handle_t handle,
+    rtxmon_nvapi_voltage_status_v1_t *status)
+{
+    (void)handle;
+    ++mock_voltage_call_count;
+    status->version = RTXMON_NVAPI_VOLTAGE_STATUS_V1_VERSION;
+    status->words[9] = 956250U;
+    return RTXMON_NVAPI_OK;
+}
+
+static void initialize_private_context(rtxmon_context_t *context)
+{
+    (void)memset(context, 0, sizeof(*context));
+    context->nvml.device_get_handle_by_index_v2 = mock_device_get_handle_by_index;
+    context->nvml.device_get_uuid = mock_device_get_uuid;
+    context->nvml.device_get_pci_info_v3 = mock_device_get_pci_info;
+    context->nvml.device_get_vbios_version = mock_device_get_vbios_version;
+    context->nvml.system_get_driver_version = mock_system_get_driver_version;
+    context->nvapi.enum_physical_gpus = mock_enum_physical_gpus;
+    context->nvapi.gpu_get_bus_id = mock_gpu_get_bus_id;
+    context->nvapi.gpu_get_bus_slot_id = mock_gpu_get_bus_slot_id;
+    context->nvapi.gpu_get_pci_identifiers = mock_gpu_get_pci_identifiers;
+    context->nvapi.gpu_therm_channel_get_status = mock_gpu_therm_channel_get_status;
+    context->nvapi.gpu_voltage_status = mock_gpu_voltage_status;
+    context->nvapi_initialized = 1;
+}
+
+static int test_private_thermal_fail_closed(void)
+{
+    int failures = 0;
+    rtxmon_context_t context;
+    rtxmon_private_thermal_sample_t sample;
+    rtxmon_status_t status;
+
+    initialize_private_context(&context);
+    mock_uuid = RTXMON_PRIVATE_PROFILE_UUID;
+    mock_thermal_call_count = 0U;
+    mock_fail_second_thermal_call = 0;
+    mock_return_wrong_second_mask = 0;
+    mock_thermal_channel0_raw = 40 * 256;
+    mock_thermal_channel1_raw = 50 * 256;
+    (void)memset(&sample, 0, sizeof(sample));
+    sample.struct_size = (uint32_t)sizeof(sample);
+    status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
+    failures += check(
+        status == RTXMON_STATUS_OK &&
+            sample.value_flags == (RTXMON_PRIVATE_THERMAL_DIE_VALID |
+                RTXMON_PRIVATE_THERMAL_HOTSPOT_VALID) &&
+            sample.gpu_die_temperature_millic == 40000 &&
+            sample.gpu_hotspot_temperature_millic == 50000,
+        "private thermal publishes only a complete valid pair");
+
+    mock_uuid = "GPU-00000000-0000-0000-0000-000000000000";
+    mock_thermal_call_count = 0U;
+    (void)memset(&sample, 0xff, sizeof(sample));
+    sample.struct_size = (uint32_t)sizeof(sample);
+    status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
+    failures += check(
+        status == RTXMON_STATUS_NOT_SUPPORTED && mock_thermal_call_count == 0U &&
+            sample.value_flags == 0U && sample.gpu_die_temperature_millic == 0 &&
+            sample.gpu_hotspot_temperature_millic == 0,
+        "private thermal UUID mismatch fails before NVAPI and clears values");
+
+    mock_uuid = RTXMON_PRIVATE_PROFILE_UUID;
+    mock_thermal_call_count = 0U;
+    mock_fail_second_thermal_call = 1;
+    (void)memset(&sample, 0xff, sizeof(sample));
+    sample.struct_size = (uint32_t)sizeof(sample);
+    status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
+    failures += check(
+        status == RTXMON_STATUS_BACKEND_ERROR && mock_thermal_call_count == 2U &&
+            sample.value_flags == 0U && sample.gpu_die_temperature_millic == 0 &&
+            sample.gpu_hotspot_temperature_millic == 0,
+        "private thermal second-channel failure never exposes a partial sample");
+
+    mock_thermal_call_count = 0U;
+    mock_fail_second_thermal_call = 0;
+    mock_return_wrong_second_mask = 1;
+    (void)memset(&sample, 0xff, sizeof(sample));
+    sample.struct_size = (uint32_t)sizeof(sample);
+    status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
+    failures += check(
+        status == RTXMON_STATUS_BACKEND_ERROR && mock_thermal_call_count == 2U &&
+            sample.value_flags == 0U && sample.gpu_die_temperature_millic == 0 &&
+            sample.gpu_hotspot_temperature_millic == 0,
+        "private thermal returned channel-mask drift fails closed atomically");
+
+    mock_thermal_call_count = 0U;
+    mock_return_wrong_second_mask = 0;
+    mock_thermal_channel0_raw = -10224;
+    mock_thermal_channel1_raw = 10256;
+    (void)memset(&sample, 0xff, sizeof(sample));
+    sample.struct_size = (uint32_t)sizeof(sample);
+    status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
+    failures += check(
+        status == RTXMON_STATUS_BACKEND_ERROR && mock_thermal_call_count == 2U &&
+            sample.value_flags == 0U && sample.gpu_die_temperature_millic == 0 &&
+            sample.gpu_hotspot_temperature_millic == 0,
+        "private thermal rejects a fixed8 pair whose rounded millidegree delta exceeds 80 C");
+
+    return failures;
+}
+
+static int test_private_voltage_identity_gate(void)
+{
+    int failures = 0;
+    rtxmon_context_t context;
+    rtxmon_private_voltage_sample_t sample;
+    rtxmon_status_t status;
+
+    initialize_private_context(&context);
+    mock_uuid = RTXMON_PRIVATE_PROFILE_UUID;
+    mock_voltage_call_count = 0U;
+    (void)memset(&sample, 0, sizeof(sample));
+    sample.struct_size = (uint32_t)sizeof(sample);
+    status = rtxmon_read_private_voltage_status(&context, 0U, &sample);
+    failures += check(
+        status == RTXMON_STATUS_OK && mock_voltage_call_count == 1U &&
+            sample.value_flags == RTXMON_PRIVATE_VOLTAGE_CORE_VALID &&
+            sample.gpu_core_voltage_microvolts == 956250U,
+        "private voltage accepts only the exact physical profile");
+
+    mock_uuid = "GPU-00000000-0000-0000-0000-000000000000";
+    mock_voltage_call_count = 0U;
+    (void)memset(&sample, 0xff, sizeof(sample));
+    sample.struct_size = (uint32_t)sizeof(sample);
+    status = rtxmon_read_private_voltage_status(&context, 0U, &sample);
+    failures += check(
+        status == RTXMON_STATUS_NOT_SUPPORTED && mock_voltage_call_count == 0U &&
+            sample.value_flags == 0U && sample.gpu_core_voltage_microvolts == 0U,
+        "private voltage UUID mismatch fails before NVAPI and clears values");
+
+    return failures;
 }
 
 static void set_temperature_report(
@@ -219,6 +497,8 @@ int main(void)
         "metric formula string");
 
     failures += test_computed_metrics();
+    failures += test_private_thermal_fail_closed();
+    failures += test_private_voltage_identity_gate();
 
     status = rtxmon_context_create(NULL);
     failures += check(status == RTXMON_STATUS_INVALID_ARGUMENT, "null create argument");

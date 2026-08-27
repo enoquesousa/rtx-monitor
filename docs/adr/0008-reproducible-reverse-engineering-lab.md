@@ -16,7 +16,7 @@ O projeto precisa iniciar a engenharia reversa real sem misturar resultados expe
 
 ### Laboratório separado
 
-A v0.8.0 cria uma trilha experimental opt-in composta por coordenador, helper opcional, empacotador e analisador offline. Remover esses componentes não altera a ABI C, o serviço, o banco de telemetria ou os provedores públicos.
+A v0.8.0 cria uma trilha experimental opt-in composta por coordenador, helper opcional, empacotador e analisador offline. Ela não altera o serviço, o banco de telemetria ou os provedores públicos. A exceção posterior para duas funções C opt-in de perfil fixo, sem integração à telemetria estável, está registrada no [ADR 0010](0010-fixed-profile-private-nvapi-acquisition.md).
 
 O MVP executável implementa um pacote fechado e verificável de um arquivo local, com layout fixo `manifest.json` mais `artifact/payload.bin`:
 
@@ -33,10 +33,10 @@ O parser offline `rtxmon-vbios` é o segundo componente implementado. No Windows
 
 Os CLIs `rtxmon-lab` e `rtxmon-vbios` v0.8 fazem ingestão de arquivo somente no Windows. Essa restrição evita afirmar identidade de arquivo regular e ausência de links/streams usando uma abstração incompleta no Unix, além de impedir que um argumento seja confundido com `sysfs` ou um device. Em outras plataformas, `rtxmon-vbios` retorna `unsupported_platform` antes de validar ou abrir o caminho. A biblioteca C++ de parsing permanece portátil e recebe somente bytes já carregados por um chamador confiável; suporte Linux do CLI exigirá validação equivalente baseada no handle aberto.
 
-Dois contratos adicionais guiam as etapas ainda planejadas na v0.8.0 e não são apresentados como saída do CLI atual:
+Dois contratos adicionais, inicialmente definidos por esta decisão, passaram a ser emitidos pelo CLI ao fechar a v0.8.0:
 
-1. `experiment-manifest-v1`: identidade, ambiente, bases de tempo, cenários, pacotes verificados e operações solicitadas;
-2. `analysis-report-v1`: resultados derivados e estágio de evidência de cada candidato.
+1. `experiment-manifest-v1`: identidade, ambiente, bases de tempo, cenários, pacotes verificados e operações solicitadas, emitido por `finalize-experiment-manifest`;
+2. `analysis-report-v1`: resultados derivados e estágio de evidência de cada candidato, emitido por `analyze-experiment-series` a partir de manifesto e pacote ancorados.
 
 ### Ordem de trabalho
 
@@ -77,7 +77,7 @@ A v0.8.0 não contém:
 - flash, execução ou patch de firmware;
 - mudança de clocks, tensão, ventoinhas, potência ou estado de energia.
 
-BAR0 só é admitido em offsets pontuais cujo risco de leitura tenha sido revisado para um perfil exato. “Read-only” descreve o protocolo; não garante que o silício não tenha um efeito colateral ao ler um registrador desconhecido.
+Em um eventual helper futuro, BAR0 só poderá ser admitido em offsets pontuais cujo risco de leitura tenha sido revisado para um perfil exato; a v0.8 concluída não o acessa. “Read-only” descreverá o protocolo, mas não garantirá que o silício não tenha um efeito colateral ao ler um registrador desconhecido.
 
 ### Evidência antes de interpretação
 

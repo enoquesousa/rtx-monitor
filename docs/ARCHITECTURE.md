@@ -4,7 +4,7 @@
 
 No Windows, `rtxmon_read_private_thermal_channels` resolve opcionalmente a interface NVAPI `0x65fe3aad` e lê diretamente do driver os canais 0 e 1. A aquisição não inicia, não se anexa nem consulta o GPU-Z. Os valores são retornados em milésimos de grau Celsius depois da conversão do ponto fixo com oito bits fracionários.
 
-Esse provedor é independente da telemetria pública: se a função estiver ausente, retornar erro ou produzir um valor fora dos limites defensivos, a chamada falha sem afetar a NVML, o inventário público ou o serviço existente.
+Essa aquisição experimental opt-in é independente da telemetria pública e não constitui um provider: se a função estiver ausente, retornar erro ou produzir um valor fora dos limites defensivos, a chamada falha sem afetar a NVML, o inventário público ou o serviço existente.
 
 ## Objetivo e fronteira da verdade
 
@@ -76,7 +76,7 @@ Não há deduplicação semântica: duas APIs que reportam o mesmo die continuam
 4. Cada ventoinha recebe um registro próprio quando a função v2 fornece a quantidade e os índices das ventoinhas.
 5. Cada consulta preserva provedor exato, ID/seletor, tipo, unidade, código nativo e estado. Ausência mantém valores nulos.
 6. O motor C++ recebe o snapshot, atualiza uma janela limitada e produz quatro métricas rotuladas como `computed`.
-7. C++ e C# emitem o mesmo catálogo em `--telemetry`; o sampler incorpora os dois relatórios no evento `sample` v3.
+7. C++ e C# emitem o mesmo catálogo em `--telemetry`; o sampler incorpora os dois relatórios e a telemetria Windows aplicável no evento `sample` v4.
 
 O catálogo tem 34 campos semânticos e capacidade para 48 registros por causa das ventoinhas repetíveis. A especificação completa está em [`PUBLIC_TELEMETRY.md`](PUBLIC_TELEMETRY.md), e a decisão em [ADR 0007](adr/0007-public-telemetry-and-computed-metrics.md).
 
@@ -142,6 +142,8 @@ A fronteira nativa é C, não C++, porque nomes, exceções e layouts C++ não f
 
 - `rtxmon_gpu_info_t`: índice, nome, UUID e versões de driver/NVML;
 - `rtxmon_temperature_sample_t`: índice, °C, tipo de sensor, backend e timestamp Unix em ms;
+- `rtxmon_private_thermal_sample_t`: die/hotspot da aquisição experimental de perfil fixo;
+- `rtxmon_private_voltage_sample_t`: tensão bruta em microvolts da aquisição experimental de perfil fixo;
 - `rtxmon_board_identity_t`: IDs PCI, endereço de barramento, flags de validade e VBIOS;
 - `rtxmon_thermal_provider_result_t`: disponibilidade da superfície de API e código nativo;
 - `rtxmon_thermal_capability_t`: fonte, ID nativo do provedor, alvo, controlador, valores válidos, estado e confiança;
@@ -153,13 +155,13 @@ A fronteira nativa é C, não C++, porque nomes, exceções e layouts C++ não f
 - `rtxmon_computed_metrics_report_t`: quatro métricas calculadas no mesmo timestamp do snapshot;
 - `rtxmon_status_t`: erros de argumento, backend, driver, permissão, suporte, GPU perdida e incompatibilidade de ABI.
 
-O chamador inicializa `struct_size`; a DLL rejeita um layout menor. A ABI atual é `RTXMON_ABI_VERSION = 3`. Os layouts são testados em C e novamente medidos pelo runtime .NET antes da abertura do contexto.
+O chamador inicializa `struct_size`; a DLL rejeita um layout menor. A ABI atual é `RTXMON_ABI_VERSION = 5`: o incremento torna explícitos os exports experimentais térmico e de tensão adicionados na v0.8. DLLs ABI 4 anteriores são rejeitadas pelo consumidor atual antes da aquisição. Os layouts são testados em C e novamente medidos pelo runtime .NET antes da abertura do contexto.
 
 ### Semântica de disponibilidade
 
 `provider.state = available` significa que a função pública pôde ser chamada. Cada capability possui seu próprio estado. Assim, o provedor `nvmlDeviceGetFieldValues` pode estar disponível enquanto o campo de temperatura da memória retorna `not_supported` para uma placa específica. `capability_count` é a quantidade de registros produzidos pelo provedor, inclusive registros negativos auditáveis.
 
-`confidence = driver_reported` significa que a definição do canal e, quando presente, seu valor vieram do contrato do driver. O projeto reserva `experimental`, mas a fase atual não produz leituras experimentais.
+No catálogo público, `confidence = driver_reported` significa que a definição do canal e, quando presente, seu valor vieram do contrato público do driver. As saídas privadas diretas usam o campo distinto `profile_evidence_stage = matched_external_reference`: ele registra o degrau experimental alcançado somente pelo perfil fixado e não transforma a interface em contrato público nem a generaliza para outra placa.
 
 ## Concorrência e ciclo de vida
 
@@ -259,7 +261,7 @@ O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-e
 
 Os schemas [`telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json) e [`telemetry-event-v2.schema.json`](schema/telemetry-event-v2.schema.json) permanecem publicados e imutáveis para validar streams históricos.
 
-O armazenamento usa schema SQLite 1. A exportação usa [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json) e aceita eventos v2 ou v3 sem renomear campos. O envelope acrescenta `event_id`, horário de armazenamento, run, ambiente e snapshot da placa; essa proveniência não altera o fato observado no evento.
+O armazenamento usa schema SQLite 1. A exportação usa [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json) e aceita eventos e runs v2, v3 ou v4 sem renomear campos. O envelope acrescenta `event_id`, horário de armazenamento, run, ambiente e snapshot da placa; essa proveniência não altera o fato observado no evento.
 
 O serviço usa API schema 1. Respostas HTTP são documentadas no OpenAPI; `/telemetry` expõe o último relatório confirmado, eventos SSE `telemetry` usam [`live-telemetry-v1.schema.json`](schema/live-telemetry-v1.schema.json), e descartes de entrega para clientes lentos usam [`stream-gap-v1.schema.json`](schema/stream-gap-v1.schema.json). A lista de GPUs expõe somente `last_sample_temperature_c` com o horário da amostra; esse campo não é renomeado para temperatura atual durante uma lacuna.
 
@@ -270,18 +272,18 @@ O [roadmap de engenharia](ROADMAP.md) separa a evolução em duas trilhas:
 - **estável:** persistência SQLite, serviço local, telemetria documentada e métricas calculadas já implementados;
 - **experimental:** laboratório reproduzível, aquisição privilegiada somente leitura, correlação e perfis validados por placa.
 
-A trilha experimental não entra nesta ABI por conveniência. Ela tem processo, protocolo, schemas e namespace próprios, com ativação explícita. Somente um resultado que atenda aos critérios de evidência do roadmap poderá ser oferecido como perfil experimental; a ausência de perfil exato deve falhar sem produzir valor.
+A trilha experimental não entra na telemetria estável por conveniência. Laboratório, protocolo, schemas e namespace continuam separados e com ativação explícita. A única exceção na ABI C são as leituras térmica e de tensão em user mode do perfil fixo, expostas por funções e comandos opt-in; elas não participam do serviço, do banco ou dos providers públicos e falham sem produzir valor quando placa, VBIOS, driver, módulo, RVA ou estrutura divergem. A decisão e os gates estão no [ADR 0010](adr/0010-fixed-profile-private-nvapi-acquisition.md).
 
 Qualquer threshold deve ser rotulado como política ou limite fornecido pelo driver; qualquer fórmula deve ser rotulada como cálculo; e qualquer leitura não documentada deve preservar o valor bruto e seu estágio de evidência. Nenhum deles deve ser apresentado como propriedade universal de toda RTX.
 
 ## Arquitetura experimental da v0.8.0
 
-A v0.8.0 introduz quatro componentes planejados, removíveis em conjunto e sem dependência do serviço estável:
+A v0.8.0 organiza quatro componentes sem dependência do serviço estável; o helper permanece condicional porque nenhuma hipótese concluída exigiu kernel mode:
 
 | Componente | Privilégio | Responsabilidade |
 |---|---|---|
-| Coordenador de laboratório | Usuário comum; Administrador somente nas observações anexadas ou para abrir o futuro helper | Criar manifesto, marcar cenários, capturar a linha de base pública e solicitar operações por `operation_id` |
-| Helper experimental | Processo elevado e, no Windows, driver KMDF assinado/HVCI | Validar identidade e allowlist novamente, ler somente PCI config ou BAR0 autorizado e devolver bytes limitados |
+| Coordenador de laboratório | Usuário comum; Administrador somente nas observações anexadas | Criar/validar manifesto, marcar cenários, capturar a linha de base pública e indexar pacotes ancorados |
+| Helper experimental condicional | Não implementado nem necessário na v0.8 concluída; se houver kernel mode, processo elevado e driver KMDF assinado/HVCI | Validar identidade e allowlist novamente, ler somente uma futura operação PCI config/BAR0 autorizada e devolver bytes limitados |
 | Empacotador de evidências | Usuário comum no Windows; backend Unix ainda planejado | Preservar payloads sem transformação, calcular SHA-256 e devolver o hash que será ancorado fora do pacote |
 | Analisador offline | Usuário comum, sem handle para hardware | Ler apenas pacotes verificados contra a âncora externa, gerar estatísticas e classificar candidatos |
 
@@ -290,19 +292,21 @@ flowchart LR
     OP["Operador"] --> MANIFEST["Manifesto v1"]
     PUBLIC["NVML/NVAPI"] --> COORD["Coordenador sem privilégio"]
     MANIFEST --> COORD
-    COORD -->|"operation_id + sessão"| HELPER["Helper allowlisted"]
-    HELPER -->|"PCI config ou BAR0 exato"| GPU["GPU do perfil"]
-    GPU -->|"bytes limitados"| HELPER
+    COORD --> PASSIVE["Observação passiva anexada"]
+    COORD --> DIRECT["NVAPI opt-in de perfil fixo"]
     COORD --> RAW["Artefatos brutos"]
-    HELPER --> RAW
+    PASSIVE --> RAW
+    DIRECT --> RAW
     RAW --> PACKAGE["Pacote + SHA-256 ancorado externamente"]
     PACKAGE --> ANALYZER["Analisador offline"]
     ANALYZER --> REPORT["Relatório de análise v1"]
+    COORD -. "somente se um marco futuro exigir kernel mode" .-> HELPER["Helper allowlisted"]
+    HELPER -. "PCI config ou BAR0 exato" .-> GPU["GPU do perfil"]
 ```
 
-O coordenador nunca envia um endereço livre para o kernel. Ele solicita uma operação conhecida; o helper resolve e valida o espaço, offset, largura, alinhamento, limite de bytes, quantidade de amostras e taxa a partir de sua própria allowlist. A identidade PCI observada deve corresponder ao perfil antes de cada sessão. Arquivos de manifesto e configuração fornecidos pelo usuário podem restringir uma operação, mas nunca ampliá-la.
+Na v0.8 concluída, as duas rotas executadas permanecem em user mode: observação passiva de buffers já fornecidos ao GPU-Z e duas chamadas NVAPI opt-in de perfil fixo. Nenhuma delas abre PCI config, BAR ou MMIO. Se um marco futuro justificar kernel mode, o coordenador nunca poderá enviar um endereço livre: solicitará uma operação conhecida e o helper validará espaço, offset, largura, alinhamento, limite de bytes, quantidade de amostras, taxa e identidade PCI a partir da própria allowlist. Manifesto e configuração poderão restringir uma operação, nunca ampliá-la.
 
-O único BAR admissível na v0.8.0 é BAR0, em offsets pontuais com hipótese e revisão prévias. BAR1, VRAM, DMA, memória física arbitrária, ROM PCI, I2C, DDC, SMBus, varredura e toda operação de escrita ficam fora da arquitetura. O helper não expõe mapeamento de BAR ou ponteiro ao cliente.
+BAR0 é a única categoria reservada para um eventual helper futuro, sempre em offsets pontuais com hipótese e revisão prévias; não foi acessado na v0.8.0. BAR1, VRAM, DMA, memória física arbitrária, ROM PCI, I2C, DDC, SMBus, varredura e toda operação de escrita ficam fora da arquitetura. Um helper futuro não poderá expor mapeamento de BAR ou ponteiro ao cliente.
 
 VBIOS entra exclusivamente como artefato offline fornecido pelo operador. O laboratório registra origem declarada, tamanho e SHA-256 antes do parsing; não habilita ROM, não captura VBIOS da placa e não inclui a imagem no Git. O descritor pode ser compartilhado, mas a distribuição do payload depende da licença e da legislação aplicáveis.
 
@@ -322,9 +326,9 @@ O tracing NVAPI opt-in produz três observações limitadas: IDs passados a `nva
 
 O anexo tardio específico para candidatos segue [`nvapi-candidate-call-observation-v1.schema.json`](schema/nvapi-candidate-call-observation-v1.schema.json). A primeira passagem registra somente entradas de função, threads e call sites normalizados. Uma segunda passagem pode limitar-se aos candidatos privados já observados e registrar seis palavras de entrada sem dereferenciar ponteiros. Na captura real, 19 alvos participaram do polling, incluindo 11 não catalogados; `NvAPI_GPU_GetThermalSettings` não participou. A análise do `nvapi_impl.dll` fixado por hash ligou `0x65fe3aad`/RVA `0x001ad310` às mensagens de versão de `NvAPI_GPU_ThermChannelGetStatus`, além de atribuir famílias de tensão e fan/cooler a dois outros candidatos.
 
-O perfil térmico avança dois degraus adicionais sem ampliar o coletor genérico. Disassembly estático e dinâmico demonstrou estrutura v2 de 168 bytes, máscara por canal, palavras 10/11 e escala de ponto fixo 8. [`capture-gpuz-nvapi-therm-channel-v2.ps1`](../scripts/capture-gpuz-nvapi-therm-channel-v2.ps1) observa somente o ponto pós-retorno allowlisted, lê o buffer que o GPU-Z já forneceu e emite [`nvapi-therm-channel-v2-observation-v1.schema.json`](schema/nvapi-therm-channel-v2-observation-v1.schema.json). O analisador offline `correlate-nvapi-therm-channel` compara o prefixo ancorado do log e emite [`nvapi-therm-channel-correlation-v1.schema.json`](schema/nvapi-therm-channel-correlation-v1.schema.json).
+O perfil térmico avança dois degraus adicionais sem ampliar o coletor genérico. Disassembly estático e dinâmico demonstrou estrutura v2 de 168 bytes, máscara por canal, palavras 10/11 e escala de ponto fixo 8. [`capture-gpuz-nvapi-therm-channel-v2.ps1`](../scripts/capture-gpuz-nvapi-therm-channel-v2.ps1) observa somente o ponto pós-retorno allowlisted, lê o buffer que o GPU-Z já forneceu, comprova por `lmv` a imagem NVAPI carregada e sela o prefixo bruto do GPU-Z conforme [`nvapi-therm-channel-v2-observation-v2.schema.json`](schema/nvapi-therm-channel-v2-observation-v2.schema.json). O analisador offline `correlate-nvapi-therm-channel-v2` isola layouts de sessão, seleciona apenas pelas fronteiras temporais e emite [`nvapi-therm-channel-correlation-v2.schema.json`](schema/nvapi-therm-channel-correlation-v2.schema.json). Os contratos v1 permanecem para a evidência histórica.
 
-No perfil testado, canal 0 correspondeu a `GPU Temperature` e canal 1 a `Hot Spot`, com erro máximo de `0,05` °C e alternativa invertida mais de 10 °C distante em média. A arquitetura classifica isso como `matched_external_reference`: a origem computacional está identificada para os hashes e a placa registrados, mas a interface não é pública, a construção física do sensor não foi provada e o resultado não entra na ABI estável.
+No perfil testado, canal 0 correspondeu a `GPU Temperature` e canal 1 a `Hot Spot`, com erro máximo de `0,05` °C e alternativa invertida mais de 10 °C distante em média. A arquitetura classifica isso como `matched_external_reference`: a origem computacional está identificada para os hashes e a placa registrados, mas a interface não é pública e a construção física do sensor não foi provada. A função C opt-in não transforma o resultado em provider de telemetria estável.
 
 Uma janela só é classificada como polling quando a série de referência cresce antes, durante e depois da observação. O primeiro detach histórico interrompeu o logging do GPU-Z apesar de manter sua GUI responsiva; os dados posteriores foram marcados como atividade de fundo. A captura térmica válida foi executada em uma sessão nova, comprovou os três pontos de crescimento, preservou o processo responsivo e não deixou debugger anexado.
 
@@ -334,6 +338,10 @@ Na RTX 3060 analisada, o handle era um objeto `File` para `\Device\GPU-Z-v8`. Os
 
 Device object, códigos e entradas entram somente como **evidência passiva do laboratório**. Eles não entram como provider de telemetria e não autorizam reproduzir a interface privada. Um transporte experimental do projeto precisa continuar sendo próprio, revisável, somente leitura, allowlisted e independente desse binário proprietário.
 
+O perfil de tensão segue duas camadas. O capturador passivo [`capture-gpuz-nvapi-voltage-status-v1.ps1`](../scripts/capture-gpuz-nvapi-voltage-status-v1.ps1) lê somente 19 DWORDs no call site pós-retorno fixo, comprova pelo `ModLoad` qual `nvapi_impl.dll` estava no processo alvo, sela no pacote o prefixo bruto LF-completo de cada referência, exige crescimento antes/meio/depois e confirma o detach `qqd`. O correlator v2 preserva layouts de sessões GPU-Z distintos sem misturá-los e só aceita uma sessão que cubra as três fronteiras temporais. A função direta `rtxmon_read_private_voltage_status` usa a mesma palavra 10/offset `0x28`, mas só depois dos gates exatos descritos no ADR 0010. As saídas opt-in seguem os schemas privados diretos; GPU-Z/HWiNFO não são dependências operacionais.
+
+O perfil cooler `0x35aed5e8` termina a v0.8 como observação passiva bruta: o contrato v2 fixa identidade GPU/PCI/subsystem/VBIOS/driver, artefatos anteriores e a imagem NVAPI comprovadamente carregada por `ModLoad`, além de dois call sites, estrutura v1 de 1.704 bytes e 426 DWORDs. Quatro palavras de cada entrada são copiadas como `raw_field_words`; nenhum código as publica como RPM, PWM, fan index, limite ou comando. O contrato de observação v1 permanece histórico.
+
 O módulo C++ puro [`rm_thermal_protocol.hpp`](../cpp/include/rtxmon/lab/rm_thermal_protocol.hpp) representa somente o ABI publicado de `THERMAL_SYSTEM_EXECUTE_V2`: tamanhos, comandos, opcodes, requests em duas fases e validação de respostas. Ele não contém syscall, IOCTL, `D3DKMT_ESCAPE`, handle NVAPI/RM ou acesso ao driver. O transporte permanece uma porta separada; adicionar uma implementação Windows exige fonte primária para a rota WDDM, correspondência de versão e um teste que prove somente leitura antes de habilitá-la.
 
-O manifesto completo [`experiment-manifest-v1.schema.json`](schema/experiment-manifest-v1.schema.json) e o relatório [`analysis-report-v1.schema.json`](schema/analysis-report-v1.schema.json) são contratos planejados para as etapas restantes da v0.8.0; o CLI MVP ainda não os emite. Nenhum desses contratos altera a ABI C, os schemas de telemetria, o banco SQLite ou a API HTTP estável.
+O comando `finalize-experiment-manifest` valida e emite [`experiment-manifest-v1.schema.json`](schema/experiment-manifest-v1.schema.json) depois de verificar cada pacote contra seu SHA-256 externo. `analyze-experiment-series` consome uma série [`numeric-series-v1.schema.json`](schema/numeric-series-v1.schema.json), exige manifesto/pacote ancorados e emite [`analysis-report-v1.schema.json`](schema/analysis-report-v1.schema.json) com estatísticas, deltas, periodicidade e correlação com lag. O candidato permanece `raw_unknown`; nenhum desses contratos altera schemas de telemetria, banco SQLite ou API HTTP estável.

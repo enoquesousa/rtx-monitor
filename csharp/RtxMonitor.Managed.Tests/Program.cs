@@ -69,6 +69,7 @@ internal static class Program
         TestComputedMetricsAreReproducible();
         TestPerformanceLimitReasonsAreTranslated();
         TestTelemetryJsonV3PreservesProvenance();
+        TestOptionalNativeExportProbeFailsClosed();
 
         if (failures == 0)
         {
@@ -263,6 +264,88 @@ internal static class Program
         Check(
             reset.Metrics[1].State == ComputedMetricState.InsufficientData,
             "reset limpa a janela histórica");
+    }
+
+    private static void TestOptionalNativeExportProbeFailsClosed()
+    {
+        Check(
+            NativeMethods.PrivateVoltageStatusExportAvailable,
+            "biblioteca atual expõe a capacidade opcional de tensão");
+
+        bool lookupCalled = false;
+        bool releaseCalled = false;
+        Check(
+            !NativeExportProbe.Probe(
+                () => IntPtr.Zero,
+                _ =>
+                {
+                    lookupCalled = true;
+                    return true;
+                },
+                _ => releaseCalled = true) &&
+            !lookupCalled &&
+            !releaseCalled,
+            "export opcional ausente não consulta nem libera handle nulo");
+
+        IntPtr fakeHandle = new(42);
+        Check(
+            !NativeExportProbe.Probe(
+                () => fakeHandle,
+                handle => handle != fakeHandle,
+                handle => releaseCalled = handle == fakeHandle) &&
+            releaseCalled,
+            "export opcional ausente libera a biblioteca consultada");
+
+        bool invoked = false;
+        Check(
+            NativeExportProbe.InvokeOptional(
+                available: false,
+                () =>
+                {
+                    invoked = true;
+                    return NativeStatus.Ok;
+                }) == NativeStatus.NotSupported &&
+            !invoked,
+            "entry point opcional ausente retorna not_supported sem invocação");
+        Check(
+            NativeExportProbe.InvokeOptional(
+                available: true,
+                () => throw new EntryPointNotFoundException()) == NativeStatus.NotSupported,
+            "corrida de resolução do entry point opcional falha fechada");
+        Check(
+            PrivateThermalSample.SourceKind == "nvapi_thermal_channel" &&
+            PrivateThermalSample.ProfileEvidenceStage == "matched_external_reference" &&
+            PrivateThermalSample.InterfaceId == "0x65fe3aad" &&
+            PrivateThermalSample.StructureVersion == "0x000200a8" &&
+            PrivateThermalSample.FunctionRva == "0x001e0bc0" &&
+            PrivateThermalSample.NvapiModuleSha256 ==
+                "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4",
+            "contrato gerenciado da amostra térmica preserva todos os pins do perfil");
+        Check(
+            PrivateVoltageSample.SourceKind == "nvapi_voltage_status" &&
+            PrivateVoltageSample.ProfileEvidenceStage == "matched_external_reference" &&
+            PrivateVoltageSample.InterfaceId == "0x465f9bcf" &&
+            PrivateVoltageSample.StructureVersion == "0x0001004c" &&
+            PrivateVoltageSample.FunctionRva == "0x001c9070" &&
+            PrivateVoltageSample.NvapiModuleSha256 ==
+                "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4",
+            "contrato gerenciado da amostra de tensão preserva todos os pins do perfil");
+        var thermal = new PrivateThermalSample(
+            0,
+            40.0,
+            50.25,
+            0,
+            DateTimeOffset.UnixEpoch,
+            0);
+        var voltage = new PrivateVoltageSample(
+            0,
+            956_250,
+            0,
+            DateTimeOffset.UnixEpoch,
+            0);
+        Check(
+            thermal.DeltaC == 10.25 && voltage.GpuCoreVoltageV == 0.95625,
+            "valores derivados privados são calculados pela record e não aceitam contradição do chamador");
     }
 
     private static void TestTelemetryJsonV3PreservesProvenance()

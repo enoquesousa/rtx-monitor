@@ -6,10 +6,21 @@ Depois do build, valide a aquisição sem GPU-Z:
 
 ```powershell
 dotnet .\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.dll `
-  --thermal-watch --count 3 --interval 500
+  --thermal-watch --count 3 --interval 500 --json
 ```
 
-Cada linha deve conter leituras atuais de `GPU Die`, `Hotspot`, `Delta` e a fonte `nvapi_thermal_channel`. A função privada é detectada em runtime e resultados incompletos, implausíveis ou com status NVAPI de erro não são publicados.
+Cada linha deve satisfazer [`private-thermal-sample-v1.schema.json`](schema/private-thermal-sample-v1.schema.json), conter leituras atuais de `GPU Die`, `Hotspot`, `Delta`, relógio monotônico e `profile_evidence_stage = matched_external_reference`. A função privada é detectada em runtime e só é chamada depois da correspondência exata de UUID, PCI/subsystem, VBIOS, driver, módulo proprietário, versão, SHA-256, RVA, estrutura e máscara. O par só é publicado depois do sucesso dos dois canais; resultado parcial, implausível ou com status NVAPI de erro permanece sem flags e sem valores.
+
+## Leitura direta de tensão no perfil fixo
+
+Valide separadamente a aquisição opt-in de tensão, também sem GPU-Z ou HWiNFO como dependência operacional:
+
+```powershell
+dotnet .\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.dll `
+  --voltage-watch --count 3 --interval 500 --json
+```
+
+Cada linha válida deve satisfazer [`private-voltage-sample-v1.schema.json`](schema/private-voltage-sample-v1.schema.json) e preservar relógio UTC e monotônico, microvolts brutos, volts derivados, `profile_evidence_stage`, UUID físico, perfil, interface `0x465f9bcf`, estrutura `0x0001004c`, hash do módulo e RVA. Fora do perfil exato, qualquer divergência de identidade, módulo, estrutura ou faixa falha fechada sem publicar valor. A ABI 5 torna o export explícito; DLL ABI 4 anterior é rejeitada na abertura, e uma resolução opcional ausente ou concorrente falha como `not_supported`, sem vazar `EntryPointNotFoundException`. Este modo não participa do coletor padrão, serviço, HTTP/SSE, SQLite ou exportação.
 
 ## Critérios de aceite
 
@@ -25,16 +36,16 @@ Uma entrega é considerada válida quando:
 8. C++ e C# retornam a mesma identidade PCI/VBIOS e o mesmo conjunto de capabilities;
 9. o campo público de temperatura da memória sempre gera um registro, inclusive quando não suportado;
 10. o JSON Schema de capabilities declara `schema_version = 2`;
-11. os JSON Schemas v1 e v2 permanecem disponíveis para históricos, enquanto o v3 declara os cinco tipos e os relatórios enriquecidos;
+11. os JSON Schemas v1, v2 e v3 permanecem disponíveis para históricos, enquanto o v4 declara os cinco tipos, os relatórios enriquecidos e a telemetria Windows opcional;
 12. testes sem GPU reproduzem gap, backoff limitado, recuperação e mudança de índice para o mesmo UUID;
 13. o buffer circular descarta somente os eventos mais antigos ao atingir sua capacidade;
-14. C++ e C# selecionam o mesmo UUID e emitem envelopes v3 equivalentes em um stream saudável;
+14. C++ e C# selecionam o mesmo UUID e emitem envelopes v4 equivalentes em um stream saudável;
 15. `--alert-threshold` fora de `--watch` e `--alert-hysteresis 0` sem limiar são rejeitados sem tocar a GPU;
 16. um limiar de alerta de 0 °C dispara `alert_raised` na primeira amostra em C++ e C#, com o mesmo UUID e o mesmo limiar no envelope;
 17. manter a leitura exatamente no limiar não encerra nem dispara repetidamente o alerta;
 18. amostras, lacunas, recuperações e alertas compartilham uma sequência global crescente no stream do CLI;
 19. os artefatos C/C++ e .NET declaram a mesma versão do projeto;
-20. o schema de evidências declara versões 1 para o envelope e para o banco e aceita eventos v2 e v3;
+20. o schema de evidências declara versões 1 para o envelope e para o banco e aceita eventos e runs v2, v3 e v4;
 21. migrações, reabertura, repetição idempotente, conflito de sequência, filtros, retenção e processos de gravação concorrentes passam sem GPU;
 22. arquivo inválido e schema futuro são recusados sem sobrescrita, e uma consulta não cria um banco ausente;
 23. uma execução física persiste, consulta e exporta o stream mantendo UUID, run, versão, PCI, VBIOS e profile key;
@@ -49,14 +60,19 @@ Uma entrega é considerada válida quando:
 32. um campo indisponível mantém todos os valores nulos, enquanto um zero disponível continua sendo zero legítimo;
 33. cada relatório contém exatamente quatro métricas com fórmula, unidade, janela, amostras, entradas e origem `computed`;
 34. temperatura, potência e memória total aplicáveis são comparadas com uma consulta independente do `nvidia-smi`;
-35. eventos persistidos v3 contêm entradas brutas e métricas suficientes para reprodução posterior;
+35. eventos persistidos v4 contêm entradas brutas, métricas e telemetria Windows aplicável suficientes para reprodução posterior;
 36. o laboratório cria e verifica um pacote de arquivo único sem sobrescrita, traversal, reparse point ou campo JSON extra;
 37. no Windows, o CLI offline aceita apenas arquivos de até 16 MiB e valida ROM, PCIR e BIT sem interpretar payloads de token; em outras plataformas, falha com `unsupported_platform` antes de acessar o path;
 38. o executável offline não depende de `rtxmon_native`, NVML ou NVAPI e usa somente fixtures sintéticas no CI;
 39. a saída do parser e os manifestos do laboratório obedecem aos schemas v0.8 publicados;
 40. a observação anexada de IOCTL valida assinaturas, mantém o processo-alvo vivo, não lê buffers de saída e produz relatórios de códigos, entradas limitadas e identidade de handle conformes aos schemas v1;
 41. o coletor genérico de candidatos NVAPI preserva inventário, módulos, call sites e entradas delimitadas conforme o schema v1, e uma janela só recebe o rótulo de polling quando o log de referência cresce durante a captura;
-42. o perfil térmico fixo valida hashes, versão, tamanho, máscara e layout, lê somente o buffer já fornecido pelo GPU-Z e correlaciona die/hotspot dentro da tolerância de arredondamento publicada no schema.
+42. o perfil térmico fixo valida hashes, versão, tamanho, máscara e layout e lê somente o buffer já fornecido pelo GPU-Z; uma captura só é promovida a `matched_external_reference` quando os erros máximos das duas associações diretas são `<= 0,051 °C` e seu erro médio combinado vence a hipótese invertida por pelo menos `1 °C`, enquanto repetições fora desse gate permanecem explicitamente ambíguas e não revogam evidência histórica ancorada;
+43. o manifesto de experimento ancora um ou mais pacotes por SHA-256 externo, rejeita duplicatas, paths fora da raiz, timeline inválida e divergência entre manifesto e pacote;
+44. o analisador de séries só consome pacotes ancorados, calcula estatísticas, deltas, período de atualização e correlação quando há referência compatível, preservando `raw_unknown` quando a evidência não autoriza semântica;
+45. a repetição de tensão v2 fixa identidade, hashes, RVA, call site, estrutura e 19 DWORDs, separa sessões GPU-Z com layouts distintos, exige crescimento antes/meio/depois e mantém HWiNFO nulo quando não existe CSV corrente;
+46. o modo direto de tensão valida o perfil completo e o módulo realmente proprietário do ponteiro antes da chamada, serializa NVAPI e rejeita versão, valor ou estrutura incompatível sem produzir amostra válida;
+47. o candidato cooler/fan permanece observação passiva: o contrato v2 fixa identidade GPU/PCI/subsystem/VBIOS/driver, artefatos anteriores e módulo realmente carregado antes de preservar estrutura, contagem e palavras brutas; nenhum campo recebe unidade, índice, RPM, PWM ou semântica de controle.
 
 Execute:
 
@@ -271,9 +287,29 @@ Em 2026-08-26, `verify.ps1 -Configuration Release -SkipBuild` validou o pacote a
 - o serviço isolado respondeu em `127.0.0.1:8670` a saúde, descoberta, histórico, capabilities, telemetria pública e telemetria Windows;
 - o diretório SQLite temporário e o processo isolado foram removidos pelo script ao final.
 
+## Fechamento físico da v0.8.0
+
+Em 2026-08-27, a etapa experimental foi repetida na RTX 3060 com GPU-Z e HWiNFO em execução, sem substituir o serviço instalado e sem leitura PCI/MMIO/kernel pelo RTX Monitor:
+
+- o gate final `verify-ci.ps1 -Configuration Release` recompilou C/C++ com warnings como erros, aprovou 14/14 CTest, todas as suítes Managed, Storage, Service e Lab, formatação, schemas e paridade de versão 0.8.0;
+- `verify.ps1 -Configuration Release -SkipBuild` usou os mesmos binários, aprovou C/C++/C#/`nvidia-smi`/serviço em `37 °C`, cobertura pública 30/35, streams resilientes e de alerta, histórico/exportação SQLite e endpoints locais;
+- na mesma rodada, oito amostras de `--thermal-watch` retornaram die entre `37,000` e `37,125 °C` e hotspot entre `47,094` e `47,719 °C`, validando o perfil completo, `nvapi64_impl.dll` versão `32.0.16.1088`, SHA-256 `df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4` e RVA `0x001e0bc0`;
+- a leitura direta `--voltage-watch` produziu oito amostras de `956250 µV` (`0,95625 V`) com o mesmo módulo/hash e RVA `0x001c9070`;
+- a captura térmica passiva v2 observou 18 retornos, selou o prefixo GPU-Z que cresceu de 14.052.004 para 14.058.144 bytes e selecionou somente a sessão 2 por cobertura antes/meio/depois; as sessões históricas 0 e 1, que continham `-` nos canais térmicos exatos, foram rejeitadas e registradas por índice. A hipótese direta divergiu `0,0639 °C` em média e no máximo `0,3125 °C`, contra mais de `10 °C` na inversão; como excedeu a tolerância estrita de arredondamento, o novo relatório permaneceu `ambiguous_or_outside_tolerance` sem revogar a validação anterior e separada do perfil direto;
+- a repetição passiva final de tensão observou 20 retornos, 19 DWORDs por retorno e crescimento do log GPU-Z de 14.059.372 para 14.071.652 bytes; a sessão 2 forneceu 20 pares a `0,9560 V`, com erro máximo `0,00025 V` e estado da referência `matched_rounding_tolerance`;
+- como essa janela independente continha somente um patamar bruto, o estado global foi mantido prudentemente em `ambiguous_or_outside_tolerance`; a correlação multipatamar histórica continua como evidência separada, não foi fundida ao novo relatório;
+- o HWiNFO permaneceu aberto, mas o CSV disponível não cresceu durante a janela e era antigo; a referência HWiNFO atual foi, portanto, registrada como `null`, sem reutilizar dado obsoleto;
+- a recaptura passiva de cooler v2 observou 36 retornos, 18 em cada call site, estrutura `0x000106a8` de 1.704 bytes, 426 DWORDs e duas entradas; ela comprovou identidade exata da GPU, hashes dos artefatos anteriores e a imagem NVAPI alvo carregada por `ModLoad`, enquanto os quatro campos preservados por entrada continuam `raw_field_words` sem semântica;
+- GPU-Z permaneceu vivo e responsivo depois de `qqd`; nenhum CDB ou WinDbg ficou anexado;
+- a observação térmica tem SHA-256 `53bc805205fe83337cd5beaf444eadef2d6ed2e5beb93b32341668cdf6aa1bca` e sua correlação `b404c15066e88475990770aa3ef3fa0ce70c6bd4346c73fc7425725149e8ceb1`; a observação de tensão tem `1be0120bb22eca396de09eaeb8b2d230b75240c61b9a1370f98c415e481cb33d` e sua correlação `bf2f6af2789553eb6d77741076992793b70897c1a7c152019f7a2a8df058ad82`; o relatório de cooler v2 tem `7b9751f49849756c22949423d53604174a85543dc9263eebd5d9c32d99789a4b`;
+- o fechamento usou 14 pacotes verificados, seis cenários e 12 marcadores em um manifesto real `experiment-manifest-v1`, ID `2a31a9be-d107-4cf2-ba6f-4826d7b35741`, SHA-256 `57bcc29e1a951bf83c115a66ad4ca7636fe1b8f8dc8e8c912cfb71c9f6e507b5`;
+- o `analysis-report-v1` resultante, SHA-256 `6a52a6bffbd4940d5742c192d27060091d4462a8913e9925405afce938a18db9`, calculou estatísticas e deltas de oito amostras diretas, preservou a unidade `V` e manteve o candidato como `raw_unknown` por não haver série externa sincronizada.
+
+Esses resultados encerram os gates da v0.8.0 para o perfil registrado. Eles não generalizam a ABI privada para outra placa, VBIOS ou driver, não transformam cooler em provider e não promovem os modos opt-in à telemetria estável.
+
 ## Snapshot do laboratório offline v0.8.0
 
-Em 2026-08-25, a validação atual da v0.8 confirmou:
+O snapshot de 2026-08-25 da v0.8 confirmou:
 
 - versões CMake/.NET/assemblies em 0.8.0;
 - build C/C++ Release com `/W4 /WX` e doze testes CTest aprovados;

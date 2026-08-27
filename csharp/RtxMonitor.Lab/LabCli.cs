@@ -42,8 +42,16 @@ public static class LabCli
                 "correlate-gpuz-log" => RunCorrelateGpuzLog(args, standardOutput),
                 "correlate-nvapi-therm-channel" =>
                     RunCorrelateNvapiThermChannel(args, standardOutput),
+                "correlate-nvapi-therm-channel-v2" =>
+                    RunCorrelateNvapiThermChannelV2(args, standardOutput),
                 "correlate-nvapi-voltage-status" =>
                     RunCorrelateNvapiVoltageStatus(args, standardOutput),
+                "correlate-nvapi-voltage-status-v2" =>
+                    RunCorrelateNvapiVoltageStatusV2(args, standardOutput),
+                "finalize-experiment-manifest" =>
+                    RunFinalizeExperimentManifest(args, standardOutput),
+                "analyze-experiment-series" =>
+                    RunAnalyzeExperimentSeries(args, standardOutput),
                 "classify-nvapi-ids" => RunClassifyNvapiIds(args, standardOutput),
                 "inventory-nvapi-candidates" => RunInventoryNvapiCandidates(
                     args,
@@ -55,8 +63,12 @@ public static class LabCli
                 _ => throw new LabCliException(
                     $"Unknown operation '{operation}'. Expected create, verify, " +
                     "analyze-gpuz-log, correlate-gpuz-log, " +
-                    "correlate-nvapi-therm-channel, classify-nvapi-ids, " +
-                    "inventory-nvapi-candidates, resolve-windows-handle, or mark."),
+                    "correlate-nvapi-therm-channel, correlate-nvapi-therm-channel-v2, " +
+                    "correlate-nvapi-voltage-status, " +
+                    "correlate-nvapi-voltage-status-v2, " +
+                    "finalize-experiment-manifest, analyze-experiment-series, " +
+                    "classify-nvapi-ids, inventory-nvapi-candidates, " +
+                    "resolve-windows-handle, or mark."),
             };
         }
         catch (LabCliException error)
@@ -89,7 +101,31 @@ public static class LabCli
                 LabJson.SerializeError(operation, "analysis_error", error.Message));
             return 1;
         }
+        catch (ThermChannelCorrelationV2Exception error)
+        {
+            standardError.WriteLine(
+                LabJson.SerializeError(operation, "analysis_error", error.Message));
+            return 1;
+        }
         catch (VoltageStatusCorrelationException error)
+        {
+            standardError.WriteLine(
+                LabJson.SerializeError(operation, "analysis_error", error.Message));
+            return 1;
+        }
+        catch (VoltageStatusCorrelationV2Exception error)
+        {
+            standardError.WriteLine(
+                LabJson.SerializeError(operation, "analysis_error", error.Message));
+            return 1;
+        }
+        catch (ExperimentManifestException error)
+        {
+            standardError.WriteLine(
+                LabJson.SerializeError(operation, "analysis_error", error.Message));
+            return 1;
+        }
+        catch (ExperimentSeriesAnalysisException error)
         {
             standardError.WriteLine(
                 LabJson.SerializeError(operation, "analysis_error", error.Message));
@@ -138,8 +174,17 @@ public static class LabCli
         "  rtxmon-lab correlate-gpuz-log --input FILE --reference CHANNEL [--session INDEX]\n" +
         "  rtxmon-lab correlate-nvapi-therm-channel --observation REPORT " +
         "--gpuz-log FILE\n" +
+        "  rtxmon-lab correlate-nvapi-therm-channel-v2 --observation REPORT " +
+        "--gpuz-log SEALED_PREFIX\n" +
         "  rtxmon-lab correlate-nvapi-voltage-status --observation REPORT " +
         "--gpuz-log FILE\n" +
+        "  rtxmon-lab correlate-nvapi-voltage-status-v2 --observation REPORT " +
+        "--gpuz-log FILE [--hwinfo-log FILE]\n" +
+        "  rtxmon-lab finalize-experiment-manifest --input DRAFT --package-root DIRECTORY\n" +
+        "  rtxmon-lab analyze-experiment-series --manifest FILE " +
+        "--expected-manifest-sha256 HASH --series-package RELATIVE_PATH " +
+        "[--package-root DIRECTORY] [--max-lag-samples N] " +
+        "[--analysis-id UUID] [--created-at-utc TIMESTAMP]\n" +
         "  rtxmon-lab classify-nvapi-ids --input REPORT --interface-table HEADER\n" +
         "  rtxmon-lab inventory-nvapi-candidates --classification REPORT --calls REPORT\n" +
         "  rtxmon-lab resolve-windows-handle --process-id PID --handle 0xVALUE\n" +
@@ -237,6 +282,19 @@ public static class LabCli
         return 0;
     }
 
+    private static int RunCorrelateNvapiThermChannelV2(
+        IReadOnlyList<string> args,
+        TextWriter standardOutput)
+    {
+        Dictionary<string, string> options = ParseOptions(args, startIndex: 1);
+        RequireOnly(options, "--observation", "--gpuz-log");
+        ThermChannelCorrelationReportV2 report = ThermChannelCorrelationV2.AnalyzeFiles(
+            RequireOption(options, "--observation"),
+            RequireOption(options, "--gpuz-log"));
+        standardOutput.WriteLine(LabJson.SerializeThermChannelCorrelationV2(report));
+        return 0;
+    }
+
     private static int RunCorrelateNvapiVoltageStatus(
         IReadOnlyList<string> args,
         TextWriter standardOutput)
@@ -246,6 +304,97 @@ public static class LabCli
         VoltageStatusCorrelationReport report = VoltageStatusCorrelation.AnalyzeFiles(
             RequireOption(options, "--observation"), RequireOption(options, "--gpuz-log"));
         standardOutput.WriteLine(LabJson.SerializeVoltageStatusCorrelation(report));
+        return 0;
+    }
+
+    private static int RunCorrelateNvapiVoltageStatusV2(
+        IReadOnlyList<string> args,
+        TextWriter standardOutput)
+    {
+        Dictionary<string, string> options = ParseOptions(args, startIndex: 1);
+        RequireOnly(options, "--observation", "--gpuz-log", "--hwinfo-log");
+        VoltageStatusCorrelationReportV2 report = VoltageStatusCorrelationV2.AnalyzeFiles(
+            RequireOption(options, "--observation"),
+            RequireOption(options, "--gpuz-log"),
+            OptionalOption(options, "--hwinfo-log"));
+        standardOutput.WriteLine(LabJson.SerializeVoltageStatusCorrelationV2(report));
+        return 0;
+    }
+
+    private static int RunFinalizeExperimentManifest(
+        IReadOnlyList<string> args,
+        TextWriter standardOutput)
+    {
+        Dictionary<string, string> options = ParseOptions(args, startIndex: 1);
+        RequireOnly(options, "--input", "--package-root");
+        string result = ExperimentManifestProducer.FinalizeFile(
+            RequireOption(options, "--input"),
+            RequireOption(options, "--package-root"));
+        standardOutput.WriteLine(LabJson.SerializeExperimentManifest(result));
+        return 0;
+    }
+
+    private static int RunAnalyzeExperimentSeries(
+        IReadOnlyList<string> args,
+        TextWriter standardOutput)
+    {
+        Dictionary<string, string> options = ParseOptions(args, startIndex: 1);
+        RequireOnly(
+            options,
+            "--manifest",
+            "--expected-manifest-sha256",
+            "--series-package",
+            "--package-root",
+            "--max-lag-samples",
+            "--analysis-id",
+            "--created-at-utc");
+        string manifest = RequireOption(options, "--manifest");
+        string expectedHash = RequireOption(options, "--expected-manifest-sha256");
+        ValidateSha256Argument(expectedHash);
+        string packageRoot = OptionalOption(options, "--package-root") ??
+            Path.GetDirectoryName(Path.GetFullPath(manifest))!;
+        int maximumLag = 0;
+        if (OptionalOption(options, "--max-lag-samples") is string lagRaw &&
+            (!int.TryParse(
+                lagRaw,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out maximumLag) ||
+             maximumLag is < 0 or > 1000))
+        {
+            throw new LabCliException(
+                "Option '--max-lag-samples' must be an integer between 0 and 1000.");
+        }
+
+        Guid analysisId = Guid.NewGuid();
+        if (OptionalOption(options, "--analysis-id") is string analysisIdRaw &&
+            !Guid.TryParseExact(analysisIdRaw, "D", out analysisId))
+        {
+            throw new LabCliException("Option '--analysis-id' must be a canonical UUID.");
+        }
+
+        DateTimeOffset createdAt = DateTimeOffset.UtcNow;
+        if (OptionalOption(options, "--created-at-utc") is string createdAtRaw &&
+            (!DateTimeOffset.TryParse(
+                createdAtRaw,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out createdAt) ||
+             createdAt.Offset != TimeSpan.Zero))
+        {
+            throw new LabCliException(
+                "Option '--created-at-utc' must be a UTC date-time.");
+        }
+
+        ExperimentAnalysisReport report = ExperimentSeriesAnalyzer.Analyze(
+            manifest,
+            expectedHash,
+            packageRoot,
+            RequireOption(options, "--series-package"),
+            maximumLag,
+            analysisId,
+            createdAt);
+        standardOutput.WriteLine(LabJson.SerializeExperimentAnalysis(report));
         return 0;
     }
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:rtx-monitor:schema:experiment-manifest:1",
   "title": "RTX Monitor reverse-engineering experiment manifest",
-  "description": "Planned full v0.8 experiment contract. It indexes one or more verified single-artifact packages; the current rtxmon-lab MVP does not emit this document yet.",
+  "description": "Versioned v0.8 experiment contract emitted by rtxmon-lab. It indexes one or more verified single-artifact packages behind explicit SHA-256 trust anchors.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -80,9 +80,26 @@
           "completed_at_utc": { "type": "string", "format": "date-time" }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "const": "completed" }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "artifact_packages": { "minItems": 1 }
+        }
+      }
     }
   ],
   "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
     "sha256": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
@@ -270,19 +287,27 @@
     "marker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["scenario_id", "phase", "utc_unix_ms", "monotonic_ns", "note"],
+      "required": [
+        "scenario_id",
+        "phase",
+        "utc_unix_ms",
+        "monotonic_ns",
+        "monotonic_frequency_hz",
+        "note"
+      ],
       "properties": {
         "scenario_id": { "type": "string", "minLength": 1 },
         "phase": { "enum": ["begin", "end", "note"] },
         "utc_unix_ms": { "type": "integer", "minimum": 0 },
         "monotonic_ns": { "type": "integer", "minimum": 0 },
+        "monotonic_frequency_hz": { "type": "integer", "minimum": 1 },
         "note": { "$ref": "#/$defs/nullableString" }
       }
     },
     "artifactPackage": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["role", "relative_path", "manifest_sha256"],
+      "required": ["role", "scenario_id", "relative_path", "manifest_sha256"],
       "properties": {
         "role": {
           "enum": [
@@ -292,6 +317,12 @@
             "external_reference",
             "command_output",
             "other"
+          ]
+        },
+        "scenario_id": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/identifier" }
           ]
         },
         "relative_path": { "$ref": "#/$defs/relativePath" },

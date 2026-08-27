@@ -82,6 +82,23 @@ internal struct NativePrivateThermalSample
     };
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativePrivateVoltageSample
+{
+    internal uint StructSize;
+    internal uint GpuIndex;
+    internal uint ValueFlags;
+    internal int NativeStatus;
+    internal uint GpuCoreVoltageMicrovolts;
+    internal uint Reserved;
+    internal ulong TimestampUnixMilliseconds;
+
+    internal static NativePrivateVoltageSample Create() => new()
+    {
+        StructSize = checked((uint)Marshal.SizeOf<NativePrivateVoltageSample>()),
+    };
+}
+
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
 internal struct NativeBoardIdentity
 {
@@ -295,13 +312,24 @@ internal static class NativeMethods
     internal const int MaxPublicFields = 48;
     internal const int MaxComputedMetrics = 4;
     internal const int MaxMetricInputs = 2;
-    internal const uint AbiVersion = 4;
+    internal const uint AbiVersion = 5;
     internal const uint PrivateThermalDieValid = 1U << 0;
     internal const uint PrivateThermalHotspotValid = 1U << 1;
+    internal const uint PrivateVoltageCoreValid = 1U << 0;
     internal const uint ThermalValueCurrentValid = 1U << 0;
     internal const uint ThermalValueDefaultMinimumValid = 1U << 1;
     internal const uint ThermalValueDefaultMaximumValid = 1U << 2;
     private const string Library = "rtxmon_native";
+    internal const string PrivateVoltageStatusExportName =
+        "rtxmon_read_private_voltage_status";
+    private static readonly Lazy<bool> privateVoltageStatusExportAvailable = new(
+        () => NativeExportProbe.IsAvailable(
+            Library,
+            PrivateVoltageStatusExportName,
+            typeof(NativeMethods).Assembly));
+
+    internal static bool PrivateVoltageStatusExportAvailable =>
+        privateVoltageStatusExportAvailable.Value;
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern uint rtxmon_abi_version();
@@ -382,6 +410,31 @@ internal static class NativeMethods
         SafeRtxmonContext context,
         uint gpuIndex,
         ref NativePrivateThermalSample sample);
+
+    [DllImport(
+        Library,
+        EntryPoint = PrivateVoltageStatusExportName,
+        CallingConvention = CallingConvention.Cdecl)]
+    private static extern NativeStatus rtxmon_read_private_voltage_status(
+        SafeRtxmonContext context,
+        uint gpuIndex,
+        ref NativePrivateVoltageSample sample);
+
+    internal static NativeStatus ReadPrivateVoltageStatus(
+        SafeRtxmonContext context,
+        uint gpuIndex,
+        ref NativePrivateVoltageSample sample)
+    {
+        NativePrivateVoltageSample localSample = sample;
+        NativeStatus status = NativeExportProbe.InvokeOptional(
+            PrivateVoltageStatusExportAvailable,
+            () => rtxmon_read_private_voltage_status(
+                context,
+                gpuIndex,
+                ref localSample));
+        sample = localSample;
+        return status;
+    }
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
     internal static extern NativeStatus rtxmon_get_board_identity(

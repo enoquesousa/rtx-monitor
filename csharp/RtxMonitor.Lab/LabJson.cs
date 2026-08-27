@@ -5,6 +5,23 @@ namespace RtxMonitor.Lab;
 
 public static class LabJson
 {
+    public static string SerializeExperimentManifest(string manifestJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(manifestJson);
+        return manifestJson;
+    }
+
+    public static string SerializeExperimentAnalysis(ExperimentAnalysisReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return JsonSerializer.Serialize(
+            report,
+            new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            });
+    }
+
     public static string SerializeVoltageStatusCorrelation(VoltageStatusCorrelationReport report)
     {
         ArgumentNullException.ThrowIfNull(report);
@@ -13,6 +30,27 @@ public static class LabJson
             PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
         });
     }
+
+    public static string SerializeVoltageStatusCorrelationV2(
+        VoltageStatusCorrelationReportV2 report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return JsonSerializer.Serialize(report, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        });
+    }
+
+    public static string SerializeThermChannelCorrelationV2(
+        ThermChannelCorrelationReportV2 report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return JsonSerializer.Serialize(report, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        });
+    }
+
     public static byte[] SerializeManifestUtf8(
         LabPackageManifest manifest,
         bool appendNewLine = false)

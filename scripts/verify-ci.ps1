@@ -43,6 +43,7 @@ $evidencePackageSchemaPath = Join-Path $projectRoot 'docs\schema\evidence-packag
 $labCommandErrorSchemaPath = Join-Path $projectRoot 'docs\schema\lab-command-error-v1.schema.json'
 $experimentManifestSchemaPath = Join-Path $projectRoot 'docs\schema\experiment-manifest-v1.schema.json'
 $analysisReportSchemaPath = Join-Path $projectRoot 'docs\schema\analysis-report-v1.schema.json'
+$numericSeriesSchemaPath = Join-Path $projectRoot 'docs\schema\numeric-series-v1.schema.json'
 $vbiosAnalysisSchemaPath = Join-Path $projectRoot 'docs\schema\vbios-analysis-v1.schema.json'
 $gpuzReferenceSchemaPath = Join-Path $projectRoot 'docs\schema\gpuz-reference-analysis-v1.schema.json'
 $experimentMarkerSchemaPath = Join-Path $projectRoot 'docs\schema\experiment-marker-v1.schema.json'
@@ -54,9 +55,17 @@ $nvapiCallSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-call-observatio
 $nvapiCandidateSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-candidate-inventory-v1.schema.json'
 $nvapiCandidateCallSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-candidate-call-observation-v1.schema.json'
 $nvapiThermChannelSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-v2-observation-v1.schema.json'
+$nvapiThermChannelV2SchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-v2-observation-v2.schema.json'
+$nvapiCoolerStatusSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-cooler-status-v1-observation-v1.schema.json'
+$nvapiCoolerStatusV2SchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-cooler-status-v1-observation-v2.schema.json'
 $nvapiThermCorrelationSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-correlation-v1.schema.json'
+$nvapiThermCorrelationV2SchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-correlation-v2.schema.json'
 $nvapiVoltageObservationSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-voltage-status-v1-observation-v1.schema.json'
 $nvapiVoltageCorrelationSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-voltage-status-correlation-v1.schema.json'
+$nvapiVoltageObservationV2SchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-voltage-status-v1-observation-v2.schema.json'
+$nvapiVoltageCorrelationV2SchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-voltage-status-correlation-v2.schema.json'
+$privateThermalSampleSchemaPath = Join-Path $projectRoot 'docs\schema\private-thermal-sample-v1.schema.json'
+$privateVoltageSampleSchemaPath = Join-Path $projectRoot 'docs\schema\private-voltage-sample-v1.schema.json'
 $gpuzDeviceIoSchemaPath = Join-Path $projectRoot 'docs\schema\gpuz-device-io-control-observation-v1.schema.json'
 $gpuzDeviceInputSchemaPath = Join-Path $projectRoot 'docs\schema\gpuz-device-io-control-input-v1.schema.json'
 $windowsHandleSchemaPath = Join-Path $projectRoot 'docs\schema\windows-handle-identity-v1.schema.json'
@@ -68,9 +77,17 @@ $nvapiResolutionFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Test
 $nvapiCallFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-call-observation.json'
 $nvapiCandidateCallFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-candidate-call-observation.json'
 $nvapiThermChannelFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-therm-channel-v2-observation.json'
+$nvapiThermChannelV2FixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-therm-channel-v2-observation-v2.json'
+$nvapiCoolerStatusFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-cooler-status-v1-observation.json'
+$nvapiCoolerStatusV2FixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-cooler-status-v1-observation-v2.json'
 $gpuzThermReferenceFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\gpuz-therm-channel-reference.csv'
+$gpuzThermReferenceV2FixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\gpuz-therm-channel-reference-v2.csv'
 $nvapiVoltageObservationFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-voltage-status-v1-observation.json'
+$nvapiVoltageObservationV2FixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-voltage-status-v1-observation-v2.json'
 $gpuzVoltageReferenceFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\gpuz-voltage-reference.csv'
+$hwinfoVoltageReferenceFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\hwinfo-voltage-reference.csv'
+$numericSeriesFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\numeric-series-v1.json'
+$experimentManifestDraftFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\experiment-manifest-draft-v1.json'
 $vbiosFixturePath = Join-Path `
     $projectRoot `
     "build\windows-x64\$Configuration\synthetic-vbios-test.rom"
@@ -90,6 +107,21 @@ function Invoke-Checked {
     if ($LASTEXITCODE -ne 0) {
         throw "$Description failed with exit code $LASTEXITCODE."
     }
+}
+
+function Test-PrivateThermalSampleSemantics {
+    param([Parameter(Mandatory)][object]$Sample)
+
+    $expectedDelta = [double]$Sample.gpu_hotspot_temperature_c -
+        [double]$Sample.gpu_die_temperature_c
+    return [Math]::Abs([double]$Sample.delta_c - $expectedDelta) -le 0.0005
+}
+
+function Test-PrivateVoltageSampleSemantics {
+    param([Parameter(Mandatory)][object]$Sample)
+
+    $expectedVolts = [double]$Sample.gpu_core_voltage_microvolts / 1000000.0
+    return [Math]::Abs([double]$Sample.gpu_core_voltage_v - $expectedVolts) -le 0.0000000005
 }
 
 function Remove-LabCiPackageSafely {
@@ -138,7 +170,13 @@ function Remove-LabCiPackageSafely {
 
         $payload = Join-Path $artifactDirectory 'payload.bin'
         $manifest = Join-Path $Package 'manifest.json'
-        foreach ($file in @($payload, $manifest)) {
+        $experimentDraft = Join-Path $resolvedRoot 'experiment-draft.json'
+        $experimentManifest = Join-Path $resolvedRoot 'experiment-manifest.json'
+        $optionalRootFiles = @(
+            $experimentDraft,
+            $experimentManifest
+        ) | Where-Object { [System.IO.File]::Exists($_) }
+        foreach ($file in @($payload, $manifest) + $optionalRootFiles) {
             $attributes = [System.IO.File]::GetAttributes($file)
             if (($attributes -band (
                     [System.IO.FileAttributes]::Directory -bor
@@ -150,16 +188,17 @@ function Remove-LabCiPackageSafely {
         }
 
         $rootEntries = @([System.IO.Directory]::EnumerateFileSystemEntries($resolvedRoot) |
-            Select-Object -First 2)
+            Select-Object -First 4)
         $packageEntries = @([System.IO.Directory]::EnumerateFileSystemEntries($Package) |
             Select-Object -First 3)
         $artifactEntries = @([System.IO.Directory]::EnumerateFileSystemEntries(
                 $artifactDirectory) |
             Select-Object -First 2)
-        if ($rootEntries.Count -ne 1 -or
+        $expectedRootEntries = @($Package) + $optionalRootFiles
+        if ($rootEntries.Count -ne $expectedRootEntries.Count -or
             $packageEntries.Count -ne 2 -or
             $artifactEntries.Count -ne 1 -or
-            $rootEntries[0] -ne $Package -or
+            @($rootEntries | Where-Object { $_ -notin $expectedRootEntries }).Count -ne 0 -or
             $packageEntries -notcontains $manifest -or
             $packageEntries -notcontains $artifactDirectory -or
             $artifactEntries[0] -ne $payload) {
@@ -180,6 +219,9 @@ function Remove-LabCiPackageSafely {
         [System.IO.File]::Delete($manifest)
         [System.IO.Directory]::Delete($artifactDirectory)
         [System.IO.Directory]::Delete($Package)
+        foreach ($file in $optionalRootFiles) {
+            [System.IO.File]::Delete($file)
+        }
         [System.IO.Directory]::Delete($resolvedRoot)
     }
     catch {
@@ -192,8 +234,10 @@ try {
     foreach ($scriptName in @(
         'capture-gpuz-device-io-control.ps1',
         'capture-gpuz-nvapi-candidate-calls.ps1',
+        'capture-gpuz-nvapi-cooler-status-v1.ps1',
         'capture-gpuz-nvapi-ids.ps1',
         'capture-gpuz-nvapi-therm-channel-v2.ps1',
+        'capture-gpuz-nvapi-voltage-status-v1.ps1',
         'capture-gpuz-procmon.ps1',
         'check-lab-access.ps1',
         'collect-gpuz-driver.ps1'
@@ -201,12 +245,225 @@ try {
         $scriptPath = Join-Path $PSScriptRoot $scriptName
         $tokens = $null
         $parseErrors = $null
-        $null = [System.Management.Automation.Language.Parser]::ParseFile(
+        $scriptAst = [System.Management.Automation.Language.Parser]::ParseFile(
             $scriptPath,
             [ref]$tokens,
             [ref]$parseErrors)
         if ($parseErrors.Count -ne 0) {
             throw "PowerShell syntax validation failed for '$scriptName': $($parseErrors[0].Message)"
+        }
+
+        if ($scriptName -in @(
+                'capture-gpuz-nvapi-cooler-status-v1.ps1',
+                'capture-gpuz-nvapi-therm-channel-v2.ps1',
+                'capture-gpuz-nvapi-voltage-status-v1.ps1'
+            )) {
+            $snapshotDefinitions = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                            $node.Name -eq 'Read-AnchoredJsonSnapshot'
+                    },
+                    $true))
+            $snapshotCalls = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.CommandAst] -and
+                            $node.GetCommandName() -eq 'Read-AnchoredJsonSnapshot'
+                    },
+                    $true))
+            $unsafeEvidenceReads = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.CommandAst] -and
+                            $node.GetCommandName() -in @('Get-Content', 'Get-FileHash') -and
+                            $node.Extent.Text -match
+                                '\$(CandidateInventoryPath|PriorObservationPath)\b'
+                    },
+                    $true))
+            if ($snapshotDefinitions.Count -ne 1 -or
+                $snapshotCalls.Count -ne 2 -or
+                $unsafeEvidenceReads.Count -ne 0) {
+                throw "Anchored JSON snapshot validation failed for '$scriptName'."
+            }
+
+            $expectedDebugLogLimit = switch ($scriptName) {
+                'capture-gpuz-nvapi-therm-channel-v2.ps1' { '128MB' }
+                default { '16MB' }
+            }
+            $debugLogLimitAssignments = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                            $node.Left.Extent.Text -eq '$maximumDebugLogSizeBytes'
+                    },
+                    $true))
+            $boundedWaitDefinitions = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                            $node.Name -eq 'Wait-BoundedCaptureInterval' -and
+                            $node.Extent.Text -match
+                                '\$debugLog\.Length\s+-gt\s+\$MaximumSizeBytes'
+                    },
+                    $true))
+            $boundedWaitCalls = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.CommandAst] -and
+                            $node.GetCommandName() -eq 'Wait-BoundedCaptureInterval'
+                    },
+                    $true))
+            $detachDefinitions = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                            $node.Name -eq 'Invoke-CdbDetach' -and
+                            $node.Extent.Text -match
+                                '(?s)Assert-RegularLocalFile.*-MaximumSizeBytes\s+\$MaximumSizeBytes.*Get-Content\s+-LiteralPath\s+\$DebugLogPath\s+-Raw'
+                    },
+                    $true))
+            $detachCalls = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.CommandAst] -and
+                            $node.GetCommandName() -eq 'Invoke-CdbDetach' -and
+                            $node.Extent.Text -match
+                                '-MaximumSizeBytes\s+\$maximumDebugLogSizeBytes'
+                    },
+                    $true))
+            $readyLoops = @($scriptAst.FindAll(
+                    {
+                        param($node)
+                        $node -is [System.Management.Automation.Language.DoWhileStatementAst] -and
+                            $node.Extent.Text -match 'RTXMON_ATTACH_READY' -and
+                            $node.Extent.Text -match
+                                '\$debugLog\.Length\s+-gt\s+\$maximumDebugLogSizeBytes'
+                    },
+                    $true))
+            if ($debugLogLimitAssignments.Count -ne 1 -or
+                $debugLogLimitAssignments[0].Right.Extent.Text -ne
+                    $expectedDebugLogLimit -or
+                $boundedWaitDefinitions.Count -ne 1 -or
+                $boundedWaitCalls.Count -ne 2 -or
+                $detachDefinitions.Count -ne 1 -or
+                $detachCalls.Count -ne 2 -or
+                $readyLoops.Count -ne 1) {
+                throw "Debugger transcript bound validation failed for '$scriptName'."
+            }
+
+            $expectedSealedNames = switch ($scriptName) {
+                'capture-gpuz-nvapi-therm-channel-v2.ps1' {
+                    @{
+                        '$sealedGpuzName' = 'sealed-gpuz-thermal-reference.csv'
+                    }
+                }
+                'capture-gpuz-nvapi-voltage-status-v1.ps1' {
+                    @{
+                        '$sealedGpuzName' = 'sealed-gpuz-voltage-reference.csv'
+                        '$sealedHwinfoName' = 'sealed-hwinfo-voltage-reference.csv'
+                    }
+                }
+                default {
+                    @{}
+                }
+            }
+            foreach ($sealedName in $expectedSealedNames.GetEnumerator()) {
+                $assignments = @($scriptAst.FindAll(
+                        {
+                            param($node)
+                            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                                $node.Left.Extent.Text -eq $sealedName.Key
+                        },
+                        $true))
+                if ($assignments.Count -ne 1 -or
+                    $assignments[0].Right.Extent.Text -ne "'$($sealedName.Value)'") {
+                    throw "Sealed reference name validation failed for '$scriptName'."
+                }
+            }
+
+            if ($scriptName -in @(
+                    'capture-gpuz-nvapi-therm-channel-v2.ps1',
+                    'capture-gpuz-nvapi-voltage-status-v1.ps1'
+                )) {
+                $gpuzLimitAssignments = @($scriptAst.FindAll(
+                        {
+                            param($node)
+                            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                                $node.Left.Extent.Text -eq '$maximumGpuzPrefixSizeBytes'
+                        },
+                        $true))
+                $gpuzProbeDefinitions = @($scriptAst.FindAll(
+                        {
+                            param($node)
+                            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                                $node.Name -eq 'Get-GpuzLogProbe' -and
+                                $node.Extent.Text -match
+                                    '\$complete\.size_bytes\s+-gt\s+\$maximumGpuzPrefixSizeBytes'
+                        },
+                        $true))
+                if ($gpuzLimitAssignments.Count -ne 1 -or
+                    $gpuzLimitAssignments[0].Right.Extent.Text -ne '16MB' -or
+                    $gpuzProbeDefinitions.Count -ne 1) {
+                    throw "GPU-Z prefix limit validation failed for '$scriptName'."
+                }
+            }
+
+            if ($scriptName -eq 'capture-gpuz-nvapi-voltage-status-v1.ps1') {
+                $hwinfoLimitAssignments = @($scriptAst.FindAll(
+                        {
+                            param($node)
+                            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                                $node.Left.Extent.Text -eq '$maximumHwinfoPrefixSizeBytes'
+                        },
+                        $true))
+                $hwinfoProbeDefinitions = @($scriptAst.FindAll(
+                        {
+                            param($node)
+                            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                                $node.Name -eq 'Get-HwinfoLogProbe' -and
+                                $node.Extent.Text -match
+                                    '\$complete\.size_bytes\s+-gt\s+\$maximumHwinfoPrefixSizeBytes'
+                        },
+                        $true))
+                $functionRangeGuards = @($scriptAst.FindAll(
+                        {
+                            param($node)
+                            $node -is [System.Management.Automation.Language.IfStatementAst] -and
+                                $node.Extent.Text -match
+                                    '\$functionRva\s+-ge\s+\(\[uint64\]\$loadedModuleEnd\s+-\s+\$loadedModuleStart\)'
+                        },
+                        $true))
+                if ($hwinfoLimitAssignments.Count -ne 1 -or
+                    $hwinfoLimitAssignments[0].Right.Extent.Text -ne '64MB' -or
+                    $hwinfoProbeDefinitions.Count -ne 1 -or
+                    $functionRangeGuards.Count -ne 1) {
+                    throw 'Voltage capture must bound HWiNFO and prove that the allowlisted function RVA is inside the loaded module range.'
+                }
+            }
+
+            if ($scriptName -eq 'capture-gpuz-nvapi-cooler-status-v1.ps1') {
+                $maximumRecordAssignments = @($scriptAst.FindAll(
+                        {
+                            param($node)
+                            $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                                $node.Left.Extent.Text -eq '$maximumCaptureRecords'
+                        },
+                        $true))
+                $recordCountGuards = @($scriptAst.FindAll(
+                        {
+                            param($node)
+                            $node -is [System.Management.Automation.Language.IfStatementAst] -and
+                                $node.Extent.Text -match
+                                    '\$hitRecords\.Count\s+-gt\s+\$maximumCaptureRecords'
+                        },
+                        $true))
+                if ($maximumRecordAssignments.Count -ne 1 -or
+                    $maximumRecordAssignments[0].Right.Extent.Text -ne '1024' -or
+                    $recordCountGuards.Count -ne 1) {
+                    throw 'Cooler capture must bound its materialized records.'
+                }
+            }
         }
     }
 
@@ -314,11 +571,15 @@ try {
 
     $evidenceSchema = Get-Content -Raw -LiteralPath $evidenceSchemaPath | ConvertFrom-Json
     $evidenceEventRefs = @($evidenceSchema.properties.event.oneOf | ForEach-Object { $_.'$ref' })
+    $evidenceRunEventVersions = @($evidenceSchema.'$defs'.run.properties.event_schema_version.enum)
     if ($evidenceSchema.properties.evidence_schema_version.const -ne 1 -or
         $evidenceSchema.properties.store_schema_version.const -ne 1 -or
         'telemetry-event-v2.schema.json' -notin $evidenceEventRefs -or
         'telemetry-event-v3.schema.json' -notin $evidenceEventRefs -or
-        'telemetry-event-v4.schema.json' -notin $evidenceEventRefs) {
+        'telemetry-event-v4.schema.json' -notin $evidenceEventRefs -or
+        2 -notin $evidenceRunEventVersions -or
+        3 -notin $evidenceRunEventVersions -or
+        4 -notin $evidenceRunEventVersions) {
         throw 'Evidence schema must declare evidence/store version 1 and accept telemetry events v2/v3/v4.'
     }
 
@@ -438,6 +699,8 @@ try {
         ConvertFrom-Json
     $analysisReportSchema = Get-Content -Raw -LiteralPath $analysisReportSchemaPath |
         ConvertFrom-Json
+    $numericSeriesSchema = Get-Content -Raw -LiteralPath $numericSeriesSchemaPath |
+        ConvertFrom-Json
     $vbiosAnalysisSchema = Get-Content -Raw -LiteralPath $vbiosAnalysisSchemaPath |
         ConvertFrom-Json
     $gpuzReferenceSchema = Get-Content -Raw -LiteralPath $gpuzReferenceSchemaPath |
@@ -460,9 +723,41 @@ try {
         ConvertFrom-Json
     $nvapiThermChannelSchema = Get-Content -Raw -LiteralPath $nvapiThermChannelSchemaPath |
         ConvertFrom-Json
+    $nvapiThermChannelV2Schema = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiThermChannelV2SchemaPath |
+        ConvertFrom-Json
+    $nvapiCoolerStatusSchema = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiCoolerStatusSchemaPath |
+        ConvertFrom-Json
+    $nvapiCoolerStatusV2Schema = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiCoolerStatusV2SchemaPath |
+        ConvertFrom-Json
     $nvapiThermCorrelationSchema = Get-Content `
         -Raw `
         -LiteralPath $nvapiThermCorrelationSchemaPath |
+        ConvertFrom-Json
+    $nvapiThermCorrelationV2Schema = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiThermCorrelationV2SchemaPath |
+        ConvertFrom-Json
+    $nvapiVoltageObservationV2Schema = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiVoltageObservationV2SchemaPath |
+        ConvertFrom-Json
+    $nvapiVoltageCorrelationV2Schema = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiVoltageCorrelationV2SchemaPath |
+        ConvertFrom-Json
+    $privateThermalSampleSchema = Get-Content `
+        -Raw `
+        -LiteralPath $privateThermalSampleSchemaPath |
+        ConvertFrom-Json
+    $privateVoltageSampleSchema = Get-Content `
+        -Raw `
+        -LiteralPath $privateVoltageSampleSchemaPath |
         ConvertFrom-Json
     $gpuzDeviceIoSchema = Get-Content -Raw -LiteralPath $gpuzDeviceIoSchemaPath |
         ConvertFrom-Json
@@ -473,6 +768,18 @@ try {
     $vbiosDiagnosticCodes = @($vbiosAnalysisSchema.'$defs'.diagnostic.properties.code.enum)
     if ($experimentManifestSchema.properties.schema_version.const -ne 1 -or
         $analysisReportSchema.properties.schema_version.const -ne 1 -or
+        $numericSeriesSchema.properties.schema_version.const -ne 1 -or
+        $numericSeriesSchema.properties.source_kind.const -ne 'numeric_time_series' -or
+        $experimentManifestSchema.'$defs'.marker.required -notcontains
+            'monotonic_frequency_hz' -or
+        $experimentManifestSchema.'$defs'.artifactPackage.required -notcontains
+            'scenario_id' -or
+        $analysisReportSchema.'$defs'.candidate.properties.source_kind.enum -notcontains
+            'private_interface' -or
+        $analysisReportSchema.'$defs'.candidate.required -notcontains 'value_unit' -or
+        $analysisReportSchema.'$defs'.statistics.required -notcontains 'minimum_delta' -or
+        $analysisReportSchema.'$defs'.statistics.required -notcontains 'maximum_delta' -or
+        $analysisReportSchema.'$defs'.statistics.required -notcontains 'mean_delta' -or
         $vbiosAnalysisSchema.properties.schema_version.const -ne 1 -or
         $gpuzReferenceSchema.properties.schema_version.const -ne 1 -or
         $gpuzReferenceSchema.properties.source_kind.const -ne 'gpuz_sensor_log_reference' -or
@@ -490,10 +797,90 @@ try {
         $nvapiThermChannelSchema.properties.interface_id.const -ne '0x65fe3aad' -or
         $nvapiThermChannelSchema.properties.structure_size_bytes.const -ne 168 -or
         $nvapiThermChannelSchema.properties.fixed_point_fractional_bits.const -ne 8 -or
+        $nvapiThermChannelV2Schema.properties.schema_version.const -ne 2 -or
+        $nvapiThermChannelV2Schema.properties.profile.properties.gpu.properties.uuid.const -ne
+            'GPU-fca3647e-8390-15a8-f23b-d0f870c9accd' -or
+        $nvapiThermChannelV2Schema.properties.profile.required -notcontains
+            'loaded_nvapi_module' -or
+        $nvapiThermChannelV2Schema.'$defs'.growing_log_reference.required -notcontains
+            'sealed_relative_path' -or
+        $nvapiCoolerStatusSchema.properties.schema_version.const -ne 1 -or
+        $nvapiCoolerStatusSchema.required -contains 'gpu_profile' -or
+        $null -ne $nvapiCoolerStatusSchema.properties.gpu_profile -or
+        $nvapiCoolerStatusV2Schema.properties.schema_version.const -ne 2 -or
+        $nvapiCoolerStatusV2Schema.properties.source_kind.const -ne
+            'nvapi_cooler_status_v1_observation' -or
+        $nvapiCoolerStatusV2Schema.properties.gpu_profile.properties.gpu_uuid.const -ne
+            'GPU-fca3647e-8390-15a8-f23b-d0f870c9accd' -or
+        $nvapiCoolerStatusV2Schema.properties.candidate_inventory_sha256.const -ne
+            '3aaada9b367dacca7cf74511bae8532bd79b7f8bd06b9bb609056f3d9da1f1d7' -or
+        $nvapiCoolerStatusV2Schema.properties.prior_observation_sha256.const -ne
+            'f580f67da61df2287257fb023fe277d310fdf424f588bbd96d01ac01433f8de2' -or
+        $nvapiCoolerStatusV2Schema.required -notcontains 'identity_probe_sha256' -or
+        $nvapiCoolerStatusV2Schema.required -notcontains 'loaded_nvapi_module' -or
+        $nvapiCoolerStatusV2Schema.properties.loaded_nvapi_module.properties.file_sha256.const -ne
+            'fbc9aed43bfa5bda19b7f83a809a081a0ce454b6d6003dcabc565ecb3e6afdaf' -or
+        $nvapiCoolerStatusV2Schema.properties.loaded_nvapi_module.properties.proof_source.const -ne
+            'cdb_modload_target_image' -or
         $nvapiThermCorrelationSchema.properties.source_kind.const -ne
             'nvapi_therm_channel_reference_correlation' -or
         $nvapiThermCorrelationSchema.properties.interface_id.const -ne '0x65fe3aad' -or
         $nvapiThermCorrelationSchema.properties.tolerance_celsius.const -ne 0.051 -or
+        $nvapiThermCorrelationV2Schema.properties.schema_version.const -ne 2 -or
+        $nvapiThermCorrelationV2Schema.properties.source_kind.const -ne
+            'nvapi_therm_channel_reference_correlation' -or
+        $nvapiThermCorrelationV2Schema.'$defs'.selection.required -notcontains
+            'selected_session_index' -or
+        $nvapiThermCorrelationV2Schema.'$defs'.selection.required -notcontains
+            'rejected_session_indices_with_invalid_exact_channel_data' -or
+        $nvapiVoltageObservationV2Schema.properties.schema_version.const -ne 2 -or
+        $nvapiVoltageObservationV2Schema.properties.source_kind.const -ne
+            'nvapi_voltage_status_v1_observation' -or
+        $nvapiVoltageObservationV2Schema.properties.profile.properties.interface_id.const -ne
+            '0x465f9bcf' -or
+        $nvapiVoltageObservationV2Schema.properties.profile.properties.caller_rva.const -ne
+            '0x0021cee7' -or
+        $nvapiVoltageCorrelationV2Schema.properties.schema_version.const -ne 2 -or
+        $nvapiVoltageCorrelationV2Schema.properties.source_kind.const -ne
+            'nvapi_voltage_status_reference_correlation' -or
+        $privateThermalSampleSchema.properties.schema_version.const -ne 1 -or
+        $privateThermalSampleSchema.properties.source_kind.const -ne
+            'nvapi_thermal_channel' -or
+        $privateThermalSampleSchema.properties.gpu_uuid.const -ne
+            'GPU-fca3647e-8390-15a8-f23b-d0f870c9accd' -or
+        $privateThermalSampleSchema.properties.gpu_index.maximum -ne 63 -or
+        $privateThermalSampleSchema.properties.profile_evidence_stage.const -ne
+            'matched_external_reference' -or
+        $privateThermalSampleSchema.properties.profile_name.const -ne
+            'rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88' -or
+        $privateThermalSampleSchema.properties.interface_id.const -ne '0x65fe3aad' -or
+        $privateThermalSampleSchema.properties.structure_version.const -ne '0x000200a8' -or
+        $privateThermalSampleSchema.properties.nvapi_module_sha256.const -ne
+            'df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4' -or
+        $privateThermalSampleSchema.properties.function_rva.const -ne '0x001e0bc0' -or
+        $privateThermalSampleSchema.properties.delta_c.minimum -ne 0 -or
+        $privateThermalSampleSchema.properties.delta_c.maximum -ne 80 -or
+        $privateThermalSampleSchema.required -notcontains 'monotonic_ns' -or
+        $privateThermalSampleSchema.required -notcontains 'monotonic_frequency_hz' -or
+        $privateThermalSampleSchema.required -contains 'confidence' -or
+        $privateVoltageSampleSchema.properties.schema_version.const -ne 1 -or
+        $privateVoltageSampleSchema.properties.source_kind.const -ne
+            'nvapi_voltage_status' -or
+        $privateVoltageSampleSchema.properties.gpu_uuid.const -ne
+            'GPU-fca3647e-8390-15a8-f23b-d0f870c9accd' -or
+        $privateVoltageSampleSchema.properties.gpu_index.maximum -ne 63 -or
+        $privateVoltageSampleSchema.properties.profile_evidence_stage.const -ne
+            'matched_external_reference' -or
+        $privateVoltageSampleSchema.properties.profile_name.const -ne
+            'rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88' -or
+        $privateVoltageSampleSchema.properties.interface_id.const -ne '0x465f9bcf' -or
+        $privateVoltageSampleSchema.properties.structure_version.const -ne '0x0001004c' -or
+        $privateVoltageSampleSchema.properties.nvapi_module_sha256.const -ne
+            'df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4' -or
+        $privateVoltageSampleSchema.properties.function_rva.const -ne '0x001c9070' -or
+        $privateVoltageSampleSchema.required -notcontains 'monotonic_ns' -or
+        $privateVoltageSampleSchema.required -notcontains 'monotonic_frequency_hz' -or
+        $privateVoltageSampleSchema.required -contains 'confidence' -or
         $gpuzDeviceIoSchema.properties.source_kind.const -ne 'gpuz_device_io_control_observation' -or
         $gpuzDeviceInputSchema.properties.source_kind.const -ne 'gpuz_device_io_control_input_observation' -or
         $windowsHandleSchema.properties.source_kind.const -ne 'windows_handle_identity' -or
@@ -510,6 +897,7 @@ try {
         $labCommandErrorSchema,
         $experimentManifestSchema,
         $analysisReportSchema,
+        $numericSeriesSchema,
         $vbiosAnalysisSchema,
         $gpuzReferenceSchema,
         $experimentMarkerSchema,
@@ -521,7 +909,15 @@ try {
         $nvapiCandidateSchema,
         $nvapiCandidateCallSchema,
         $nvapiThermChannelSchema,
+        $nvapiThermChannelV2Schema,
+        $nvapiCoolerStatusSchema,
+        $nvapiCoolerStatusV2Schema,
         $nvapiThermCorrelationSchema,
+        $nvapiThermCorrelationV2Schema,
+        $nvapiVoltageObservationV2Schema,
+        $nvapiVoltageCorrelationV2Schema,
+        $privateThermalSampleSchema,
+        $privateVoltageSampleSchema,
         $gpuzDeviceIoSchema,
         $gpuzDeviceInputSchema,
         $windowsHandleSchema
@@ -529,6 +925,91 @@ try {
         if ([string]$laboratorySchema.'$id' -notlike 'urn:rtx-monitor:schema:*') {
             throw 'v0.8 laboratory schemas must use stable offline URN identifiers.'
         }
+    }
+
+    $privateThermalSampleJson = ([ordered]@{
+            schema_version = 1
+            source_kind = 'nvapi_thermal_channel'
+            gpu_index = 0
+            gpu_uuid = 'GPU-fca3647e-8390-15a8-f23b-d0f870c9accd'
+            captured_at_utc = '2026-08-27T21:30:00.0000000Z'
+            captured_at_unix_ms = 1787866200000
+            monotonic_ns = 123456789000
+            monotonic_frequency_hz = 10000000
+            gpu_die_temperature_c = 40.0
+            gpu_hotspot_temperature_c = 50.0
+            delta_c = 10.0
+            native_status = 0
+            profile_evidence_stage = 'matched_external_reference'
+            profile_name = 'rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88'
+            interface_id = '0x65fe3aad'
+            structure_version = '0x000200a8'
+            nvapi_module_sha256 = 'df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4'
+            function_rva = '0x001e0bc0'
+        } | ConvertTo-Json -Depth 5)
+    if (-not ($privateThermalSampleJson |
+            Test-Json -SchemaFile $privateThermalSampleSchemaPath)) {
+        throw 'Synthetic direct thermal sample must pass private-thermal-sample-v1.schema.json.'
+    }
+    $privateThermalSample = $privateThermalSampleJson | ConvertFrom-Json
+    if (-not (Test-PrivateThermalSampleSemantics -Sample $privateThermalSample)) {
+        throw 'Direct thermal producer must preserve delta = hotspot - die.'
+    }
+    $contradictoryThermalSample = $privateThermalSampleJson | ConvertFrom-Json
+    $contradictoryThermalSample.delta_c = 0.0
+    if (Test-PrivateThermalSampleSemantics -Sample $contradictoryThermalSample) {
+        throw 'Direct thermal semantic validation must reject a contradictory derived delta.'
+    }
+    $wrongUuidThermalSample = $privateThermalSampleJson | ConvertFrom-Json
+    $wrongUuidThermalSample.gpu_uuid = 'GPU-FCA3647E-8390-15A8-F23B-D0F870C9ACCD'
+    if (($wrongUuidThermalSample | ConvertTo-Json -Depth 5) |
+            Test-Json -SchemaFile $privateThermalSampleSchemaPath -ErrorAction SilentlyContinue) {
+        throw 'Direct thermal schema must reject a non-canonical physical GPU UUID.'
+    }
+    $invalidDeltaThermalSample = $privateThermalSampleJson | ConvertFrom-Json
+    $invalidDeltaThermalSample.delta_c = 80.001
+    if (($invalidDeltaThermalSample | ConvertTo-Json -Depth 5) |
+            Test-Json -SchemaFile $privateThermalSampleSchemaPath -ErrorAction SilentlyContinue) {
+        throw 'Direct thermal schema must reject a delta outside the native profile bound.'
+    }
+
+    $privateVoltageSampleJson = ([ordered]@{
+            schema_version = 1
+            source_kind = 'nvapi_voltage_status'
+            gpu_index = 0
+            gpu_uuid = 'GPU-fca3647e-8390-15a8-f23b-d0f870c9accd'
+            captured_at_utc = '2026-08-27T21:30:00.0000000Z'
+            captured_at_unix_ms = 1787866200000
+            monotonic_ns = 123456789000
+            monotonic_frequency_hz = 10000000
+            gpu_core_voltage_microvolts = 956250
+            gpu_core_voltage_v = 0.95625
+            native_status = 0
+            profile_evidence_stage = 'matched_external_reference'
+            profile_name = 'rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88'
+            interface_id = '0x465f9bcf'
+            structure_version = '0x0001004c'
+            nvapi_module_sha256 = 'df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4'
+            function_rva = '0x001c9070'
+        } | ConvertTo-Json -Depth 5)
+    if (-not ($privateVoltageSampleJson |
+            Test-Json -SchemaFile $privateVoltageSampleSchemaPath)) {
+        throw 'Synthetic direct voltage sample must pass private-voltage-sample-v1.schema.json.'
+    }
+    $privateVoltageSample = $privateVoltageSampleJson | ConvertFrom-Json
+    if (-not (Test-PrivateVoltageSampleSemantics -Sample $privateVoltageSample)) {
+        throw 'Direct voltage producer must preserve volts = microvolts / 1000000.'
+    }
+    $contradictoryVoltageSample = $privateVoltageSampleJson | ConvertFrom-Json
+    $contradictoryVoltageSample.gpu_core_voltage_v = 1.5
+    if (Test-PrivateVoltageSampleSemantics -Sample $contradictoryVoltageSample) {
+        throw 'Direct voltage semantic validation must reject contradictory derived volts.'
+    }
+    $invalidIndexVoltageSample = $privateVoltageSampleJson | ConvertFrom-Json
+    $invalidIndexVoltageSample.gpu_index = 64
+    if (($invalidIndexVoltageSample | ConvertTo-Json -Depth 5) |
+            Test-Json -SchemaFile $privateVoltageSampleSchemaPath -ErrorAction SilentlyContinue) {
+        throw 'Direct voltage schema must reject an index beyond the native NVAPI handle bound.'
     }
 
     if (-not (Test-Path -LiteralPath $vbiosFixturePath -PathType Leaf)) {
@@ -546,8 +1027,13 @@ try {
     $labCiPackage = Join-Path $labCiRoot 'package'
     $null = New-Item -ItemType Directory -Path $labCiRoot
 
+    $numericSeriesJson = Get-Content -Raw -LiteralPath $numericSeriesFixturePath
+    if (-not ($numericSeriesJson | Test-Json -SchemaFile $numericSeriesSchemaPath)) {
+        throw 'Synthetic numeric series must pass numeric-series-v1.schema.json.'
+    }
+
     $labCreateJson = (& $labExecutable create `
-            --input $vbiosFixturePath `
+            --input $numericSeriesFixturePath `
             --output $labCiPackage `
             --gpu 'Synthetic NVIDIA test device' `
             --driver-version 'test' `
@@ -575,6 +1061,87 @@ try {
     if ($LASTEXITCODE -ne 0 -or
         -not ($labVerifyJson | Test-Json -SchemaFile $evidencePackageSchemaPath)) {
         throw 'Laboratory verify output must pass evidence-package-v1.schema.json.'
+    }
+
+    $labExperimentDraftPath = Join-Path $labCiRoot 'experiment-draft.json'
+    $labExperimentManifestPath = Join-Path $labCiRoot 'experiment-manifest.json'
+    $labExperimentDraftJson = (Get-Content `
+            -Raw `
+            -LiteralPath $experimentManifestDraftFixturePath).Replace(
+            ('0' * 64),
+            [string]$labCreate.manifest_sha256).Replace(
+            '"relative_path": "series-package"',
+            '"relative_path": "package"')
+    [System.IO.File]::WriteAllText(
+        $labExperimentDraftPath,
+        $labExperimentDraftJson,
+        [System.Text.UTF8Encoding]::new($false))
+    $labExperimentManifestJson = (& $labExecutable finalize-experiment-manifest `
+            --input $labExperimentDraftPath `
+            --package-root $labCiRoot | Out-String)
+    if ($LASTEXITCODE -ne 0 -or
+        -not ($labExperimentManifestJson |
+            Test-Json -SchemaFile $experimentManifestSchemaPath)) {
+        throw 'Experiment manifest output must pass experiment-manifest-v1.schema.json.'
+    }
+    $labExperimentManifest = $labExperimentManifestJson | ConvertFrom-Json
+    if ($labExperimentManifest.status -ne 'completed' -or
+        $labExperimentManifest.artifact_packages.Count -ne 1 -or
+        $labExperimentManifest.artifact_packages[0].manifest_sha256 -ne
+            $labCreate.manifest_sha256 -or
+        $labExperimentManifest.artifact_packages[0].scenario_id -ne
+            'synthetic-transition' -or
+        $labExperimentManifest.markers[0].monotonic_frequency_hz -ne
+            $labExperimentManifest.timebase.monotonic_frequency_hz) {
+        throw 'Experiment manifest must preserve the verified package, scenario binding, and synchronized marker timebase.'
+    }
+    $emptyCompletedManifest = $labExperimentManifestJson | ConvertFrom-Json
+    $emptyCompletedManifest.artifact_packages = @()
+    if (($emptyCompletedManifest | ConvertTo-Json -Depth 20) |
+            Test-Json -SchemaFile $experimentManifestSchemaPath -ErrorAction SilentlyContinue) {
+        throw 'Completed experiment manifests must require at least one artifact package.'
+    }
+    $unboundPackageManifest = $labExperimentManifestJson | ConvertFrom-Json
+    $unboundPackageManifest.artifact_packages[0].PSObject.Properties.Remove('scenario_id')
+    if (($unboundPackageManifest | ConvertTo-Json -Depth 20) |
+            Test-Json -SchemaFile $experimentManifestSchemaPath -ErrorAction SilentlyContinue) {
+        throw 'Experiment artifact packages must require an explicit nullable scenario_id.'
+    }
+    [System.IO.File]::WriteAllText(
+        $labExperimentManifestPath,
+        $labExperimentManifestJson,
+        [System.Text.UTF8Encoding]::new($false))
+    $labExperimentManifestSha256 = (Get-FileHash `
+            -LiteralPath $labExperimentManifestPath `
+            -Algorithm SHA256).Hash.ToLowerInvariant()
+    $labAnalysisJson = (& $labExecutable analyze-experiment-series `
+            --manifest $labExperimentManifestPath `
+            --expected-manifest-sha256 $labExperimentManifestSha256 `
+            --package-root $labCiRoot `
+            --series-package package `
+            --max-lag-samples 2 `
+            --analysis-id 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' `
+            --created-at-utc '2026-08-27T12:20:00.0000000Z' | Out-String)
+    if ($LASTEXITCODE -ne 0 -or
+        -not ($labAnalysisJson | Test-Json -SchemaFile $analysisReportSchemaPath)) {
+        throw 'Offline series analysis output must pass analysis-report-v1.schema.json.'
+    }
+    $labAnalysis = $labAnalysisJson | ConvertFrom-Json
+    $labCandidate = $labAnalysis.candidates[0]
+    if ($labCandidate.stage -ne 'raw_unknown' -or
+        $null -ne $labCandidate.physical_name -or
+        $labCandidate.value_unit -ne 'V' -or
+        $labAnalysis.analyzer.parameters.scenario_id -ne 'synthetic-transition' -or
+        $labAnalysis.analyzer.parameters.maximum_pair_evaluations -ne 10000000 -or
+        $labCandidate.statistics.sample_count -ne 8 -or
+        $labCandidate.statistics.update_period_ms -ne 1000 -or
+        $labCandidate.statistics.minimum_delta -ne -1 -or
+        $labCandidate.statistics.maximum_delta -ne 1 -or
+        $labCandidate.statistics.mean_delta -ne 0 -or
+        $labCandidate.correlations[0].method -ne 'cross_correlation' -or
+        $labCandidate.correlations[0].coefficient -ne 1 -or
+        $labCandidate.correlations[0].lag_ms -ne -1000) {
+        throw 'Offline series analysis must preserve raw identity and deterministic statistics, deltas, and lag.'
     }
 
     $labErrorJson = (& $labExecutable unsupported-operation 2>&1 | Out-String)
@@ -662,6 +1229,166 @@ try {
             Test-Json -SchemaFile $nvapiThermChannelSchemaPath)) {
         throw 'Synthetic thermal-channel report must pass nvapi-therm-channel-v2-observation-v1.schema.json.'
     }
+    $nvapiCoolerStatusJson = Get-Content -Raw -LiteralPath $nvapiCoolerStatusFixturePath
+    if (-not ($nvapiCoolerStatusJson |
+            Test-Json -SchemaFile $nvapiCoolerStatusSchemaPath)) {
+        throw 'Synthetic cooler-status report must pass nvapi-cooler-status-v1-observation-v1.schema.json.'
+    }
+    $nvapiCoolerStatus = $nvapiCoolerStatusJson | ConvertFrom-Json
+    if ($nvapiCoolerStatus.call_sites.Count -ne 2 -or
+        $nvapiCoolerStatus.samples.Count -ne 2 -or
+        @($nvapiCoolerStatus.samples | Where-Object {
+                $_.raw_words.Count -ne 426 -or
+                $_.raw_entries.Count -ne $_.observed_count -or
+                @($_.raw_entries | Where-Object {
+                        $_.raw_field_words.Count -ne 4
+                    }).Count -ne 0
+            }).Count -ne 0) {
+        throw 'Synthetic cooler-status report must preserve both sites, all 426 DWORDs, and four uninterpreted fields per observed entry.'
+    }
+    $truncatedCoolerStatus = $nvapiCoolerStatusJson | ConvertFrom-Json
+    $truncatedCoolerStatus.samples[0].raw_words = @(
+        $truncatedCoolerStatus.samples[0].raw_words | Select-Object -First 425
+    )
+    if (($truncatedCoolerStatus | ConvertTo-Json -Depth 10) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusSchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status schema must reject a truncated 425-DWORD observation.'
+    }
+    $wrongSiteCoolerStatus = $nvapiCoolerStatusJson | ConvertFrom-Json
+    $wrongSiteCoolerStatus.caller_rvas[1] = '0x0021d825'
+    if (($wrongSiteCoolerStatus | ConvertTo-Json -Depth 10) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusSchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status schema must reject a call site outside the fixed profile.'
+    }
+    $nvapiCoolerStatusV2Json = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiCoolerStatusV2FixturePath
+    if (-not ($nvapiCoolerStatusV2Json |
+            Test-Json -SchemaFile $nvapiCoolerStatusV2SchemaPath)) {
+        throw 'Synthetic cooler-status v2 report must pass nvapi-cooler-status-v1-observation-v2.schema.json.'
+    }
+    $nvapiCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $nvapiCoolerStatusV2Schema = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiCoolerStatusV2SchemaPath |
+        ConvertFrom-Json
+    if ($nvapiCoolerStatusV2.call_sites.Count -ne 2 -or
+        $nvapiCoolerStatusV2.samples.Count -ne 2 -or
+        $nvapiCoolerStatusV2.gpu_profile.gpu_uuid -ne
+            'GPU-fca3647e-8390-15a8-f23b-d0f870c9accd' -or
+        $nvapiCoolerStatusV2.loaded_nvapi_module.proof_source -ne
+            'cdb_modload_target_image' -or
+        @($nvapiCoolerStatusV2.samples | Where-Object {
+                $_.raw_words.Count -ne 426 -or
+                $_.raw_entries.Count -ne $_.observed_count -or
+                @($_.raw_entries | Where-Object {
+                        $_.raw_field_words.Count -ne 4
+                    }).Count -ne 0
+            }).Count -ne 0) {
+        throw 'Synthetic cooler-status v2 report must preserve the exact profile, loaded-module proof, both sites, 426 DWORDs, and four uninterpreted fields.'
+    }
+    if ($nvapiCoolerStatusV2Schema.properties.call_count.maximum -ne 1024 -or
+        $nvapiCoolerStatusV2Schema.properties.samples.maxItems -ne 1024 -or
+        $nvapiCoolerStatusV2Schema.properties.samples.items.properties.sequence.maximum -ne 1024 -or
+        $nvapiCoolerStatusV2Schema.'$defs'.call_site_0021d654.properties.call_count.maximum -ne 1024 -or
+        $nvapiCoolerStatusV2Schema.'$defs'.call_site_0021d824.properties.call_count.maximum -ne 1024) {
+        throw 'Cooler-status v2 schema must cap total, per-site, sequence, and sample counts at 1024.'
+    }
+    $alternateGpuIndexCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $alternateGpuIndexCoolerStatusV2.gpu_profile.gpu_index = 31
+    if (-not (($alternateGpuIndexCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json -SchemaFile $nvapiCoolerStatusV2SchemaPath)) {
+        throw 'Cooler-status v2 schema must bind identity independently of a valid 0-31 GPU index.'
+    }
+    $invalidGpuIndexCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $invalidGpuIndexCoolerStatusV2.gpu_profile.gpu_index = 32
+    if (($invalidGpuIndexCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must reject a GPU index outside 0-31.'
+    }
+    $oversizedCallCountCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $oversizedCallCountCoolerStatusV2.call_count = 1025
+    if (($oversizedCallCountCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must reject more than 1024 calls.'
+    }
+    $wrongGpuCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $wrongGpuCoolerStatusV2.gpu_profile.gpu_uuid =
+        'GPU-00000000-0000-0000-0000-000000000000'
+    if (($wrongGpuCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must reject a different GPU UUID.'
+    }
+    $wrongSubsystemCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $wrongSubsystemCoolerStatusV2.gpu_profile.pci_subsystem_device_id = '0x0000'
+    if (($wrongSubsystemCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must reject a different PCI subsystem.'
+    }
+    $missingIdentityProbeCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $missingIdentityProbeCoolerStatusV2.PSObject.Properties.Remove(
+        'identity_probe_sha256'
+    )
+    if (($missingIdentityProbeCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must require the sealed identity probe.'
+    }
+    $wrongCandidateHashCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $wrongCandidateHashCoolerStatusV2.candidate_inventory_sha256 = '0' * 64
+    if (($wrongCandidateHashCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must reject an unpinned candidate inventory.'
+    }
+    $wrongPriorHashCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $wrongPriorHashCoolerStatusV2.prior_observation_sha256 = '0' * 64
+    if (($wrongPriorHashCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must reject an unpinned prior observation.'
+    }
+    $missingLoadedModuleCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $missingLoadedModuleCoolerStatusV2.PSObject.Properties.Remove(
+        'loaded_nvapi_module'
+    )
+    if (($missingLoadedModuleCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must require proof of the loaded NVAPI module.'
+    }
+    $wrongLoadedHashCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $wrongLoadedHashCoolerStatusV2.loaded_nvapi_module.file_sha256 = '0' * 64
+    if (($wrongLoadedHashCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must reject a different loaded NVAPI module.'
+    }
+    $wrongModuleProofCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $wrongModuleProofCoolerStatusV2.loaded_nvapi_module.proof_source = 'driver_store_scan'
+    if (($wrongModuleProofCoolerStatusV2 | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiCoolerStatusV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Cooler-status v2 schema must reject proof not obtained from target-image ModLoad.'
+    }
     $nvapiThermCorrelationJson = (& $labExecutable `
             correlate-nvapi-therm-channel `
             --observation $nvapiThermChannelFixturePath `
@@ -679,6 +1406,43 @@ try {
         $nvapiThermCorrelation.mappings[1].semantic_channel -ne
             'gpu_hotspot_temperature') {
         throw 'Thermal-channel correlation must preserve the die and hotspot mapping.'
+    }
+    $nvapiThermChannelV2Json = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiThermChannelV2FixturePath
+    if (-not ($nvapiThermChannelV2Json |
+            Test-Json -SchemaFile $nvapiThermChannelV2SchemaPath)) {
+        throw 'Synthetic thermal-channel v2 observation must pass its fail-closed schema.'
+    }
+    $nvapiThermCorrelationV2Json = (& $labExecutable `
+            correlate-nvapi-therm-channel-v2 `
+            --observation $nvapiThermChannelV2FixturePath `
+            --gpuz-log $gpuzThermReferenceV2FixturePath | Out-String)
+    if ($LASTEXITCODE -ne 0 -or
+        -not ($nvapiThermCorrelationV2Json |
+            Test-Json -SchemaFile $nvapiThermCorrelationV2SchemaPath)) {
+        throw 'Thermal-channel v2 correlation output must pass its hardened v2 schema.'
+    }
+    $nvapiThermCorrelationV2 = $nvapiThermCorrelationV2Json | ConvertFrom-Json
+    if ($nvapiThermCorrelationV2.mapping_status -ne 'matched_external_reference' -or
+        $nvapiThermCorrelationV2.selection.selected_session_index -ne 2 -or
+        $nvapiThermCorrelationV2.selection.eligible_session_count -ne 1 -or
+        $nvapiThermCorrelationV2.selection.ignored_session_indices_without_exact_channels[0] -ne 0 -or
+        $nvapiThermCorrelationV2.selection.rejected_session_indices_with_invalid_exact_channel_data[0] -ne 1 -or
+        $nvapiThermCorrelationV2.direct_comparison.mappings[0].reference_channel -ne
+            'GPU Temperature' -or
+        $nvapiThermCorrelationV2.direct_comparison.mappings[1].reference_channel -ne
+            'Hot Spot') {
+        throw 'Thermal-channel v2 must isolate appended layouts and preserve direct mapping evidence.'
+    }
+    $wrongThermalV2Uuid = $nvapiThermChannelV2Json | ConvertFrom-Json
+    $wrongThermalV2Uuid.profile.gpu.uuid =
+        'GPU-00000000-0000-0000-0000-000000000000'
+    if (($wrongThermalV2Uuid | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiThermChannelV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Thermal-channel v2 schema must reject a different physical GPU UUID.'
     }
     $nvapiVoltageObservationJson = Get-Content -Raw -LiteralPath $nvapiVoltageObservationFixturePath
     if (-not ($nvapiVoltageObservationJson |
@@ -700,6 +1464,84 @@ try {
         $nvapiVoltageCorrelation.mapping.word_index -ne 10 -or
         $nvapiVoltageCorrelation.scale_divisor -ne 1000000) {
         throw 'Voltage-status correlation must preserve the core-voltage mapping and microvolt scale.'
+    }
+    $nvapiVoltageObservationV2Json = Get-Content `
+        -Raw `
+        -LiteralPath $nvapiVoltageObservationV2FixturePath
+    if (-not ($nvapiVoltageObservationV2Json |
+            Test-Json -SchemaFile $nvapiVoltageObservationV2SchemaPath)) {
+        throw 'Synthetic voltage-status v2 observation must pass its fail-closed schema.'
+    }
+    $oversizedGpuzVoltageObservation = $nvapiVoltageObservationV2Json | ConvertFrom-Json
+    $oversizedGpuzVoltageObservation.references.gpuz.size_bytes_before = 16777214
+    $oversizedGpuzVoltageObservation.references.gpuz.size_bytes_midpoint = 16777215
+    $oversizedGpuzVoltageObservation.references.gpuz.size_bytes_after = 16777217
+    if (($oversizedGpuzVoltageObservation | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiVoltageObservationV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Voltage-status v2 schema must reject a GPU-Z prefix above 16 MiB.'
+    }
+    $largeHwinfoVoltageObservation = $nvapiVoltageObservationV2Json | ConvertFrom-Json
+    $largeHwinfoVoltageObservation.references.hwinfo.size_bytes_before = 16777217
+    $largeHwinfoVoltageObservation.references.hwinfo.size_bytes_midpoint = 16777218
+    $largeHwinfoVoltageObservation.references.hwinfo.size_bytes_after = 16777219
+    if (-not (($largeHwinfoVoltageObservation | ConvertTo-Json -Depth 20) |
+            Test-Json -SchemaFile $nvapiVoltageObservationV2SchemaPath)) {
+        throw 'Voltage-status v2 schema must preserve the separate 64 MiB HWiNFO bound.'
+    }
+    $oversizedHwinfoVoltageObservation = $nvapiVoltageObservationV2Json | ConvertFrom-Json
+    $oversizedHwinfoVoltageObservation.references.hwinfo.size_bytes_before = 67108862
+    $oversizedHwinfoVoltageObservation.references.hwinfo.size_bytes_midpoint = 67108863
+    $oversizedHwinfoVoltageObservation.references.hwinfo.size_bytes_after = 67108865
+    if (($oversizedHwinfoVoltageObservation | ConvertTo-Json -Depth 20) |
+            Test-Json `
+                -SchemaFile $nvapiVoltageObservationV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Voltage-status v2 schema must reject an HWiNFO prefix above 64 MiB.'
+    }
+    $nvapiVoltageCorrelationV2Json = (& $labExecutable `
+            correlate-nvapi-voltage-status-v2 `
+            --observation $nvapiVoltageObservationV2FixturePath `
+            --gpuz-log $gpuzVoltageReferenceFixturePath `
+            --hwinfo-log $hwinfoVoltageReferenceFixturePath | Out-String)
+    if ($LASTEXITCODE -ne 0 -or
+        -not ($nvapiVoltageCorrelationV2Json |
+            Test-Json -SchemaFile $nvapiVoltageCorrelationV2SchemaPath)) {
+        throw 'Voltage-status v2 correlation output must pass its v2 schema.'
+    }
+    $nvapiVoltageCorrelationV2 = $nvapiVoltageCorrelationV2Json | ConvertFrom-Json
+    if ($nvapiVoltageCorrelationV2.mapping_status -ne 'matched_external_reference' -or
+        $nvapiVoltageCorrelationV2.profile_name -ne
+            'gpuz-2.70.0-nvapi-610.88-voltage-status-v1' -or
+        $nvapiVoltageCorrelationV2.mapping.word_index -ne 10 -or
+        $nvapiVoltageCorrelationV2.mapping.distinct_raw_value_count -ne 3 -or
+        $nvapiVoltageCorrelationV2.gpuz_reference.source -ne 'GPU-Z' -or
+        $nvapiVoltageCorrelationV2.hwinfo_reference.source -ne 'HWiNFO' -or
+        $nvapiVoltageCorrelationV2.hwinfo_reference.maximum_alignment_delta_ms -ne 0) {
+        throw 'Voltage-status v2 must retain its exact profile and explicit GPU-Z plus HWiNFO references.'
+    }
+    $gpuzOnlyVoltageObservation = $nvapiVoltageObservationV2Json | ConvertFrom-Json
+    $gpuzOnlyVoltageObservation.references.hwinfo = $null
+    if (-not (($gpuzOnlyVoltageObservation | ConvertTo-Json -Depth 10) |
+            Test-Json -SchemaFile $nvapiVoltageObservationV2SchemaPath)) {
+        throw 'Voltage-status v2 schema must accept an explicit null HWiNFO reference.'
+    }
+    $staleHwinfoVoltageObservation = $nvapiVoltageObservationV2Json | ConvertFrom-Json
+    $staleHwinfoVoltageObservation.references.hwinfo.grew_during_capture = $false
+    if (($staleHwinfoVoltageObservation | ConvertTo-Json -Depth 10) |
+            Test-Json `
+                -SchemaFile $nvapiVoltageObservationV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Voltage-status v2 schema must reject HWiNFO without recorded growth.'
+    }
+    $wrongDriverVoltageObservation = $nvapiVoltageObservationV2Json | ConvertFrom-Json
+    $wrongDriverVoltageObservation.profile.gpu.driver_version = '611.00'
+    if (($wrongDriverVoltageObservation | ConvertTo-Json -Depth 10) |
+            Test-Json `
+                -SchemaFile $nvapiVoltageObservationV2SchemaPath `
+                -ErrorAction SilentlyContinue) {
+        throw 'Voltage-status v2 schema must reject a driver outside the fixed profile.'
     }
     $nvapiClassificationFixtureJson = Get-Content `
         -Raw `
@@ -830,9 +1672,9 @@ try {
     }
 
     Write-Host 'Hardware-independent verification passed.'
-    Write-Host 'C/C++: build with warnings as errors and 12 CTest tests, including VBIOS and RM thermal protocol.'
-    Write-Host 'C#: build, sampler, alert, SQLite storage, local service, 34 laboratory tests, GPU-Z import/correlation, NVAPI thermal mapping, Windows handle identity, markers, and formatting.'
-    Write-Host 'Schemas: stable telemetry plus v0.8 artifact, experiment, marker, analysis, VBIOS, GPU-Z, NVAPI, bounded IOCTL, and Windows handle contracts.'
+    Write-Host 'C/C++: build with warnings as errors and 14 CTest tests, including private profiles, VBIOS, and RM thermal protocol.'
+    Write-Host 'C#: build, sampler, alert, SQLite storage, local service, laboratory tests, GPU-Z import/correlation, anchored experiment analysis, NVAPI thermal mapping, Windows handle identity, markers, and formatting.'
+    Write-Host 'Schemas: stable telemetry plus v0.8 artifact, experiment, numeric-series, marker, analysis, VBIOS, GPU-Z, NVAPI, bounded IOCTL, and Windows handle contracts.'
     Write-Host "Version parity: C/C++ and C# $nativeVersion."
 }
 finally {
