@@ -109,7 +109,7 @@ Para receber também lacunas e recuperações como eventos JSON Lines:
 | `alert_raised` | A temperatura do die atingiu o limiar configurado |
 | `alert_cleared` | A temperatura do die caiu do limiar menos a histerese configurada |
 
-Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato atual está em [telemetry-event-v3.schema.json](docs/schema/telemetry-event-v3.schema.json); os schemas v1 e v2 permanecem publicados para históricos anteriores.
+Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato atual está em [telemetry-event-v4.schema.json](docs/schema/telemetry-event-v4.schema.json); os schemas v1, v2 e v3 permanecem publicados para históricos anteriores.
 
 ## Alerte quando a temperatura cruzar um limiar
 
@@ -184,6 +184,7 @@ Consulte os endpoints:
 Invoke-RestMethod http://127.0.0.1:5136/health
 Invoke-RestMethod http://127.0.0.1:5136/api/v1/gpus
 Invoke-RestMethod http://127.0.0.1:5136/api/v1/gpus/GPU-.../telemetry
+Invoke-RestMethod http://127.0.0.1:5136/api/v1/gpus/GPU-.../windows-telemetry
 Invoke-RestMethod 'http://127.0.0.1:5136/api/v1/history?limit=100'
 curl.exe -N http://127.0.0.1:5136/api/v1/events
 ```
@@ -194,12 +195,15 @@ curl.exe -N http://127.0.0.1:5136/api/v1/events
 | `GET /api/v1/gpus` | GPUs conhecidas e último estado de cada coletor |
 | `GET /api/v1/gpus/{uuid}/capabilities` | Último inventário térmico público |
 | `GET /api/v1/gpus/{uuid}/telemetry` | Último catálogo documentado, cobertura e métricas calculadas |
+| `GET /api/v1/gpus/{uuid}/windows-telemetry` | Último snapshot PDH/WDDM, após correlação DXGI LUID + PCI |
 | `GET /api/v1/events` | Eventos persistidos ao vivo por Server-Sent Events |
 | `GET /api/v1/history` | Histórico limitado com filtros equivalentes ao CLI |
 
-O endereço é fixado em `127.0.0.1`; `--urls` não amplia a exposição. A API de GPUs chama uma leitura anterior de `last_sample_temperature_c` e informa seu horário — durante uma lacuna, ela não é apresentada como temperatura atual.
+O endereço é fixado em `127.0.0.1`; `--urls` não amplia a exposição. A API de GPUs chama uma leitura anterior de `last_sample_temperature_c` e informa seu horário — durante uma lacuna, ela não é apresentada como temperatura atual. A telemetria Windows mantém memória local e não local separadas e nunca publica a soma como “dynamic memory”.
 
 Cada cliente SSE possui uma fila limitada. Se um cliente ficar lento, a aquisição continua e o stream envia `stream_gap`; os eventos ausentes permanecem no SQLite e podem ser recuperados pelo endpoint indicado no próprio aviso.
+
+Eventos `sample` também carregam `windows_telemetry` quando já existe um snapshot DXGI/PDH confirmado. O mesmo objeto é persistido no SQLite e devolvido por SSE, `/history` e exportação; eventos de alerta mantêm esse campo nulo para não duplicar valores brutos.
 
 Para publicar a pasta e instalar o mesmo executável como Windows Service:
 
@@ -267,7 +271,7 @@ O relatório também inclui quatro métricas calculadas:
 
 Uma métrica não é um sensor. Por isso o JSON registra `origin: computed`, fórmula, unidade, janela, número de amostras e entradas. Se a temperatura da memória não estiver disponível, o delta recebe `input_unavailable` e valor `null`.
 
-Na RTX 3060 usada na validação, o catálogo produziu 32 registros: 27 disponíveis e 5 `not_supported`. As duas ventoinhas apareceram separadamente; a temperatura da memória continuou ausente, sem ser substituída por zero.
+O catálogo atual possui 34 campos semânticos e reserva até 48 registros porque cada ventoinha é preservada separadamente. Na RTX 3060 usada na validação, a temperatura da memória continuou ausente, sem ser substituída por zero; disponibilidade e quantidade de ventoinhas variam conforme placa e driver.
 
 O catálogo completo, os IDs consultados e as fórmulas estão em [PUBLIC_TELEMETRY.md](docs/PUBLIC_TELEMETRY.md).
 
@@ -286,7 +290,7 @@ O catálogo completo, os IDs consultados e as fórmulas estão em [PUBLIC_TELEME
 | `--count N` | Encerra o modo contínuo após `N` amostras; zero significa ilimitado |
 | `--buffer N` | Mantém de 1 a 65536 eventos recentes em memória; o padrão é 256 |
 | `--json` | Produz JSON; no modo contínuo, preserva o schema de amostra v1 |
-| `--events` | Produz o stream completo de eventos (schema v3) como JSON Lines |
+| `--events` | Produz o stream completo de eventos (schema v4) como JSON Lines |
 | `--alert-threshold C` | Dispara um alerta durante `--watch` ao atingir `C` °C (0-500) |
 | `--alert-hysteresis C` | Define a margem de encerramento; com zero, o alerta só limpa abaixo do limiar |
 | `--database PATH` | Persiste `--watch` em SQLite ou seleciona o banco de uma consulta |
@@ -470,7 +474,9 @@ dotnet run --project .\csharp\RtxMonitor.Lab -- `
   resolve-windows-handle --process-id 1234 --handle 0x368
 ```
 
-Na RTX 3060, o handle foi identificado como `\\.\GPU-Z-v8`. As camadas Win32 e nativa observaram exatamente as mesmas 130 chamadas em dez segundos. O código `0x80006040` lê o MSR Intel `IA32_THERM_STATUS`, ou seja, temperatura/estado térmico da CPU. O código `0x800060c0` lê bytes de configuração PCI da RTX. Nenhum dos dois fornece diretamente o `Hot Spot`. Com o caminho térmico já identificado, o próximo experimento prioriza a ABI do candidato `0x465f9bcf`, ligado às famílias de tensão, sem presumir que cada campo seja medido ou calculado. Detalhes, hashes e limites estão em [Caminhos de runtime do GPU-Z](docs/research/2026-08-25-gpuz-runtime-paths.md).
+Na RTX 3060, o handle foi identificado como `\\.\GPU-Z-v8`. As camadas Win32 e nativa observaram exatamente as mesmas 130 chamadas em dez segundos. O código `0x80006040` lê o MSR Intel `IA32_THERM_STATUS`, ou seja, temperatura/estado térmico da CPU. O código `0x800060c0` lê bytes de configuração PCI da RTX. Nenhum dos dois fornece diretamente o `Hot Spot`.
+
+Duas passagens do candidato de tensão `0x465f9bcf` comprovaram uma estrutura v1 de 76 bytes. No perfil fixo, a palavra 10/offset `0x28`, dividida por 1.000.000, reproduziu a tensão do núcleo em repouso e sob carga: 868.750, 937.500 e 1.081.250 corresponderam a `0,8680`, `0,9370` e `1,0810 V` no GPU-Z. O HWiNFO forneceu a segunda referência externa. O resultado continua experimental e específico do perfil; ainda não identifica rails, corrente ou potência dentro da estrutura. Consulte [a correlação multipatamar de tensão](docs/research/2026-08-26-rtx3060-nvapi-voltage-status-v1.md) e os [caminhos de runtime do GPU-Z](docs/research/2026-08-25-gpuz-runtime-paths.md).
 
 A investigação do snapshot oficial `open-gpu-kernel-modules-610.57.04` encontrou o protocolo RM `THERMAL_SYSTEM_EXECUTE_V2`, capaz de enumerar sensores e consultar provedor, alvo, faixa e leitura. A biblioteca pura [`rm_thermal_protocol.hpp`](cpp/include/rtxmon/lab/rm_thermal_protocol.hpp) fixa esse ABI e valida respostas, mas deliberadamente não possui transporte para o driver. Ela não é executada contra o driver Windows 610.88 enquanto versão, handles e rota WDDM não forem comprovados.
 
@@ -592,7 +598,7 @@ A prioridade agora é construir evidência, não uma interface gráfica. Cada et
 | **v0.5.0** | Persistência SQLite concluída |
 | **v0.6.0** | Serviço local headless, HTTP/SSE e Windows Service concluídos |
 | **v0.7.0** | Telemetria pública e métricas rastreáveis concluídas |
-| **v0.8.0** | Em andamento: ABI térmica v2 e canais die/hotspot identificados no perfil exato; próxima etapa é investigar tensão e potência com o mesmo rigor |
+| **v0.8.0** | Em andamento: ABI térmica v2 e canais die/hotspot identificados; tensão privada com schema e correlator offline no perfil exato, ainda pendente de repetição independente |
 | **v0.9.0** | Expandir e repetir perfis de aquisição sem relaxar a fronteira de segurança |
 | **v0.10.0** | Validar candidatos com repetição e referências independentes |
 | **v0.11.0** | Publicar candidatos validados em um provedor experimental separado |
@@ -638,10 +644,13 @@ A v0.8 inicia a engenharia reversa em um modo experimental separado e opt-in. A 
 - [ADR 0006 — serviço local headless](docs/adr/0006-loopback-headless-service.md)
 - [ADR 0007 — telemetria pública e métricas calculadas](docs/adr/0007-public-telemetry-and-computed-metrics.md)
 - [ADR 0008 — laboratório reproduzível e aquisição allowlisted](docs/adr/0008-reproducible-reverse-engineering-lab.md)
+- [ADR 0009 — telemetria Windows com identidade DXGI/PCI](docs/adr/0009-windows-telemetry-identity-gate.md)
 - [OpenAPI do serviço local — v1](docs/openapi/service-v1.openapi.json)
 - [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
-- [Schema JSON do catálogo público](docs/schema/public-telemetry-v1.schema.json)
-- [Schema JSON de eventos atual — v3](docs/schema/telemetry-event-v3.schema.json)
+- [Schema JSON do catálogo público atual — v2](docs/schema/public-telemetry-v2.schema.json)
+- [Schema JSON histórico do catálogo público — v1](docs/schema/public-telemetry-v1.schema.json)
+- [Schema JSON de eventos atual — v4](docs/schema/telemetry-event-v4.schema.json)
+- [Schema JSON histórico de eventos — v3](docs/schema/telemetry-event-v3.schema.json)
 - [Schema JSON histórico de eventos — v2](docs/schema/telemetry-event-v2.schema.json)
 - [Schema JSON histórico de eventos — v1](docs/schema/telemetry-event-v1.schema.json)
 - [Schema JSON de evidências — v1](docs/schema/evidence-record-v1.schema.json)

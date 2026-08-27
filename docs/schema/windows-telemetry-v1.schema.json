@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://enoquesousa.dev/rtx-monitor/schema/windows-telemetry-v1.schema.json",
+  "title": "RTX Monitor Windows GPU telemetry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "captured_at_unix_ms", "state", "error", "gpu", "adapter", "local_memory", "non_local_memory", "engines"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "captured_at_unix_ms": { "type": "integer", "minimum": 0 },
+    "state": { "enum": ["available", "partial", "identity_unavailable", "identity_mismatch", "counters_unavailable"] },
+    "error": { "type": ["string", "null"] },
+    "gpu": { "$ref": "#/$defs/gpu" },
+    "adapter": { "anyOf": [{ "$ref": "#/$defs/adapter" }, { "type": "null" }] },
+    "local_memory": { "$ref": "#/$defs/metric" },
+    "non_local_memory": { "$ref": "#/$defs/metric" },
+    "engines": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["engine_type", "utilization"],
+        "properties": {
+          "engine_type": { "type": "string", "minLength": 1 },
+          "utilization": { "$ref": "#/$defs/metric" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "gpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "name", "uuid", "driver_version", "nvml_version"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "name": { "type": "string", "minLength": 1 },
+        "uuid": { "type": "string", "minLength": 1 },
+        "driver_version": { "type": "string" },
+        "nvml_version": { "type": "string" }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["luid", "description", "vendor_id", "device_id", "subsystem_vendor_id", "subsystem_device_id"],
+      "properties": {
+        "luid": { "type": "string", "pattern": "^0x[0-9a-fA-F]{16}$" },
+        "description": { "type": "string", "minLength": 1 },
+        "vendor_id": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "device_id": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "subsystem_vendor_id": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "subsystem_device_id": { "type": "integer", "minimum": 0, "maximum": 65535 }
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "value", "unit", "error"],
+      "properties": {
+        "state": { "enum": ["available", "inactive", "counter_unavailable", "counters_unavailable", "identity_unavailable", "identity_mismatch"] },
+        "value": { "type": ["number", "null"], "minimum": 0 },
+        "unit": { "enum": ["bytes", "percent"] },
+        "error": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

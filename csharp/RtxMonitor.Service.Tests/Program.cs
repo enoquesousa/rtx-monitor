@@ -23,9 +23,14 @@ internal static class Program
         Run("bounded SSE hub", TestBoundedEventHub);
         Run("SSE recovery cursor", TestRecoveryEndpoint);
         Run("runtime health transitions", TestRuntimeHealthTransitions);
+        Run("DXGI PCI identity gate", TestWindowsIdentityGate);
+        Run("Windows telemetry fixtures", TestWindowsTelemetryFixtures);
+        Run("WDDM engine aggregation", TestWindowsEngineAggregation);
         await RunAsync("HTTP and SSE contracts", TestHttpAndSseContractsAsync)
             .ConfigureAwait(false);
         await RunAsync("single collector and graceful stop", TestSingleCollectorAndStopAsync)
+            .ConfigureAwait(false);
+        await RunAsync("Windows telemetry recovery", TestWindowsTelemetryRecoveryAsync)
             .ConfigureAwait(false);
         await RunAsync("storage recovery", TestStorageRecoveryAsync).ConfigureAwait(false);
 
@@ -171,6 +176,85 @@ internal static class Program
             "cursor de recuperação deve preservar e escapar o filtro da GPU");
     }
 
+    private static void TestWindowsIdentityGate()
+    {
+        BoardIdentity board = FakeDiscoveredGpu().Evidence.Board!;
+        var expected = new WindowsAdapterIdentity(
+            0x1669b, "Fake RTX 3060", 0x10de, 0x2504, 0x10de, 0x1536);
+        var wrongLuidPeer = new WindowsAdapterIdentity(
+            0x17974, "Other adapter", 0x8086, 0x4680, 0x0000, 0x0000);
+        Check(
+            ReferenceEquals(WindowsGpuReader.MatchAdapter(board, [wrongLuidPeer, expected]), expected),
+            "correlação deve selecionar o LUID somente após casar todos os IDs PCI");
+        Check(
+            WindowsGpuReader.MatchAdapter(board, [expected with { SubsystemDeviceId = 0x9999 }]) is null,
+            "subsystem incompatível deve fechar o gate de identidade");
+        Check(
+            WindowsGpuReader.MatchAdapter(board, []) is null,
+            "GPU DXGI ausente deve fechar o gate de identidade");
+        Check(
+            WindowsGpuReader.MatchAdapter(board, [expected, expected with { Luid = 0x9999 }]) is null,
+            "identidade PCI ambígua não pode escolher adaptador por ordem");
+    }
+
+    private static void TestWindowsTelemetryFixtures()
+    {
+        DiscoveredGpu gpu = FakeDiscoveredGpu();
+        var adapter = new WindowsAdapterIdentity(
+            0x1669b, "Fake RTX 3060", 0x10de, 0x2504, 0x10de, 0x1536);
+        var complete = WindowsGpuReader.EngineTypes.ToDictionary(
+            type => type,
+            type => (double?)(type == "3D" ? 12.5 : 0),
+            StringComparer.OrdinalIgnoreCase);
+        var reader = new WindowsGpuReader(
+            new FakeAdapterSource([adapter]),
+            new FakePdhSource(new PdhGpuSample(658640896, 120369152, complete)));
+        WindowsTelemetrySnapshot available = reader.Read(gpu, CancellationToken.None);
+        Check(available.State == "available", "fixture completa deve produzir snapshot disponível");
+        Check(available.Engines.Count == 6, "catálogo WDDM deve conter seis tipos estáveis");
+        Check(available.Engines.Single(item => item.EngineType == "Copy").Utilization.State == "inactive",
+            "zero observado deve ser inativo, não indisponível");
+
+        var partialReader = new WindowsGpuReader(
+            new FakeAdapterSource([adapter]),
+            new FakePdhSource(new PdhGpuSample(1, null,
+                new Dictionary<string, double?> { ["3D"] = 1 })));
+        WindowsTelemetrySnapshot partial = partialReader.Read(gpu, CancellationToken.None);
+        Check(partial.State == "partial" && partial.NonLocalMemory.Value is null,
+            "counter individual ausente deve produzir estado parcial");
+        Check(partial.Engines.Single(item => item.EngineType == "Copy").Utilization.State ==
+            "counter_unavailable", "tipo sem leitura não pode virar zero");
+
+        var unavailableReader = new WindowsGpuReader(
+            new FakeAdapterSource([adapter]),
+            new ThrowingPdhSource("GPU removida durante a coleta"));
+        WindowsTelemetrySnapshot unavailable = unavailableReader.Read(gpu, CancellationToken.None);
+        Check(unavailable.State == "counters_unavailable" && unavailable.Engines.Count == 6,
+            "falha PDH deve preservar catálogo com estados explícitos");
+
+        var dxgiFailureReader = new WindowsGpuReader(
+            new ThrowingAdapterSource(),
+            new FakePdhSource(new PdhGpuSample(1, 1, complete)));
+        WindowsTelemetrySnapshot dxgiFailure = dxgiFailureReader.Read(gpu, CancellationToken.None);
+        Check(dxgiFailure.State == "identity_unavailable" && dxgiFailure.Adapter is null,
+            "falha DXGI deve fechar o gate antes do PDH");
+    }
+
+    private static void TestWindowsEngineAggregation()
+    {
+        IReadOnlyDictionary<string, double?> values = PdhGpuCounterSource.AggregateEngineReadings(
+        [
+            new PdhEngineReading("3D", "0", 60),
+            new PdhEngineReading("3D", "0", 55),
+            new PdhEngineReading("3D", "1", 40),
+            new PdhEngineReading("Copy", "0", null),
+        ]);
+        Check(values["3D"] == 100,
+            "processos do mesmo engine físico devem somar com limite de 100%");
+        Check(values["Copy"] is null,
+            "engine sem amostra válida deve continuar indisponível");
+    }
+
     private static async Task TestHttpAndSseContractsAsync()
     {
         using var temporary = new TemporaryWorkspace();
@@ -195,6 +279,7 @@ internal static class Program
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton<IMonitoringSnapshotSource>(state);
         builder.Services.AddSingleton<IHistorySource>(history);
+        builder.Services.AddSingleton<IWindowsTelemetrySnapshotSource>(new FakeWindowsTelemetrySource());
         builder.Services.AddSingleton(hub);
         await using WebApplication application = builder.Build();
         ServiceEndpoints.Map(application);
@@ -255,6 +340,21 @@ internal static class Program
             Check(root.GetProperty("computed_metrics").GetProperty("metrics")[0]
                     .GetProperty("formula").GetString() == "mean(gpu_die_temperature_c within window)",
                 "endpoint deve expor fórmula reproduzível");
+        }
+
+        using (HttpResponseMessage windowsResponse = await client.GetAsync(
+            $"/api/v1/gpus/{Uri.EscapeDataString(discovered.Gpu.Uuid)}/windows-telemetry")
+            .ConfigureAwait(false))
+        {
+            Check(windowsResponse.StatusCode == HttpStatusCode.OK,
+                "telemetria Windows com identidade confirmada deve retornar 200");
+            using JsonDocument windows = JsonDocument.Parse(
+                await windowsResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
+            JsonElement root = windows.RootElement;
+            Check(root.GetProperty("adapter").GetProperty("luid").GetString() == "0x000000000001669b",
+                "endpoint deve expor o LUID correlacionado");
+            Check(root.GetProperty("local_memory").GetProperty("value").GetDouble() == 658640896,
+                "endpoint deve preservar memória local sem somá-la à não local");
         }
 
         using (HttpResponseMessage historyResponse = await client.GetAsync(
@@ -327,7 +427,10 @@ internal static class Program
         Check(banner?.StartsWith(": rtx-monitor", StringComparison.Ordinal) == true, "SSE deve iniciar com comentário");
         _ = await reader.ReadLineAsync(streamCancellation.Token).ConfigureAwait(false);
 
-        TelemetryEvent liveEvent = FakeTelemetryEvent(1);
+        TelemetryEvent liveEvent = FakeTelemetryEvent(1) with
+        {
+            WindowsTelemetry = FakeWindowsTelemetrySnapshot(),
+        };
         hub.Publish(42, "run-http", liveEvent.TargetGpuUuid, liveEvent);
         string? idLine = await reader.ReadLineAsync(streamCancellation.Token).ConfigureAwait(false);
         string? eventLine = await reader.ReadLineAsync(streamCancellation.Token).ConfigureAwait(false);
@@ -335,6 +438,13 @@ internal static class Program
         Check(idLine == "id: 42", "SSE deve usar event_id persistido como cursor");
         Check(eventLine == "event: telemetry", "SSE deve nomear o evento de telemetria");
         Check(dataLine?.StartsWith("data: {", StringComparison.Ordinal) == true, "SSE deve emitir JSON");
+        using (JsonDocument liveJson = JsonDocument.Parse(dataLine!["data: ".Length..]))
+        {
+            Check(liveJson.RootElement.GetProperty("event").GetProperty("windows_telemetry")
+                    .GetProperty("adapter").GetProperty("luid").GetString() ==
+                "0x000000000001669b",
+                "SSE deve preservar o snapshot Windows do evento persistido");
+        }
 
         eventResponse.Dispose();
         await application.StopAsync().ConfigureAwait(false);
@@ -357,6 +467,7 @@ internal static class Program
             storeProvider,
             hub,
             backend,
+            new FakeWindowsTelemetrySource(),
             NullLogger<GpuMonitoringWorker>.Instance);
 
         await worker.StartAsync(CancellationToken.None).ConfigureAwait(false);
@@ -383,6 +494,40 @@ internal static class Program
         Check(
             records.All(record => record.Run.CompletionReason == "service_stopped"),
             "encerramento gracioso deve registrar service_stopped");
+        StoredTelemetryEvidence sampleRecord = records.First(
+            record => record.EventKind == TelemetryEventKind.Sample);
+        using JsonDocument persisted = JsonDocument.Parse(sampleRecord.EventJson);
+        Check(persisted.RootElement.GetProperty("windows_telemetry")
+                .GetProperty("adapter").GetProperty("luid").GetString() ==
+            "0x000000000001669b",
+            "SQLite deve persistir o mesmo snapshot Windows no evento sample");
+        using JsonDocument historical = JsonDocument.Parse(EvidenceJson.Serialize(sampleRecord));
+        Check(historical.RootElement.GetProperty("event").GetProperty("windows_telemetry")
+                .GetProperty("local_memory").GetProperty("value").GetDouble() == 658640896,
+            "evidência usada por /history deve preservar a telemetria Windows");
+    }
+
+    private static async Task TestWindowsTelemetryRecoveryAsync()
+    {
+        using var temporary = new TemporaryWorkspace();
+        var monitoring = new MonitoringState(TestOptions(temporary.DatabasePath));
+        monitoring.RecordDiscoverySuccess([FakeDiscoveredGpu()]);
+        var windowsState = new WindowsTelemetryState();
+        var reader = new RecoveringWindowsReader();
+        var worker = new WindowsTelemetryWorker(
+            monitoring,
+            windowsState,
+            reader,
+            NullLogger<WindowsTelemetryWorker>.Instance,
+            TimeSpan.FromMilliseconds(10));
+        await worker.StartAsync(CancellationToken.None).ConfigureAwait(false);
+        await WaitUntilAsync(
+            () => reader.Reads >= 2 &&
+                windowsState.GetSnapshot(FakeGpu().Uuid)?.State == "available",
+            TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        await worker.StopAsync(CancellationToken.None).ConfigureAwait(false);
+        Check(reader.Reads >= 2,
+            "worker deve tentar novamente depois de snapshot indisponível");
     }
 
     private static async Task TestStorageRecoveryAsync()
@@ -400,6 +545,7 @@ internal static class Program
             new TelemetryStoreProvider(),
             new TelemetryEventHub(options),
             new FakeMonitoringBackend(),
+            new FakeWindowsTelemetrySource(),
             NullLogger<GpuMonitoringWorker>.Instance);
 
         await worker.StartAsync(CancellationToken.None).ConfigureAwait(false);
@@ -630,6 +776,73 @@ internal static class Program
         {
             LastQuery = query;
             return [];
+        }
+    }
+
+    private sealed class FakeWindowsTelemetrySource : IWindowsTelemetrySnapshotSource
+    {
+        public WindowsTelemetrySnapshot? GetSnapshot(string gpuUuid)
+        {
+            if (!string.Equals(gpuUuid, FakeGpu().Uuid, StringComparison.OrdinalIgnoreCase)) return null;
+            return FakeWindowsTelemetrySnapshot();
+        }
+    }
+
+    private static WindowsTelemetrySnapshot FakeWindowsTelemetrySnapshot()
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        return new WindowsTelemetrySnapshot(
+            1, now, "available", null, FakeGpu(),
+            new WindowsAdapterIdentity(0x1669b, "Fake RTX 3060", 0x10de, 0x2504, 0x10de, 0x1536),
+            new WindowsTelemetryMetric("available", 658640896, "bytes"),
+            new WindowsTelemetryMetric("available", 120369152, "bytes"),
+            WindowsGpuReader.EngineTypes.Select(type => new WindowsEngineTelemetry(
+                type,
+                new WindowsTelemetryMetric(
+                    type == "3D" ? "available" : "inactive",
+                    type == "3D" ? 12.5 : 0,
+                    "percent"))).ToArray());
+    }
+
+    private sealed class FakeAdapterSource(IReadOnlyList<WindowsAdapterIdentity> adapters)
+        : IWindowsAdapterSource
+    {
+        public IReadOnlyList<WindowsAdapterIdentity> Enumerate() => adapters;
+    }
+
+    private sealed class ThrowingAdapterSource : IWindowsAdapterSource
+    {
+        public IReadOnlyList<WindowsAdapterIdentity> Enumerate() =>
+            throw new InvalidOperationException("DXGI indisponível");
+    }
+
+    private sealed class FakePdhSource(PdhGpuSample sample) : IPdhGpuCounterSource
+    {
+        public PdhGpuSample Read(long luid, CancellationToken cancellationToken) => sample;
+    }
+
+    private sealed class ThrowingPdhSource(string message) : IPdhGpuCounterSource
+    {
+        public PdhGpuSample Read(long luid, CancellationToken cancellationToken) =>
+            throw new PdhException(message);
+    }
+
+    private sealed class RecoveringWindowsReader : IWindowsGpuReader
+    {
+        private int reads;
+        internal int Reads => Volatile.Read(ref reads);
+
+        public WindowsTelemetrySnapshot Read(DiscoveredGpu gpu, CancellationToken cancellationToken)
+        {
+            int attempt = Interlocked.Increment(ref reads);
+            string state = attempt == 1 ? "counters_unavailable" : "available";
+            string? error = attempt == 1 ? "falha transitória" : null;
+            double? value = attempt == 1 ? null : 1;
+            var bytes = new WindowsTelemetryMetric(state, value, "bytes", error);
+            return new WindowsTelemetrySnapshot(
+                1, DateTimeOffset.UtcNow, state, error, gpu.Gpu, null, bytes, bytes,
+                WindowsGpuReader.EngineTypes.Select(type => new WindowsEngineTelemetry(
+                    type, new WindowsTelemetryMetric(state, value, "percent", error))).ToArray());
         }
     }
 

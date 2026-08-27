@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/enoquesousa/rtx-monitor/main/docs/schema/public-telemetry-v2.schema.json",
+  "title": "RTX Monitor public telemetry report",
+  "description": "One report emitted by --telemetry --json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "gpu",
+    "profile_key",
+    "captured_at_unix_ms",
+    "coverage",
+    "performance_limit_reasons",
+    "fields",
+    "computed_metrics"
+  ],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "gpu": { "$ref": "#/$defs/gpu" },
+    "profile_key": { "type": "string", "minLength": 1 },
+    "captured_at_unix_ms": { "type": "integer", "minimum": 0 },
+    "coverage": {
+      "$ref": "telemetry-event-v4.schema.json#/$defs/coverage"
+    },
+    "performance_limit_reasons": {
+      "$ref": "telemetry-event-v4.schema.json#/$defs/publicTelemetry/properties/performance_limit_reasons"
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 34,
+      "maxItems": 48,
+      "items": {
+        "$ref": "telemetry-event-v4.schema.json#/$defs/publicField"
+      }
+    },
+    "computed_metrics": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "$ref": "telemetry-event-v4.schema.json#/$defs/computedMetric"
+      }
+    }
+  },
+  "$defs": {
+    "gpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "name", "uuid", "driver_version", "nvml_version"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "name": { "type": "string", "minLength": 1 },
+        "uuid": { "type": "string", "minLength": 1 },
+        "driver_version": { "type": "string" },
+        "nvml_version": { "type": "string" }
+      }
+    }
+  }
+}

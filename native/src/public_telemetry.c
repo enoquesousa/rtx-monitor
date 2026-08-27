@@ -17,7 +17,7 @@ typedef struct rtxmon_clock_descriptor {
 } rtxmon_clock_descriptor_t;
 
 enum {
-    RTXMON_PUBLIC_FIELDS_AFTER_FANS = 7U
+    RTXMON_PUBLIC_FIELDS_AFTER_FANS = 10U
 };
 
 static const rtxmon_field_descriptor_t rtxmon_nvml_fields[] = {
@@ -166,6 +166,83 @@ static void rtxmon_public_set_bitmask(rtxmon_public_field_value_t *value, uint64
 
     value->value_type = RTXMON_VALUE_TYPE_BITMASK;
     value->value_u64 = number;
+}
+
+static const rtxmon_public_field_value_t *rtxmon_public_find(
+    const rtxmon_public_telemetry_report_t *report,
+    uint32_t field)
+{
+    uint32_t index;
+    for (index = 0U; index < report->field_count; ++index) {
+        if (report->fields[index].field == field) {
+            return &report->fields[index];
+        }
+    }
+    return NULL;
+}
+
+static void rtxmon_collect_power_ratio(
+    rtxmon_public_telemetry_report_t *report,
+    uint32_t limit_field,
+    uint32_t output_field)
+{
+    const rtxmon_public_field_value_t *power =
+        rtxmon_public_find(report, RTXMON_PUBLIC_FIELD_POWER_INSTANT_MW);
+    const rtxmon_public_field_value_t *limit = rtxmon_public_find(report, limit_field);
+    rtxmon_public_field_value_t *output;
+    nvmlReturn_t result = NVML_ERROR_NOT_SUPPORTED;
+
+    if (power != NULL && limit != NULL) {
+        if (power->state == RTXMON_CAPABILITY_AVAILABLE &&
+            limit->state == RTXMON_CAPABILITY_AVAILABLE && limit->value_u64 > 0U) {
+            result = NVML_SUCCESS;
+        } else if (power->state == RTXMON_CAPABILITY_PROVIDER_UNAVAILABLE ||
+                   limit->state == RTXMON_CAPABILITY_PROVIDER_UNAVAILABLE) {
+            result = NVML_ERROR_FUNCTION_NOT_FOUND;
+        } else if (power->state == RTXMON_CAPABILITY_QUERY_FAILED ||
+                   limit->state == RTXMON_CAPABILITY_QUERY_FAILED ||
+                   (limit->state == RTXMON_CAPABILITY_AVAILABLE && limit->value_u64 == 0U)) {
+            result = NVML_ERROR_UNKNOWN;
+        }
+    }
+
+    output = rtxmon_public_add(
+        report,
+        output_field,
+        RTXMON_PUBLIC_PROVIDER_COMPUTED_POWER_RATIO,
+        RTXMON_UNIT_PERCENT,
+        limit_field,
+        result,
+        report->timestamp_unix_ms);
+    if (output != NULL && result == NVML_SUCCESS) {
+        output->origin = RTXMON_ORIGIN_COMPUTED;
+        output->value_type = RTXMON_VALUE_TYPE_DOUBLE;
+        output->value_f64 = 100.0 * (double)power->value_u64 / (double)limit->value_u64;
+    }
+}
+
+static void rtxmon_collect_temperature_limit(
+    rtxmon_context_t *context,
+    nvmlDevice_t device,
+    rtxmon_public_telemetry_report_t *report)
+{
+    uint32_t temperature = 0U;
+    const nvmlReturn_t result = context->nvml.device_get_temperature_threshold != NULL
+        ? context->nvml.device_get_temperature_threshold(
+              device,
+              RTXMON_NVML_TEMPERATURE_THRESHOLD_GPU_MAX,
+              &temperature)
+        : NVML_ERROR_FUNCTION_NOT_FOUND;
+    rtxmon_public_set_u64(
+        rtxmon_public_add(
+            report,
+            RTXMON_PUBLIC_FIELD_TEMPERATURE_GPU_LIMIT_C,
+            RTXMON_PUBLIC_PROVIDER_NVML_TEMPERATURE_THRESHOLD,
+            RTXMON_UNIT_CELSIUS,
+            RTXMON_NVML_TEMPERATURE_THRESHOLD_GPU_MAX,
+            result,
+            report->timestamp_unix_ms),
+        temperature);
 }
 
 static void rtxmon_public_set_nvml_value(
@@ -634,6 +711,15 @@ rtxmon_read_public_telemetry(
         RTXMON_PUBLIC_PROVIDER_NVML_DECODER_UTILIZATION,
         RTXMON_PUBLIC_FIELD_DECODER_UTILIZATION_PERCENT,
         RTXMON_PUBLIC_FIELD_DECODER_SAMPLING_PERIOD_US);
+    rtxmon_collect_power_ratio(
+        &report,
+        RTXMON_PUBLIC_FIELD_POWER_LIMIT_DEFAULT_MW,
+        RTXMON_PUBLIC_FIELD_POWER_CONSUMPTION_DEFAULT_LIMIT_PERCENT);
+    rtxmon_collect_power_ratio(
+        &report,
+        RTXMON_PUBLIC_FIELD_POWER_LIMIT_CURRENT_MW,
+        RTXMON_PUBLIC_FIELD_POWER_CONSUMPTION_CURRENT_LIMIT_PERCENT);
+    rtxmon_collect_temperature_limit(context, device, &report);
 
     (void)memcpy(out_report, &report, sizeof(report));
     return RTXMON_STATUS_OK;

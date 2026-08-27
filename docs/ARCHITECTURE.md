@@ -78,7 +78,7 @@ Não há deduplicação semântica: duas APIs que reportam o mesmo die continuam
 6. O motor C++ recebe o snapshot, atualiza uma janela limitada e produz quatro métricas rotuladas como `computed`.
 7. C++ e C# emitem o mesmo catálogo em `--telemetry`; o sampler incorpora os dois relatórios no evento `sample` v3.
 
-O catálogo tem 31 campos semânticos e capacidade para 48 registros por causa das ventoinhas repetíveis. A especificação completa está em [`PUBLIC_TELEMETRY.md`](PUBLIC_TELEMETRY.md), e a decisão em [ADR 0007](adr/0007-public-telemetry-and-computed-metrics.md).
+O catálogo tem 34 campos semânticos e capacidade para 48 registros por causa das ventoinhas repetíveis. A especificação completa está em [`PUBLIC_TELEMETRY.md`](PUBLIC_TELEMETRY.md), e a decisão em [ADR 0007](adr/0007-public-telemetry-and-computed-metrics.md).
 
 ## Fluxo do monitoramento resiliente
 
@@ -119,7 +119,7 @@ O avaliador não conhece sessão, GPU, thread ou relógio: é uma máquina de es
 6. `(run_id, stream_sequence)` torna a repetição idempotente; conteúdo diferente na mesma sequência é conflito, não atualização.
 7. Encerramento normal, `Ctrl+C` ou erro atualizam o run. A ausência de `completed_at_unix_ms` indica que nenhum encerramento foi confirmado.
 
-O banco mantém o evento original no schema v3 e colunas indexadas para consulta. O schema SQLite permanece 1 porque o JSON já é armazenado integralmente; runs históricos v2 continuam legíveis. `--history --json` e `--export` acrescentam o contexto do run e do snapshot conforme [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json). Um snapshot associado a uma lacuna é contexto anterior conhecido, não uma afirmação de que a GPU estava acessível naquele instante — ver [ADR 0005](adr/0005-sqlite-evidence-store.md).
+O banco mantém o evento original no schema v4 e colunas indexadas para consulta. O schema SQLite permanece 1 porque o JSON já é armazenado integralmente; runs históricos v2 e v3 continuam legíveis. `--history --json` e `--export` acrescentam o contexto do run e do snapshot conforme [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json). Um snapshot associado a uma lacuna é contexto anterior conhecido, não uma afirmação de que a GPU estava acessível naquele instante — ver [ADR 0005](adr/0005-sqlite-evidence-store.md).
 
 ## Fluxo do serviço local
 
@@ -128,7 +128,7 @@ O banco mantém o evento original no schema v3 e colunas indexadas para consulta
 3. Um dicionário por UUID inicia no máximo um `ResilientSampler` para cada GPU observada.
 4. Cada coletor cria seu próprio run, snapshot de placa e sequência lógica.
 5. O evento é confirmado no SQLite antes de ser publicado ao broker SSE.
-6. `/api/v1/gpus`, `/capabilities` e `/telemetry` leem snapshots imutáveis; não iniciam sessões nativas por requisição.
+6. `/api/v1/gpus`, `/capabilities`, `/telemetry` e `/windows-telemetry` leem snapshots imutáveis; não iniciam sessões nativas por requisição. O worker Windows enumera DXGI, exige correspondência de vendor/device/subsystem com a identidade NVML e só então usa o LUID para filtrar os counters PDH. O último snapshot Windows confirmado é anexado ao próximo evento `sample`, de modo que SQLite, SSE, exportação e `/history` preservem o mesmo conteúdo sob o mesmo `event_id`; transições de alerta não duplicam telemetria bruta. A decisão e as alternativas rejeitadas estão no [ADR 0009](adr/0009-windows-telemetry-identity-gate.md).
 7. `/api/v1/history` executa consultas limitadas no mesmo armazenamento WAL.
 8. Cada assinante de `/api/v1/events` recebe uma fila privada e limitada. `TryWrite` nunca bloqueia o coletor.
 9. Quando a fila enche, o serviço preserva o evento no banco, mantém as entregas seguintes na mesma lacuna e envia `stream_gap` ao cliente lento antes de reabrir sua fila.
@@ -147,7 +147,7 @@ A fronteira nativa é C, não C++, porque nomes, exceções e layouts C++ não f
 - `rtxmon_thermal_capability_t`: fonte, ID nativo do provedor, alvo, controlador, valores válidos, estado e confiança;
 - `rtxmon_thermal_report_t`: snapshot fixo de três provedores e até oito registros;
 - `rtxmon_public_field_value_t`: valor bruto, provedor, ID, estado, origem, tipo, unidade e timestamp;
-- `rtxmon_public_telemetry_report_t`: até 48 registros para 31 campos semânticos e ventoinhas repetíveis;
+- `rtxmon_public_telemetry_report_t`: até 48 registros para 34 campos semânticos e ventoinhas repetíveis;
 - `rtxmon_metrics_options_t`: janela, limiar e limite de amostras;
 - `rtxmon_computed_metric_t`: fórmula identificada, estado, valor, janela e entradas;
 - `rtxmon_computed_metrics_report_t`: quatro métricas calculadas no mesmo timestamp do snapshot;
@@ -245,7 +245,7 @@ O comando `--capabilities --json` usa `schema_version: 2` e separa:
 
 O contrato serializado é formalizado em [`docs/schema/capabilities-v2.schema.json`](schema/capabilities-v2.schema.json).
 
-O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v3.schema.json`](schema/telemetry-event-v3.schema.json). Cada envelope contém:
+O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v4.schema.json`](schema/telemetry-event-v4.schema.json). Cada envelope contém:
 
 - `event_type`: `sample`, `gap`, `recovered`, `alert_raised` ou `alert_cleared`;
 - `sequence` global e crescente dentro de um processo, além do horário observado;

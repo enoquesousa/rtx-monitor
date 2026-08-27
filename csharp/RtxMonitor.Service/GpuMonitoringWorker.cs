@@ -14,6 +14,7 @@ public sealed class GpuMonitoringWorker : BackgroundService
     private readonly TelemetryStoreProvider storeProvider;
     private readonly TelemetryEventHub eventHub;
     private readonly IMonitoringBackend backend;
+    private readonly IWindowsTelemetrySnapshotSource windowsTelemetry;
     private readonly ILogger<GpuMonitoringWorker> logger;
 
     public GpuMonitoringWorker(
@@ -22,6 +23,7 @@ public sealed class GpuMonitoringWorker : BackgroundService
         TelemetryStoreProvider storeProvider,
         TelemetryEventHub eventHub,
         IMonitoringBackend backend,
+        IWindowsTelemetrySnapshotSource windowsTelemetry,
         ILogger<GpuMonitoringWorker> logger)
     {
         this.options = options;
@@ -29,6 +31,7 @@ public sealed class GpuMonitoringWorker : BackgroundService
         this.storeProvider = storeProvider;
         this.eventHub = eventHub;
         this.backend = backend;
+        this.windowsTelemetry = windowsTelemetry;
         this.logger = logger;
     }
 
@@ -301,6 +304,9 @@ public sealed class GpuMonitoringWorker : BackgroundService
                     TelemetryEvent telemetryEvent = sampledEvent with
                     {
                         Sequence = ++streamSequence,
+                        WindowsTelemetry = sampledEvent.Kind == TelemetryEventKind.Sample
+                            ? windowsTelemetry.GetSnapshot(discovered.Gpu.Uuid)
+                            : null,
                     };
 
                     if (telemetryEvent.Gpu is GpuInfo currentGpu)
@@ -340,6 +346,7 @@ public sealed class GpuMonitoringWorker : BackgroundService
                                 AlertHysteresisC = alertEvaluator.Options.HysteresisC,
                                 PublicTelemetry = null,
                                 ComputedMetrics = null,
+                                WindowsTelemetry = null,
                                 Message = AlertMessage(
                                     kind,
                                     sample.TemperatureC,

@@ -196,6 +196,11 @@ rtxmon_nvml_loader_status_t rtxmon_nvml_load(
         "nvmlDeviceGetTemperature");
     RTXMON_RESOLVE_OPTIONAL(
         api,
+        device_get_temperature_threshold,
+        rtxmon_nvml_device_get_temperature_threshold_fn,
+        "nvmlDeviceGetTemperatureThreshold");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
         device_get_thermal_settings,
         rtxmon_nvml_device_get_thermal_settings_fn,
         "nvmlDeviceGetThermalSettings");

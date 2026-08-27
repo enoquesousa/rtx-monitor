@@ -49,7 +49,8 @@ public sealed record TelemetryEvent(
     int? AlertThresholdC = null,
     int? AlertHysteresisC = null,
     PublicTelemetryReport? PublicTelemetry = null,
-    ComputedMetricsReport? ComputedMetrics = null)
+    ComputedMetricsReport? ComputedMetrics = null,
+    WindowsTelemetrySnapshot? WindowsTelemetry = null)
 {
     public string KindName => Kind switch
     {

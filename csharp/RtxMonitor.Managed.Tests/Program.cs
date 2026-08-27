@@ -67,6 +67,7 @@ internal static class Program
         TestAlertHysteresisPreventsFlapping();
         TestAlertInvalidOptionsAreRejected();
         TestComputedMetricsAreReproducible();
+        TestPerformanceLimitReasonsAreTranslated();
         TestTelemetryJsonV3PreservesProvenance();
 
         if (failures == 0)
@@ -296,7 +297,7 @@ internal static class Program
 
         using JsonDocument document = JsonDocument.Parse(TelemetryJson.Serialize(telemetryEvent));
         JsonElement root = document.RootElement;
-        Check(root.GetProperty("schema_version").GetInt32() == 3, "evento enriquecido usa schema 3");
+        Check(root.GetProperty("schema_version").GetInt32() == 4, "evento enriquecido usa schema 4");
         JsonElement field = root.GetProperty("public_telemetry").GetProperty("fields")[0];
         Check(field.GetProperty("provider").GetString() == "NVML fake", "provedor é persistido");
         Check(field.GetProperty("origin").GetString() == "driver_reported", "origem é persistida");
@@ -304,6 +305,42 @@ internal static class Program
         JsonElement metric = root.GetProperty("computed_metrics").GetProperty("metrics")[0];
         Check(metric.GetProperty("formula").GetString()!.Length > 0, "fórmula é persistida");
         Check(metric.GetProperty("inputs").GetArrayLength() == 1, "entradas são persistidas");
+    }
+
+    private static void TestPerformanceLimitReasonsAreTranslated()
+    {
+        const ulong timestamp = 1_700_000_000_000;
+        var field = new PublicTelemetryValue(
+            PublicTelemetryField.ClockEventReasonsCurrent,
+            "clock_event_reasons_current",
+            PublicTelemetryProvider.NvmlClockEventReasons,
+            "NVML fake",
+            CapabilityState.Available,
+            "available",
+            DataOrigin.DriverReported,
+            "driver_reported",
+            TelemetryValueType.Bitmask,
+            "bitmask",
+            TelemetryUnit.Bitmask,
+            "bitmask",
+            0,
+            0,
+            (1UL << 0) | (1UL << 5),
+            null,
+            null,
+            timestamp);
+        var report = new PublicTelemetryReport(
+            0,
+            DateTimeOffset.FromUnixTimeMilliseconds(checked((long)timestamp)),
+            timestamp,
+            [field]);
+
+        PerformanceLimitReasonReport? reasons = PerformanceLimitReasons.From(report);
+        Check(reasons?.RawBitmask == 33, "PerfCap preserva a máscara bruta");
+        Check(
+            reasons?.ActiveReasons.SequenceEqual(["gpu_idle", "software_thermal"]) == true,
+            "PerfCap decompõe todos os bits ativos");
+        Check(reasons?.PrimaryReason == "idle", "PerfCap escolhe razão primária estável");
     }
 
     private static PublicTelemetryReport Telemetry(

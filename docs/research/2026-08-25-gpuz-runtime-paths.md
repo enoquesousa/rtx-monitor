@@ -156,7 +156,9 @@ O comando offline `inventory-nvapi-candidates` combina a classificação com a o
 
 ## Próximo gate experimental
 
-O próximo alvo prioritário é `0x465f9bcf`, já ligado estaticamente às famílias de rails e políticas de tensão. A mesma sequência usada no canal térmico deve ser repetida sem atalhos: provar quantidade e direção dos argumentos, versões e tamanhos de estruturas, localizar o call site consumidor, criar um perfil fixo por hashes e somente então observar o buffer que o GPU-Z já forneceu. Potência, tensão, limite e status não podem ser distinguidos apenas por proximidade no binário ou por correlação com carga.
+A primeira passagem do candidato `0x465f9bcf` comprovou uma estrutura v1 de 76 bytes (`0x0001004c`) e correlacionou a palavra 10/offset `0x28`, interpretada como 862.500 microvolts, com `0,8620 V` no GPU-Z e `0,863 V` no HWiNFO durante a mesma janela. Uma segunda passagem sob carga reproduziu três degraus: 868.750, 937.500 e 1.081.250 microvolts corresponderam respectivamente a `0,8680`, `0,9370` e `1,0810 V` no GPU-Z. A evidência e os limites estão em [Correlação multipatamar do status privado de tensão](2026-08-26-rtx3060-nvapi-voltage-status-v1.md).
+
+O próximo gate é estabilizar um schema e correlator offline e repetir a sessão para testar reprodutibilidade. Rails, políticas, potência, limite e status não podem ser distinguidos apenas por proximidade no binário ou por essa correlação de tensão.
 
 Em paralelo, a captura térmica deve ser repetida em ciclos controlados de repouso, aquecimento e resfriamento, preservando valores brutos, log externo e incerteza. Uma sonda física independente ainda é necessária para promover o resultado além de `matched_external_reference`. A captura do startup permanece como trilha complementar para descobrir configuração ou outros canais. Nenhuma interface privada será chamada pelo projeto, e nenhum perfil será generalizado para outro driver, VBIOS ou modelo sem nova evidência.
 

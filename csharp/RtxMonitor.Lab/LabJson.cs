@@ -5,6 +5,14 @@ namespace RtxMonitor.Lab;
 
 public static class LabJson
 {
+    public static string SerializeVoltageStatusCorrelation(VoltageStatusCorrelationReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return JsonSerializer.Serialize(report, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+        });
+    }
     public static byte[] SerializeManifestUtf8(
         LabPackageManifest manifest,
         bool appendNewLine = false)

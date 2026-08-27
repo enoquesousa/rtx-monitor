@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "source_kind": "nvapi_voltage_status_v1_observation",
+  "gpuz_sha256": "6cb0ef29682452de81a9576808881685161411a1fad00938ba04131159979c29",
+  "nvapi_module_sha256": "fbc9aed43bfa5bda19b7f83a809a081a0ce454b6d6003dcabc565ecb3e6afdaf",
+  "interface_id": "0x465f9bcf",
+  "function_rva": "0x00198010",
+  "structure_version": "0x0001004c",
+  "structure_size_bytes": 76,
+  "value_word_index": 10,
+  "value_offset_bytes": 40,
+  "scale_divisor": 1000000,
+  "reference_log": { "size_bytes_after": 143, "last_sample_local_before": "2026-08-26 18:18:31", "last_sample_local_after": "2026-08-26 18:18:33" },
+  "call_count": 3,
+  "samples": [
+    { "sequence": 1, "thread_id": "0x000075bc", "return_status": "0x00000000", "raw_words": ["0x0001004c","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00107fa2","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000"], "selected_raw_microvolts": 1081250, "selected_volts": 1.08125 },
+    { "sequence": 2, "thread_id": "0x000075bc", "return_status": "0x00000000", "raw_words": ["0x0001004c","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x000d418e","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000"], "selected_raw_microvolts": 868750, "selected_volts": 0.86875 },
+    { "sequence": 3, "thread_id": "0x000075bc", "return_status": "0x00000000", "raw_words": ["0x0001004c","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x000e4e1c","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000","0x00000000"], "selected_raw_microvolts": 937500, "selected_volts": 0.9375 }
+  ],
+  "warning": "Synthetic fixed-profile multipoint observation used only by hardware-independent tests."
+}

@@ -42,6 +42,8 @@ public static class LabCli
                 "correlate-gpuz-log" => RunCorrelateGpuzLog(args, standardOutput),
                 "correlate-nvapi-therm-channel" =>
                     RunCorrelateNvapiThermChannel(args, standardOutput),
+                "correlate-nvapi-voltage-status" =>
+                    RunCorrelateNvapiVoltageStatus(args, standardOutput),
                 "classify-nvapi-ids" => RunClassifyNvapiIds(args, standardOutput),
                 "inventory-nvapi-candidates" => RunInventoryNvapiCandidates(
                     args,
@@ -82,6 +84,12 @@ public static class LabCli
             return 1;
         }
         catch (ThermChannelCorrelationException error)
+        {
+            standardError.WriteLine(
+                LabJson.SerializeError(operation, "analysis_error", error.Message));
+            return 1;
+        }
+        catch (VoltageStatusCorrelationException error)
         {
             standardError.WriteLine(
                 LabJson.SerializeError(operation, "analysis_error", error.Message));
@@ -129,6 +137,8 @@ public static class LabCli
         "  rtxmon-lab analyze-gpuz-log --input FILE\n" +
         "  rtxmon-lab correlate-gpuz-log --input FILE --reference CHANNEL [--session INDEX]\n" +
         "  rtxmon-lab correlate-nvapi-therm-channel --observation REPORT " +
+        "--gpuz-log FILE\n" +
+        "  rtxmon-lab correlate-nvapi-voltage-status --observation REPORT " +
         "--gpuz-log FILE\n" +
         "  rtxmon-lab classify-nvapi-ids --input REPORT --interface-table HEADER\n" +
         "  rtxmon-lab inventory-nvapi-candidates --classification REPORT --calls REPORT\n" +
@@ -224,6 +234,18 @@ public static class LabCli
             RequireOption(options, "--observation"),
             RequireOption(options, "--gpuz-log"));
         standardOutput.WriteLine(LabJson.SerializeThermChannelCorrelation(report));
+        return 0;
+    }
+
+    private static int RunCorrelateNvapiVoltageStatus(
+        IReadOnlyList<string> args,
+        TextWriter standardOutput)
+    {
+        Dictionary<string, string> options = ParseOptions(args, startIndex: 1);
+        RequireOnly(options, "--observation", "--gpuz-log");
+        VoltageStatusCorrelationReport report = VoltageStatusCorrelation.AnalyzeFiles(
+            RequireOption(options, "--observation"), RequireOption(options, "--gpuz-log"));
+        standardOutput.WriteLine(LabJson.SerializeVoltageStatusCorrelation(report));
         return 0;
     }
 

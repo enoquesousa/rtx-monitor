@@ -27,7 +27,7 @@ Cada registro guarda:
 - `provider`: função NVIDIA realmente utilizada;
 - `provider_native_id`: ID documentado, seletor da função ou índice do fan;
 - `state`: resultado daquela consulta;
-- `origin`: `driver_reported` para os campos deste catálogo;
+- `origin`: `driver_reported` para valores devolvidos pelo driver e `computed` para razões derivadas;
 - `value_type` e `unit`: tipo bruto e unidade, sem conversão oculta;
 - um entre `value_u64`, `value_i64` e `value_f64` quando disponível;
 - `native_status`: código devolvido pela NVML;
@@ -88,8 +88,22 @@ Estes IDs são enviados juntos a `nvmlDeviceGetFieldValues`:
 | `encoder_sampling_period_us` | `nvmlDeviceGetEncoderUtilization` | period = 1 | µs |
 | `decoder_utilization_percent` | `nvmlDeviceGetDecoderUtilization` | utilization = 0 | % |
 | `decoder_sampling_period_us` | `nvmlDeviceGetDecoderUtilization` | period = 1 | µs |
+| `temperature_gpu_limit_c` | `nvmlDeviceGetTemperatureThreshold` | GPU max = 3 | °C |
 
-O catálogo possui 31 campos semânticos. `fan_speed_percent` pode gerar mais de um registro porque cada fan recebe seu próprio `provider_native_id`. Por isso o relatório reserva até 48 registros.
+### PerfCap traduzido e potência relativa
+
+`clock_event_reasons_current` continua preservando a máscara bruta. As saídas JSON e HTTP também expõem `performance_limit_reasons`, com `raw_bitmask`, todos os `active_reasons` conhecidos e um `primary_reason` estável. Os bits traduzidos são `gpu_idle`, `application_clocks`, `software_power_cap`, `hardware_slowdown`, `sync_boost`, `software_thermal`, `hardware_thermal`, `hardware_power_brake` e `display_clock`.
+
+Dois campos calculados evitam a ambiguidade de “% TDP”:
+
+| Campo | Fórmula | Origem |
+| --- | --- | --- |
+| `power_consumption_default_limit_percent` | `power_instant_mw / power_limit_default_mw * 100` | `computed` |
+| `power_consumption_current_limit_percent` | `power_instant_mw / power_limit_current_mw * 100` | `computed` |
+
+Se potência ou denominador não estiverem disponíveis, o resultado preserva o estado de ausência; denominador zero resulta em `query_failed`, nunca em zero inventado.
+
+O catálogo possui 34 campos semânticos. `fan_speed_percent` pode gerar mais de um registro porque cada fan recebe seu próprio `provider_native_id`. Por isso o relatório reserva até 48 registros.
 
 ## Papel da NVAPI
 
@@ -117,10 +131,10 @@ A janela padrão é 5 segundos, o limiar padrão é 80 °C e o limite padrão é
 ## Reprodutibilidade e versões
 
 - ABI nativa: versão 3;
-- relatório avulso de `--telemetry --json`: [`public-telemetry-v1`](schema/public-telemetry-v1.schema.json);
-- eventos `--watch --events`: `telemetry-event-v3`;
-- SQLite: schema 1, sem migration estrutural; o JSON v3 é armazenado integralmente;
-- API HTTP local: schema 1.
+- relatório avulso de `--telemetry --json`: [`public-telemetry-v2`](schema/public-telemetry-v2.schema.json); v1 permanece preservado;
+- eventos `--watch --events`: `telemetry-event-v4`; v1, v2 e v3 permanecem preservados;
+- SQLite: schema 1, sem migration estrutural; o JSON v4 é armazenado integralmente;
+- API HTTP local: schema 2 para a resposta de telemetria.
 
 O evento persistido contém tanto as entradas brutas quanto a saída calculada. Assim, um consumidor pode refazer a métrica e comparar fórmula, janela, amostras e resultado. Eventos v1 e v2 continuam publicados para validar históricos anteriores.
 

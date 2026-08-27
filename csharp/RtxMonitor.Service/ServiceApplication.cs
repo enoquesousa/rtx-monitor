@@ -49,9 +49,17 @@ public static class ServiceApplication
             services => services.GetRequiredService<TelemetryStoreProvider>());
         builder.Services.AddSingleton<TelemetryEventHub>();
         builder.Services.AddSingleton<IMonitoringBackend, NvidiaMonitoringBackend>();
+        builder.Services.AddSingleton<WindowsTelemetryState>();
+        builder.Services.AddSingleton<IWindowsTelemetrySnapshotSource>(
+            services => services.GetRequiredService<WindowsTelemetryState>());
+        builder.Services.AddSingleton<IWindowsGpuReader>(
+            _ => new WindowsGpuReader(new DxgiAdapterSource(), new PdhGpuCounterSource()));
+        builder.Services.AddSingleton<WindowsTelemetryWorker>();
         builder.Services.AddSingleton<GpuMonitoringWorker>();
         builder.Services.AddSingleton<IHostedService>(
             services => services.GetRequiredService<GpuMonitoringWorker>());
+        builder.Services.AddSingleton<IHostedService>(
+            services => services.GetRequiredService<WindowsTelemetryWorker>());
 
         WebApplication application = builder.Build();
         application.Use(
@@ -83,6 +91,7 @@ public static class ServiceApplication
                         "/health",
                         "/api/v1/gpus",
                         "/api/v1/gpus/{gpu_uuid}/capabilities",
+                        "/api/v1/gpus/{gpu_uuid}/windows-telemetry",
                         "/api/v1/events",
                         "/api/v1/history",
                     },

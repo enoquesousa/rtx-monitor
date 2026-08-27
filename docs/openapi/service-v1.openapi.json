@@ -137,6 +137,33 @@
         }
       }
     },
+    "/api/v1/gpus/{gpu_uuid}/windows-telemetry": {
+      "get": {
+        "operationId": "getGpuWindowsTelemetry",
+        "summary": "Latest identity-gated DXGI/PDH telemetry snapshot",
+        "parameters": [
+          {
+            "name": "gpu_uuid",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 256 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest Windows telemetry attempt with explicit identity and counter states",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "../schema/windows-telemetry-v1.schema.json" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/badRequest" },
+          "404": { "$ref": "#/components/responses/notFound" },
+          "503": { "$ref": "#/components/responses/unavailable" }
+        }
+      }
+    },
     "/api/v1/events": {
       "get": {
         "operationId": "streamEvents",
@@ -861,11 +888,12 @@
           "board_capture_error",
           "collector_state",
           "coverage",
+          "performance_limit_reasons",
           "fields",
           "computed_metrics"
         ],
         "properties": {
-          "schema_version": { "const": 1 },
+          "schema_version": { "const": 2 },
           "captured_at_unix_ms": { "type": "integer", "minimum": 0 },
           "gpu": { "$ref": "#/components/schemas/gpuIdentity" },
           "board": {
@@ -882,9 +910,15 @@
             "enum": ["starting", "running", "degraded", "failed", "stopped"]
           },
           "coverage": { "$ref": "#/components/schemas/publicTelemetryCoverage" },
+          "performance_limit_reasons": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/performanceLimitReasons" },
+              { "type": "null" }
+            ]
+          },
           "fields": {
             "type": "array",
-            "minItems": 31,
+            "minItems": 34,
             "maxItems": 48,
             "items": { "$ref": "#/components/schemas/publicTelemetryField" }
           },
@@ -914,6 +948,22 @@
           "query_failed": { "type": "integer", "minimum": 0, "maximum": 48 }
         }
       },
+      "performanceLimitReasons": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["raw_bitmask", "active_reasons", "primary_reason"],
+        "properties": {
+          "raw_bitmask": { "type": "integer", "minimum": 0 },
+          "active_reasons": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": ["gpu_idle", "application_clocks", "software_power_cap", "hardware_slowdown", "sync_boost", "software_thermal", "hardware_thermal", "hardware_power_brake", "display_clock"]
+            }
+          },
+          "primary_reason": { "type": "string", "minLength": 1 }
+        }
+      },
       "publicTelemetryField": {
         "type": "object",
         "additionalProperties": false,
@@ -938,7 +988,7 @@
           "state": {
             "enum": ["available", "not_supported", "provider_unavailable", "query_failed"]
           },
-          "origin": { "const": "driver_reported" },
+          "origin": { "enum": ["driver_reported", "computed"] },
           "value_type": {
             "enum": ["unknown", "unsigned_integer", "signed_integer", "double", "bitmask"]
           },

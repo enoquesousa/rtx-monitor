@@ -194,6 +194,12 @@ int main(void)
             "power_instant_mw") == 0,
         "public field string");
     failures += check(
+        strcmp(
+            rtxmon_public_field_string(
+                RTXMON_PUBLIC_FIELD_POWER_CONSUMPTION_DEFAULT_LIMIT_PERCENT),
+            "power_consumption_default_limit_percent") == 0,
+        "computed power field string");
+    failures += check(
         strstr(
             rtxmon_public_provider_string(RTXMON_PUBLIC_PROVIDER_NVML_FIELD_VALUES),
             "FieldValues") != NULL,

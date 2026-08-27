@@ -4,7 +4,7 @@ namespace RtxMonitor.Managed;
 
 public static class TelemetryJson
 {
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
 
     public static string Serialize(TelemetryEvent telemetryEvent)
     {
@@ -33,6 +33,14 @@ public static class TelemetryJson
                     provider_unavailable = report.Coverage.ProviderUnavailable,
                     query_failed = report.Coverage.QueryFailed,
                 },
+                performance_limit_reasons = PerformanceLimitReasons.From(report) is { } reasons
+                    ? new
+                    {
+                        raw_bitmask = reasons.RawBitmask,
+                        active_reasons = reasons.ActiveReasons,
+                        primary_reason = reasons.PrimaryReason,
+                    }
+                    : null,
                 fields = report.Fields.Select(field => new
                 {
                     field = field.FieldName,
@@ -72,6 +80,40 @@ public static class TelemetryJson
             }
             : null;
 
+        object? windowsTelemetry = telemetryEvent.WindowsTelemetry is WindowsTelemetrySnapshot windows
+            ? new
+            {
+                schema_version = windows.SchemaVersion,
+                captured_at_unix_ms = windows.CapturedAt.ToUnixTimeMilliseconds(),
+                state = windows.State,
+                error = windows.Error,
+                gpu = new
+                {
+                    index = windows.Gpu.Index,
+                    name = windows.Gpu.Name,
+                    uuid = windows.Gpu.Uuid,
+                    driver_version = windows.Gpu.DriverVersion,
+                    nvml_version = windows.Gpu.NvmlVersion,
+                },
+                adapter = windows.Adapter is null ? null : new
+                {
+                    luid = $"0x{unchecked((ulong)windows.Adapter.Luid):x16}",
+                    description = windows.Adapter.Description,
+                    vendor_id = windows.Adapter.VendorId,
+                    device_id = windows.Adapter.DeviceId,
+                    subsystem_vendor_id = windows.Adapter.SubsystemVendorId,
+                    subsystem_device_id = windows.Adapter.SubsystemDeviceId,
+                },
+                local_memory = WindowsMetric(windows.LocalMemory),
+                non_local_memory = WindowsMetric(windows.NonLocalMemory),
+                engines = windows.Engines.Select(engine => new
+                {
+                    engine_type = engine.EngineType,
+                    utilization = WindowsMetric(engine.Utilization),
+                }),
+            }
+            : null;
+
         var payload = new
         {
             schema_version = SchemaVersion,
@@ -91,8 +133,17 @@ public static class TelemetryJson
             alert_hysteresis_c = telemetryEvent.AlertHysteresisC,
             public_telemetry = publicTelemetry,
             computed_metrics = computedMetrics,
+            windows_telemetry = windowsTelemetry,
         };
 
         return JsonSerializer.Serialize(payload);
     }
+
+    private static object WindowsMetric(WindowsTelemetryMetric metric) => new
+    {
+        state = metric.State,
+        value = metric.Value,
+        unit = metric.Unit,
+        error = metric.Error,
+    };
 }

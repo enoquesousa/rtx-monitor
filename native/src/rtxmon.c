@@ -459,6 +459,12 @@ const char *RTXMON_CALL rtxmon_public_field_string(uint32_t field)
         return "decoder_utilization_percent";
     case RTXMON_PUBLIC_FIELD_DECODER_SAMPLING_PERIOD_US:
         return "decoder_sampling_period_us";
+    case RTXMON_PUBLIC_FIELD_POWER_CONSUMPTION_DEFAULT_LIMIT_PERCENT:
+        return "power_consumption_default_limit_percent";
+    case RTXMON_PUBLIC_FIELD_POWER_CONSUMPTION_CURRENT_LIMIT_PERCENT:
+        return "power_consumption_current_limit_percent";
+    case RTXMON_PUBLIC_FIELD_TEMPERATURE_GPU_LIMIT_C:
+        return "temperature_gpu_limit_c";
     default:
         return "unknown_public_field";
     }
@@ -497,6 +503,10 @@ const char *RTXMON_CALL rtxmon_public_provider_string(uint32_t provider)
         return "NVML nvmlDeviceGetSupportedClocksEventReasons";
     case RTXMON_PUBLIC_PROVIDER_NVML_SUPPORTED_CLOCK_THROTTLE_REASONS_LEGACY:
         return "NVML nvmlDeviceGetSupportedClocksThrottleReasons";
+    case RTXMON_PUBLIC_PROVIDER_COMPUTED_POWER_RATIO:
+        return "RTX Monitor computed power ratio";
+    case RTXMON_PUBLIC_PROVIDER_NVML_TEMPERATURE_THRESHOLD:
+        return "NVML nvmlDeviceGetTemperatureThreshold";
     default:
         return "unknown_public_provider";
     }

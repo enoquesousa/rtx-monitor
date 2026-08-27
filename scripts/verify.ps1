@@ -16,10 +16,10 @@ $cExecutable = Join-Path $nativeOutput 'rtxmon-c.exe'
 $csharpExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Configuration\net8.0\RtxMonitor.Console.exe"
 $serviceExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64\RtxMonitor.Service.exe"
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
-$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v1.schema.json'
+$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v2.schema.json'
 $eventSchemaV1Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
 $eventSchemaV2Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
-$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v3.schema.json'
+$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v4.schema.json'
 $evidenceTempRoot = $null
 $serviceProcess = $null
 
@@ -71,9 +71,15 @@ function Assert-EventStream {
         if ($RequireEnrichedTelemetry -and
             ($null -eq $event.public_telemetry -or
              $null -eq $event.computed_metrics -or
-             $event.public_telemetry.fields.Count -lt 31 -or
+             $event.public_telemetry.fields.Count -lt 34 -or
+             -not ($event.public_telemetry.PSObject.Properties.Name -contains 'performance_limit_reasons') -or
              $event.computed_metrics.metrics.Count -ne 4)) {
             throw "$Source did not preserve the enriched public telemetry reports."
+        }
+        if ($SchemaVersion -ge 4 -and
+            (-not ($event.PSObject.Properties.Name -contains 'windows_telemetry') -or
+             $null -ne $event.windows_telemetry)) {
+            throw "$Source must expose null windows_telemetry outside the Windows service."
         }
     }
 }
@@ -110,6 +116,9 @@ function Assert-AlertStream {
             ($null -ne $alert.public_telemetry -or $null -ne $alert.computed_metrics)) {
             throw "$Source duplicated raw telemetry inside an alert transition."
         }
+        if ($SchemaVersion -ge 4 -and $null -ne $alert.windows_telemetry) {
+            throw "$Source duplicated Windows telemetry inside an alert transition."
+        }
     }
 }
 
@@ -130,6 +139,26 @@ function Get-PublicField {
     return $matches[0]
 }
 
+function Assert-PerformanceLimitReasons {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][object]$Report
+    )
+
+    $field = Get-PublicField -Report $Report -Name 'clock_event_reasons_current'
+    $reasons = $Report.performance_limit_reasons
+    if ($field.state -eq 'available' -and $null -ne $field.value_u64) {
+        if ($null -eq $reasons -or [uint64]$reasons.raw_bitmask -ne [uint64]$field.value_u64) {
+            throw "$Source did not preserve the raw performance-limit bitmask."
+        }
+        if ($null -eq $reasons.active_reasons -or [string]::IsNullOrWhiteSpace($reasons.primary_reason)) {
+            throw "$Source did not expose the translated performance-limit reasons."
+        }
+    } elseif ($null -ne $reasons) {
+        throw "$Source invented performance-limit reasons for an unavailable field."
+    }
+}
+
 Push-Location -LiteralPath $projectRoot
 try {
     if (-not $SkipBuild) {
@@ -142,8 +171,8 @@ try {
     }
 
     $publicTelemetrySchema = Get-Content -Raw -LiteralPath $publicTelemetrySchemaPath | ConvertFrom-Json
-    if ($publicTelemetrySchema.properties.schema_version.const -ne 1 -or
-        $publicTelemetrySchema.properties.fields.minItems -ne 31 -or
+    if ($publicTelemetrySchema.properties.schema_version.const -ne 2 -or
+        $publicTelemetrySchema.properties.fields.minItems -ne 34 -or
         $publicTelemetrySchema.properties.computed_metrics.minItems -ne 4) {
         throw 'The public telemetry JSON Schema is incomplete.'
     }
@@ -159,8 +188,8 @@ try {
     }
 
     $eventSchema = Get-Content -Raw -LiteralPath $eventSchemaPath | ConvertFrom-Json
-    if ($eventSchema.properties.schema_version.const -ne 3) {
-        throw 'The telemetry event JSON Schema is missing schema_version const 3.'
+    if ($eventSchema.properties.schema_version.const -ne 4) {
+        throw 'The telemetry event JSON Schema is missing schema_version const 4.'
     }
 
     & ctest --preset "windows-x64-$configurationLower"
@@ -274,19 +303,22 @@ try {
         throw 'C++ and C# returned different thermal capability counts.'
     }
 
-    if ($cppTelemetry.schema_version -ne 1 -or $csharpTelemetry.schema_version -ne 1 -or
+    if ($cppTelemetry.schema_version -ne 2 -or $csharpTelemetry.schema_version -ne 2 -or
         $cppTelemetry.gpu.uuid -ne $cppSample.gpu_uuid -or
         $csharpTelemetry.gpu.uuid -ne $cppSample.gpu_uuid -or
         $cppTelemetry.profile_key -ne $cppCapabilities.board.profile_key -or
         $csharpTelemetry.profile_key -ne $cppCapabilities.board.profile_key) {
         throw 'A public telemetry report lost its schema, GPU, or board profile identity.'
     }
-    if ($cppTelemetry.fields.Count -lt 31 -or
+    if ($cppTelemetry.fields.Count -lt 34 -or
         $cppTelemetry.fields.Count -ne $csharpTelemetry.fields.Count -or
         $cppTelemetry.coverage.total -ne $cppTelemetry.fields.Count -or
         $csharpTelemetry.coverage.total -ne $csharpTelemetry.fields.Count) {
         throw 'Public telemetry coverage does not match the documented field catalog.'
     }
+
+    Assert-PerformanceLimitReasons -Source 'C++ public telemetry' -Report $cppTelemetry
+    Assert-PerformanceLimitReasons -Source 'C# public telemetry' -Report $csharpTelemetry
     for ($index = 0; $index -lt $cppTelemetry.fields.Count; $index++) {
         $cppField = $cppTelemetry.fields[$index]
         $csharpField = $csharpTelemetry.fields[$index]
@@ -463,13 +495,13 @@ try {
         -Source 'C++ resilient stream' `
         -Events $cppEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 3 `
+        -SchemaVersion 4 `
         -RequireEnrichedTelemetry
     Assert-EventStream `
         -Source 'C# resilient stream' `
         -Events $csharpEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 3 `
+        -SchemaVersion 4 `
         -RequireEnrichedTelemetry
 
     $cppAlertEvents = @(& $cppExecutable --watch --count 1 --interval 100 --events --alert-threshold 0) |
@@ -484,12 +516,12 @@ try {
         -Source 'C++ alert stream' `
         -Events $cppAlertEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 3
+        -SchemaVersion 4
     Assert-AlertStream `
         -Source 'C# alert stream' `
         -Events $csharpAlertEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 3
+        -SchemaVersion 4
 
     $evidenceTempRoot = Join-Path `
         ([System.IO.Path]::GetTempPath()) `
@@ -508,7 +540,7 @@ try {
         -Source 'C# persisted event stream' `
         -Events $storedEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 3 `
+        -SchemaVersion 4 `
         -RequireEnrichedTelemetry
 
     $history = @(& $csharpExecutable `
@@ -525,7 +557,7 @@ try {
     foreach ($record in $history) {
         if ($record.evidence_schema_version -ne 1 -or
             $record.store_schema_version -ne 1 -or
-            $record.event.schema_version -ne 3 -or
+            $record.event.schema_version -ne 4 -or
             $record.run.run_id -ne $historyRunId -or
             $record.run.application_version -ne '0.8.0' -or
             $record.device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid -or
@@ -623,9 +655,13 @@ try {
     while ([DateTimeOffset]::UtcNow -lt $serviceDeadline) {
         $serviceGpus = Invoke-RestMethod -Uri "$serviceBaseUri/api/v1/gpus" -TimeoutSec 2
         $serviceHistory = Invoke-RestMethod `
-            -Uri "$serviceBaseUri/api/v1/history?order=asc&limit=10&gpu_uuid=$encodedServiceUuid" `
+            -Uri "$serviceBaseUri/api/v1/history?order=asc&limit=100&gpu_uuid=$encodedServiceUuid" `
             -TimeoutSec 2
-        if ($serviceGpus.count -ge 1 -and $serviceHistory.count -ge 2) {
+        $serviceWindowsEvent = @($serviceHistory.items | Where-Object {
+            $_.event.event_type -eq 'sample' -and $null -ne $_.event.windows_telemetry
+        }) | Select-Object -First 1
+        if ($serviceGpus.count -ge 1 -and $serviceHistory.count -ge 2 -and
+            $null -ne $serviceWindowsEvent) {
             break
         }
         Start-Sleep -Milliseconds 200
@@ -647,10 +683,16 @@ try {
     }
     if ($serviceHistory.count -lt 2 -or
         $serviceHistory.items[0].run.application_version -ne '0.8.0' -or
-        $serviceHistory.items[0].event.schema_version -ne 3 -or
+        $serviceHistory.items[0].event.schema_version -ne 4 -or
         $null -eq $serviceHistory.items[0].event.public_telemetry -or
         $serviceHistory.items[0].device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid) {
         throw 'Local service history did not preserve version and GPU provenance.'
+    }
+    if ($serviceWindowsEvent.event.windows_telemetry.adapter.luid -notmatch '^0x[0-9a-f]{16}$' -or
+        $serviceWindowsEvent.event.windows_telemetry.engines.Count -ne 6 -or
+        $serviceWindowsEvent.event.windows_telemetry.local_memory.state -ne 'available' -or
+        $serviceWindowsEvent.event.windows_telemetry.non_local_memory.state -ne 'available') {
+        throw 'Local service history did not preserve identity-gated Windows telemetry.'
     }
 
     $serviceCapabilities = Invoke-RestMethod `
@@ -665,10 +707,10 @@ try {
     $serviceTelemetry = Invoke-RestMethod `
         -Uri "$serviceBaseUri/api/v1/gpus/$encodedServiceUuid/telemetry" `
         -TimeoutSec 5
-    if ($serviceTelemetry.schema_version -ne 1 -or
+    if ($serviceTelemetry.schema_version -ne 2 -or
         $serviceTelemetry.gpu.uuid -ne $cppSample.gpu_uuid -or
         $serviceTelemetry.board.profile_key -ne $cppCapabilities.board.profile_key -or
-        $serviceTelemetry.coverage.total -lt 31 -or
+        $serviceTelemetry.coverage.total -lt 34 -or
         $serviceTelemetry.fields.Count -ne $serviceTelemetry.coverage.total -or
         $serviceTelemetry.computed_metrics.metrics.Count -ne 4) {
         throw 'Local service telemetry did not preserve public fields, coverage, metrics, and board identity.'
