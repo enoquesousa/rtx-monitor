@@ -133,7 +133,7 @@ Critério de saída:
 
 ### v0.7.0 — telemetria documentada e métricas calculadas
 
-Estado: implementada no código atual.
+Estado: implementada no código atual. O provider Windows DXGI/PDH está concluído: ele só publica dados após correlacionar a identidade PCI da GPU NVML com o adaptador DXGI e seu LUID, preserva memória local e não local separadamente e mantém estados explícitos quando um contador não está disponível. Os snapshots confirmados percorrem o mesmo fluxo auditável do serviço, incluindo API local, SSE, SQLite, histórico e exportação.
 
 Objetivo: esgotar as fontes públicas antes de procurar registradores privados.
 
@@ -142,6 +142,7 @@ Entregas:
 - catálogo dos campos públicos aplicáveis da NVML e da NVAPI;
 - consulta somente por IDs conhecidos, preservando o status de cada campo;
 - temperatura, potência, clocks, utilização, memória, throttling e fan quando a API e a placa publicarem esses dados;
+- no Windows, memória e atividade de engines via DXGI/PDH com gate de identidade PCI/LUID e falha fechada para correspondência ausente, incompatível ou ambígua;
 - métricas calculadas, como inclinação térmica, tempo acima do limiar, delta entre canais conhecidos e média por janela;
 - fórmula, unidade, janela, entradas e origem registradas com cada métrica;
 - relatório de cobertura por combinação placa, VBIOS e driver.
