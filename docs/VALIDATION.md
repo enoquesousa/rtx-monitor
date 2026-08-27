@@ -45,7 +45,7 @@ Uma entrega é considerada válida quando:
 28. desligamento gracioso confirma `completed_at` e `completion_reason=service_stopped` para cada run;
 29. uma execução física do serviço publica somente em loopback e preserva UUID, profile key e a versão atual no histórico;
 30. a instalação real no Windows já confirma configuração do SCM, ações de recuperação, ciclo stop/start, encerramento persistido do run e stream SSE crescente;
-31. C++ e C# expõem a mesma ordem, proveniência, IDs, unidades e estados para pelo menos 31 campos semânticos públicos;
+31. C++ e C# expõem a mesma ordem, proveniência, IDs, unidades e estados para pelo menos 34 campos semânticos públicos;
 32. um campo indisponível mantém todos os valores nulos, enquanto um zero disponível continua sendo zero legítimo;
 33. cada relatório contém exatamente quatro métricas com fórmula, unidade, janela, amostras, entradas e origem `computed`;
 34. temperatura, potência e memória total aplicáveis são comparadas com uma consulta independente do `nvidia-smi`;
@@ -215,6 +215,61 @@ Em 2026-08-25, a validação Release confirmou:
 - o endpoint `/telemetry` preservou o perfil `10de:2504/10de:1536@94.06.25.00.fc`, cobertura e quatro métricas.
 
 A porta 4210 foi escolhida automaticamente para esse ensaio e o banco temporário foi removido ao final. A instalação permanente da v0.6.0 não foi substituída durante esta validação da branch v0.7.0.
+
+## Validação prolongada da telemetria Windows
+
+Em 2026-08-26, o provider DXGI/PDH foi executado por 30 minutos em um processo isolado na porta 5144, sem substituir nem interromper o Windows Service instalado. O script [`validate-windows-telemetry-long-run.ps1`](../scripts/validate-windows-telemetry-long-run.ps1) consultou `/api/v1/gpus/{uuid}/windows-telemetry` a cada dois segundos e registrou a série em `evidence/windows-telemetry-long-run-20260827-005854`.
+
+- 893 amostras válidas, acima do mínimo de 810 definido para tolerar overhead;
+- zero falhas HTTP, contratuais, de identidade e regressões de timestamp;
+- LUID `0x000000000001669b` preservado nas 893 amostras;
+- maior intervalo entre capturas: 2.281 ms;
+- memória local disponível em todas as amostras: mínimo 568.750.080, máximo 918.908.928 e média 622.390.704 bytes;
+- memória não local disponível em todas as amostras: mínimo 132.501.504, máximo 197.316.608 e média 140.226.436 bytes;
+- os 893 snapshots ficaram `partial`: `3D` permaneceu `inactive` com zero realmente observado, enquanto `Copy`, `VideoDecode`, `VideoEncode`, `OFA` e `VR` ficaram `counter_unavailable` porque não houve instância ativa para produzir amostra;
+- nenhum estado ausente foi convertido em zero e memória local/não local nunca foi somada como “dynamic memory”;
+- o listener isolado da porta 5144 foi encerrado ao final.
+
+O resumo possui SHA-256 `2d8ccbafc232e81d067cef82c0bc9ed59e52b81349087fa5443a04f42da6198e`; a série JSONL, com 1.215.373 bytes, possui SHA-256 `0b0ec1045293a6c457b6a3306bd9aa7408871fd0b4704f6a63eea1d4666c5931`. Este ensaio comprova estabilidade em carga ambiente; suspensão/retomada e reinicialização intencional do driver continuam gates físicos separados.
+
+Após esse ensaio, a integração ao evento principal também foi validada em um serviço isolado na porta 5145 e SQLite temporário:
+
+- o evento persistido 21 foi recuperado por `/api/v1/history` com schema 4 e `windows_telemetry.state=partial`;
+- o histórico preservou LUID `0x000000000001669b`, seis engines e 713.728.000 bytes de memória local naquela amostra;
+- o SSE entregou o evento persistido 30 com o mesmo objeto `windows_telemetry`, schema 4 e LUID;
+- testes automatizados comprovam o mesmo conteúdo no JSON SQLite, em `EvidenceJson`/histórico e no envelope SSE;
+- eventos de alerta mantêm `windows_telemetry=null`, evitando duplicação da telemetria bruta;
+- não foi necessária migration estrutural: o SQLite já armazena integralmente o JSON versionado do evento;
+- o listener isolado da porta 5145 foi encerrado ao final.
+
+### Recuperação após reinicialização do driver e suspensão
+
+Em 2026-08-26, os dois gates físicos restantes foram executados com elevação restrita ao comando de dispositivo e ao wake timer; o serviço instalado não foi substituído.
+
+- `pnputil /restart-device` reiniciou somente `PCI\VEN_10DE&DEV_2504&SUBSYS_153610DE&REV_A1\4&AA66160&0&0008` e retornou código 0;
+- a janela de dois minutos ao redor do restart registrou 119 amostras, zero falhas HTTP/contratuais/de identidade, zero regressões e o mesmo LUID nas 119 leituras;
+- o maior intervalo de captura durante o restart foi 2.280 ms; PnP voltou como `OK`, problema 0, e o coletor permaneceu `running`;
+- o sistema entrou em S3 por `Application API`; o evento Power-Troubleshooter registrou suspensão em `2026-08-27T01:58:15.718894400Z` e wake em `2026-08-27T01:59:18.039704300Z`;
+- a série externa observou uma lacuna física de 56.265 ms sem falha HTTP, troca de LUID, falha contratual ou regressão de timestamp;
+- a primeira leitura depois do wake preservou o LUID e retornou memória local validamente zerada enquanto o WDDM reconstruía as alocações; 2.263 ms depois, a leitura local voltou a 595.644.416 bytes;
+- o analisador específico de recuperação aprovou 239 amostras e um único LUID; o resumo genérico de continuidade permaneceu `passed=false` de forma esperada porque penaliza amostras não executadas enquanto a máquina estava suspensa;
+- após a retomada, o coletor principal continuou `running` e `/history` avançou até o evento 527 com `windows_telemetry`, mesmo LUID e memória local não zero;
+- todos os listeners e processos isolados criados para os ensaios foram encerrados.
+
+Evidências: o resumo do restart possui SHA-256 `9ada882dfe78f65f802940f8fe3dd61229d778c9399336a8a38d3fcdef36c325`; sua série, `ac734fc267ca126d5256eb779876c7fac9243f732dd043201ac946d89136f70c`. O resumo específico de retomada possui SHA-256 `4863b38da9a3702b251d5cebfe49995a8f525e17aa1f34f200f89c6cc4402548`; sua série, `b8517feb1a2614d5f1db30d16b233ee46510755941a7a103dd6fd6bdd6bd6e4d`.
+
+## Validação física integrada do pacote v0.8.0
+
+Em 2026-08-26, `verify.ps1 -Configuration Release -SkipBuild` validou o pacote atual na RTX 3060 depois da suíte independente completa:
+
+- 12/12 testes CTest e todas as suítes Managed, Storage, Service e Lab aprovados;
+- C, C++, C# e `nvidia-smi` reportaram 34 °C; o serviço local reportou 35 °C, dentro da tolerância de 5 °C para leituras sequenciais;
+- C++ e C# emitiram o catálogo público v2 com 35 registros, 30 `available` e 5 `not_supported`, na mesma ordem e com identidade de placa preservada;
+- a máscara bruta de PerfCap e sua decomposição em razões ativas foram coerentes em ambos os consumidores;
+- streams resilientes e de alerta usaram `telemetry-event-v4`; o CLI manteve `windows_telemetry=null` e o serviço anexou somente snapshots Windows confirmados aos eventos `sample`;
+- histórico e exportação SQLite preservaram eventos v4, telemetria pública, métricas calculadas e proveniência;
+- o serviço isolado respondeu em `127.0.0.1:8670` a saúde, descoberta, histórico, capabilities, telemetria pública e telemetria Windows;
+- o diretório SQLite temporário e o processo isolado foram removidos pelo script ao final.
 
 ## Snapshot do laboratório offline v0.8.0
 

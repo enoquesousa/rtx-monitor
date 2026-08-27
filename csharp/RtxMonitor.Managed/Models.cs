@@ -192,6 +192,9 @@ public enum PublicTelemetryField : uint
     EncoderSamplingPeriodUs = 29,
     DecoderUtilizationPercent = 30,
     DecoderSamplingPeriodUs = 31,
+    PowerConsumptionDefaultLimitPercent = 32,
+    PowerConsumptionCurrentLimitPercent = 33,
+    TemperatureGpuLimitC = 34,
 }
 
 public enum PublicTelemetryProvider : uint
@@ -211,6 +214,8 @@ public enum PublicTelemetryProvider : uint
     NvmlDecoderUtilization = 13,
     NvmlSupportedClockEventReasons = 14,
     NvmlSupportedClockThrottleReasonsLegacy = 15,
+    ComputedPowerRatio = 16,
+    NvmlTemperatureThreshold = 17,
 }
 
 public enum TelemetryValueType : uint

@@ -120,6 +120,7 @@ public sealed record PublicTelemetryResponse(
     string? BoardCaptureError,
     string CollectorState,
     PublicTelemetryCoverageResponse Coverage,
+    PerformanceLimitReasonsResponse? PerformanceLimitReasons,
     IReadOnlyList<PublicTelemetryFieldResponse> Fields,
     ComputedMetricsResponse? ComputedMetrics);
 
@@ -129,6 +130,11 @@ public sealed record PublicTelemetryCoverageResponse(
     int NotSupported,
     int ProviderUnavailable,
     int QueryFailed);
+
+public sealed record PerformanceLimitReasonsResponse(
+    ulong RawBitmask,
+    IReadOnlyList<string> ActiveReasons,
+    string PrimaryReason);
 
 public sealed record PublicTelemetryFieldResponse(
     string Field,
@@ -159,6 +165,29 @@ public sealed record ComputedMetricResponse(
     uint SampleCount,
     int? TemperatureThresholdC,
     IReadOnlyList<string> Inputs);
+
+public sealed record WindowsTelemetryResponse(
+    int SchemaVersion,
+    long CapturedAtUnixMs,
+    string State,
+    string? Error,
+    GpuIdentityResponse Gpu,
+    WindowsAdapterIdentityResponse? Adapter,
+    WindowsMetricResponse LocalMemory,
+    WindowsMetricResponse NonLocalMemory,
+    IReadOnlyList<WindowsEngineResponse> Engines);
+
+public sealed record WindowsAdapterIdentityResponse(
+    string Luid,
+    string Description,
+    uint VendorId,
+    uint DeviceId,
+    uint SubsystemVendorId,
+    uint SubsystemDeviceId);
+
+public sealed record WindowsMetricResponse(string State, double? Value, string Unit, string? Error);
+
+public sealed record WindowsEngineResponse(string EngineType, WindowsMetricResponse Utilization);
 
 public sealed record HistoryResponse(
     int SchemaVersion,

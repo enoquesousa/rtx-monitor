@@ -28,13 +28,14 @@ $storageAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Storage\bin\$Config
 $serviceAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64\RtxMonitor.Service.dll"
 $labAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Lab\bin\$Configuration\net8.0\rtxmon-lab.dll"
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
-$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v1.schema.json'
+$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v2.schema.json'
 $eventSchemaV1Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
 $eventSchemaV2Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
-$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v3.schema.json'
+$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v4.schema.json'
 $evidenceSchemaPath = Join-Path $projectRoot 'docs\schema\evidence-record-v1.schema.json'
 $liveSchemaPath = Join-Path $projectRoot 'docs\schema\live-telemetry-v1.schema.json'
 $streamGapSchemaPath = Join-Path $projectRoot 'docs\schema\stream-gap-v1.schema.json'
+$windowsTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\windows-telemetry-v1.schema.json'
 $openApiPath = Join-Path $projectRoot 'docs\openapi\service-v1.openapi.json'
 $artifactManifestSchemaPath = Join-Path $projectRoot 'docs\schema\artifact-package-manifest-v1.schema.json'
 $rawArtifactSchemaPath = Join-Path $projectRoot 'docs\schema\raw-artifact-v1.schema.json'
@@ -54,6 +55,8 @@ $nvapiCandidateSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-candidate-
 $nvapiCandidateCallSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-candidate-call-observation-v1.schema.json'
 $nvapiThermChannelSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-v2-observation-v1.schema.json'
 $nvapiThermCorrelationSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-correlation-v1.schema.json'
+$nvapiVoltageObservationSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-voltage-status-v1-observation-v1.schema.json'
+$nvapiVoltageCorrelationSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-voltage-status-correlation-v1.schema.json'
 $gpuzDeviceIoSchemaPath = Join-Path $projectRoot 'docs\schema\gpuz-device-io-control-observation-v1.schema.json'
 $gpuzDeviceInputSchemaPath = Join-Path $projectRoot 'docs\schema\gpuz-device-io-control-input-v1.schema.json'
 $windowsHandleSchemaPath = Join-Path $projectRoot 'docs\schema\windows-handle-identity-v1.schema.json'
@@ -66,6 +69,8 @@ $nvapiCallFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixt
 $nvapiCandidateCallFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-candidate-call-observation.json'
 $nvapiThermChannelFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-therm-channel-v2-observation.json'
 $gpuzThermReferenceFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\gpuz-therm-channel-reference.csv'
+$nvapiVoltageObservationFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\nvapi-voltage-status-v1-observation.json'
+$gpuzVoltageReferenceFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\Fixtures\gpuz-voltage-reference.csv'
 $vbiosFixturePath = Join-Path `
     $projectRoot `
     "build\windows-x64\$Configuration\synthetic-vbios-test.rom"
@@ -277,10 +282,10 @@ try {
     }
 
     $publicTelemetrySchema = Get-Content -Raw -LiteralPath $publicTelemetrySchemaPath | ConvertFrom-Json
-    if ($publicTelemetrySchema.properties.schema_version.const -ne 1 -or
-        $publicTelemetrySchema.properties.fields.minItems -ne 31 -or
+    if ($publicTelemetrySchema.properties.schema_version.const -ne 2 -or
+        $publicTelemetrySchema.properties.fields.minItems -ne 34 -or
         $publicTelemetrySchema.properties.computed_metrics.minItems -ne 4) {
-        throw 'Public telemetry schema must declare version 1, 31 fields, and four metrics.'
+        throw 'Public telemetry schema must declare version 2, 34 fields, and four metrics.'
     }
 
     $eventSchemaV1 = Get-Content -Raw -LiteralPath $eventSchemaV1Path | ConvertFrom-Json
@@ -294,10 +299,10 @@ try {
     }
 
     $eventSchema = Get-Content -Raw -LiteralPath $eventSchemaPath | ConvertFrom-Json
-    if ($eventSchema.properties.schema_version.const -ne 3 -or
+    if ($eventSchema.properties.schema_version.const -ne 4 -or
         $null -eq $eventSchema.properties.public_telemetry -or
         $null -eq $eventSchema.properties.computed_metrics) {
-        throw 'Telemetry event schema must declare version 3 and its enriched reports.'
+        throw 'Telemetry event schema must declare version 4 and its enriched reports.'
     }
 
     $eventTypes = @($eventSchema.properties.event_type.enum)
@@ -312,23 +317,31 @@ try {
     if ($evidenceSchema.properties.evidence_schema_version.const -ne 1 -or
         $evidenceSchema.properties.store_schema_version.const -ne 1 -or
         'telemetry-event-v2.schema.json' -notin $evidenceEventRefs -or
-        'telemetry-event-v3.schema.json' -notin $evidenceEventRefs) {
-        throw 'Evidence schema must declare evidence/store version 1 and accept telemetry events v2/v3.'
+        'telemetry-event-v3.schema.json' -notin $evidenceEventRefs -or
+        'telemetry-event-v4.schema.json' -notin $evidenceEventRefs) {
+        throw 'Evidence schema must declare evidence/store version 1 and accept telemetry events v2/v3/v4.'
     }
 
     $liveSchema = Get-Content -Raw -LiteralPath $liveSchemaPath | ConvertFrom-Json
     if ($liveSchema.properties.schema_version.const -ne 1 -or
-        $liveSchema.properties.event.'$ref' -ne 'telemetry-event-v3.schema.json') {
-        throw 'Live telemetry schema must declare version 1 and embed telemetry event v3.'
+        $liveSchema.properties.event.'$ref' -ne 'telemetry-event-v4.schema.json') {
+        throw 'Live telemetry schema must declare version 1 and embed telemetry event v4.'
     }
 
     $streamGapSchema = Get-Content -Raw -LiteralPath $streamGapSchemaPath | ConvertFrom-Json
+    $windowsTelemetrySchema = Get-Content -Raw -LiteralPath $windowsTelemetrySchemaPath | ConvertFrom-Json
+    if ($windowsTelemetrySchema.properties.schema_version.const -ne 1) {
+        throw 'The Windows telemetry schema is missing schema_version const 1.'
+    }
     if ($streamGapSchema.properties.schema_version.const -ne 1 -or
         $streamGapSchema.properties.dropped_events.minimum -ne 1) {
         throw 'SSE stream gap schema must declare version 1 and a positive drop count.'
     }
 
     $openApi = Get-Content -Raw -LiteralPath $openApiPath | ConvertFrom-Json
+    if ($null -eq $openApi.paths.'/api/v1/gpus/{gpu_uuid}/windows-telemetry') {
+        throw 'The service OpenAPI contract is missing the Windows telemetry endpoint.'
+    }
     if ($openApi.openapi -ne '3.1.0' -or
         $openApi.info.version -ne '1.0.0' -or
         $null -eq $openApi.paths.'/health' -or
@@ -666,6 +679,27 @@ try {
         $nvapiThermCorrelation.mappings[1].semantic_channel -ne
             'gpu_hotspot_temperature') {
         throw 'Thermal-channel correlation must preserve the die and hotspot mapping.'
+    }
+    $nvapiVoltageObservationJson = Get-Content -Raw -LiteralPath $nvapiVoltageObservationFixturePath
+    if (-not ($nvapiVoltageObservationJson |
+            Test-Json -SchemaFile $nvapiVoltageObservationSchemaPath)) {
+        throw 'Synthetic voltage-status observation must pass its v1 schema.'
+    }
+    $nvapiVoltageCorrelationJson = (& $labExecutable `
+            correlate-nvapi-voltage-status `
+            --observation $nvapiVoltageObservationFixturePath `
+            --gpuz-log $gpuzVoltageReferenceFixturePath | Out-String)
+    if ($LASTEXITCODE -ne 0 -or
+        -not ($nvapiVoltageCorrelationJson |
+            Test-Json -SchemaFile $nvapiVoltageCorrelationSchemaPath)) {
+        throw 'Voltage-status correlation output must pass its v1 schema.'
+    }
+    $nvapiVoltageCorrelation = $nvapiVoltageCorrelationJson | ConvertFrom-Json
+    if ($nvapiVoltageCorrelation.mapping_status -ne 'matched_external_reference' -or
+        $nvapiVoltageCorrelation.mapping.semantic_field -ne 'gpu_core_voltage' -or
+        $nvapiVoltageCorrelation.mapping.word_index -ne 10 -or
+        $nvapiVoltageCorrelation.scale_divisor -ne 1000000) {
+        throw 'Voltage-status correlation must preserve the core-voltage mapping and microvolt scale.'
     }
     $nvapiClassificationFixtureJson = Get-Content `
         -Raw `

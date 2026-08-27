@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:nvapi-voltage-status-v1-observation:1",
+  "title": "RTX Monitor NVAPI voltage status v1 observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_kind", "gpuz_sha256", "nvapi_module_sha256", "interface_id", "function_rva", "structure_version", "structure_size_bytes", "value_word_index", "value_offset_bytes", "scale_divisor", "reference_log", "call_count", "samples", "warning"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source_kind": { "const": "nvapi_voltage_status_v1_observation" },
+    "gpuz_sha256": { "$ref": "#/$defs/sha256" },
+    "nvapi_module_sha256": { "$ref": "#/$defs/sha256" },
+    "interface_id": { "const": "0x465f9bcf" },
+    "function_rva": { "const": "0x00198010" },
+    "structure_version": { "const": "0x0001004c" },
+    "structure_size_bytes": { "const": 76 },
+    "value_word_index": { "const": 10 },
+    "value_offset_bytes": { "const": 40 },
+    "scale_divisor": { "const": 1000000 },
+    "reference_log": {
+      "type": "object", "additionalProperties": false,
+      "required": ["size_bytes_after", "last_sample_local_before", "last_sample_local_after"],
+      "properties": {
+        "size_bytes_after": { "type": "integer", "minimum": 1 },
+        "last_sample_local_before": { "$ref": "#/$defs/localTimestamp" },
+        "last_sample_local_after": { "$ref": "#/$defs/localTimestamp" }
+      }
+    },
+    "call_count": { "type": "integer", "minimum": 3 },
+    "samples": {
+      "type": "array", "minItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sequence", "thread_id", "return_status", "raw_words", "selected_raw_microvolts", "selected_volts"],
+        "properties": {
+          "sequence": { "type": "integer", "minimum": 1 },
+          "thread_id": { "$ref": "#/$defs/hex32" },
+          "return_status": { "const": "0x00000000" },
+          "raw_words": { "type": "array", "minItems": 19, "maxItems": 19, "items": { "$ref": "#/$defs/hex32" } },
+          "selected_raw_microvolts": { "type": "integer", "minimum": 1 },
+          "selected_volts": { "type": "number", "exclusiveMinimum": 0 }
+        }
+      }
+    },
+    "warning": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hex32": { "type": "string", "pattern": "^0x[0-9a-fA-F]{8}$" },
+    "localTimestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?$" }
+  }
+}

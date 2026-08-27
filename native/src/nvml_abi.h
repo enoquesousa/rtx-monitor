@@ -41,6 +41,10 @@ enum {
 };
 
 enum {
+    RTXMON_NVML_TEMPERATURE_THRESHOLD_GPU_MAX = 3
+};
+
+enum {
     RTXMON_NVML_CLOCK_GRAPHICS = 0,
     RTXMON_NVML_CLOCK_SM = 1,
     RTXMON_NVML_CLOCK_MEMORY = 2,
@@ -204,6 +208,10 @@ typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_temperature_v_fn)(
 typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_temperature_fn)(
     nvmlDevice_t device,
     int sensor_type,
+    uint32_t *temperature);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_temperature_threshold_fn)(
+    nvmlDevice_t device,
+    int threshold_type,
     uint32_t *temperature);
 typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_thermal_settings_fn)(
     nvmlDevice_t device,

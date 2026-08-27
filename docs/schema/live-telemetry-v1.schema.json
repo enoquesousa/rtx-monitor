@@ -34,7 +34,7 @@
       "minimum": 0
     },
     "event": {
-      "$ref": "telemetry-event-v3.schema.json"
+      "$ref": "telemetry-event-v4.schema.json"
     }
   }
 }

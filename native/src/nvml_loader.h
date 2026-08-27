@@ -25,6 +25,7 @@ typedef struct rtxmon_nvml_api {
     rtxmon_nvml_system_get_nvml_version_fn system_get_nvml_version;
     rtxmon_nvml_device_get_temperature_v_fn device_get_temperature_v;
     rtxmon_nvml_device_get_temperature_fn device_get_temperature;
+    rtxmon_nvml_device_get_temperature_threshold_fn device_get_temperature_threshold;
     rtxmon_nvml_device_get_thermal_settings_fn device_get_thermal_settings;
     rtxmon_nvml_device_get_field_values_fn device_get_field_values;
     rtxmon_nvml_device_get_clock_info_fn device_get_clock_info;

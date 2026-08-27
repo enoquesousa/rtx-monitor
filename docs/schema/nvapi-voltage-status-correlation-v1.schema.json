@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:nvapi-voltage-status-correlation:1",
+  "title": "RTX Monitor NVAPI voltage status correlation v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "source_kind", "observation_sha256", "gpuz_log_prefix_sha256", "gpuz_log_prefix_size_bytes", "gpuz_sha256", "nvapi_module_sha256", "interface_id", "function_rva", "structure_version", "selected_session_index", "window_first_timestamp_local", "window_last_timestamp_local", "scale_divisor", "tolerance_volts", "mapping_status", "mapping", "warnings"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source_kind": { "const": "nvapi_voltage_status_reference_correlation" },
+    "observation_sha256": { "$ref": "#/$defs/sha256" },
+    "gpuz_log_prefix_sha256": { "$ref": "#/$defs/sha256" },
+    "gpuz_log_prefix_size_bytes": { "type": "integer", "minimum": 1 },
+    "gpuz_sha256": { "$ref": "#/$defs/sha256" },
+    "nvapi_module_sha256": { "$ref": "#/$defs/sha256" },
+    "interface_id": { "const": "0x465f9bcf" },
+    "function_rva": { "const": "0x00198010" },
+    "structure_version": { "const": "0x0001004c" },
+    "selected_session_index": { "type": "integer", "minimum": 0 },
+    "window_first_timestamp_local": { "type": "string" },
+    "window_last_timestamp_local": { "type": "string" },
+    "scale_divisor": { "const": 1000000 },
+    "tolerance_volts": { "type": "number", "exclusiveMinimum": 0 },
+    "mapping_status": { "enum": ["matched_external_reference", "ambiguous_or_outside_tolerance"] },
+    "mapping": {
+      "type": "object", "additionalProperties": false,
+      "required": ["word_index", "offset_bytes", "semantic_field", "unit", "reference_channel", "sample_count", "mean_absolute_error_volts", "maximum_absolute_error_volts", "status"],
+      "properties": {
+        "word_index": { "const": 10 }, "offset_bytes": { "const": 40 },
+        "semantic_field": { "const": "gpu_core_voltage" }, "unit": { "const": "V" },
+        "reference_channel": { "const": "GPU Voltage" }, "sample_count": { "type": "integer", "minimum": 3 },
+        "mean_absolute_error_volts": { "type": "number", "minimum": 0 },
+        "maximum_absolute_error_volts": { "type": "number", "minimum": 0 },
+        "status": { "enum": ["matched_rounding_tolerance", "outside_tolerance"] }
+      }
+    },
+    "warnings": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}

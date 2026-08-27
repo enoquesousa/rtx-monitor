@@ -117,6 +117,40 @@ public static class ServiceEndpoints
             })
             .WithName("telemetry");
 
+        api.MapGet(
+            "/gpus/{gpuUuid}/windows-telemetry",
+            (string gpuUuid, IMonitoringSnapshotSource monitoring,
+                IWindowsTelemetrySnapshotSource windowsTelemetry) =>
+            {
+                if (string.IsNullOrWhiteSpace(gpuUuid) || gpuUuid.Length > 256)
+                {
+                    return Results.Problem(
+                        statusCode: 400,
+                        title: "UUID inválido",
+                        detail: "gpu_uuid deve possuir entre 1 e 256 caracteres.");
+                }
+                bool known = monitoring.GetSnapshot().Gpus.Any(item => string.Equals(
+                    item.Gpu.Uuid, gpuUuid, StringComparison.OrdinalIgnoreCase));
+                if (!known)
+                {
+                    return Results.Problem(
+                        statusCode: 404,
+                        title: "GPU desconhecida",
+                        detail: $"Nenhuma GPU com UUID {gpuUuid} foi observada pelo serviço.");
+                }
+
+                WindowsTelemetrySnapshot? snapshot = windowsTelemetry.GetSnapshot(gpuUuid);
+                if (snapshot is null)
+                {
+                    return Results.Problem(
+                        statusCode: 503,
+                        title: "Telemetria Windows indisponível",
+                        detail: "A primeira tentativa PDH/DXGI ainda não foi concluída para esta GPU.");
+                }
+                return Results.Json(BuildWindowsTelemetry(snapshot));
+            })
+            .WithName("windows-telemetry");
+
         api.MapGet("/history", HandleHistoryAsync).WithName("history");
         api.MapGet("/events", HandleEventsAsync).WithName("events");
     }
@@ -467,9 +501,10 @@ public static class ServiceEndpoints
                     metric.InputNames)).ToArray())
             : null;
         DiscoveredGpu? discovered = gpu.Capabilities;
+        PerformanceLimitReasonReport? reasons = PerformanceLimitReasons.From(report);
 
         return new PublicTelemetryResponse(
-            ApiSchemaVersion,
+            2,
             checked((long)report.TimestampUnixMilliseconds),
             new GpuIdentityResponse(
                 gpu.Gpu.Index,
@@ -487,9 +522,37 @@ public static class ServiceEndpoints
                 coverage.NotSupported,
                 coverage.ProviderUnavailable,
                 coverage.QueryFailed),
+            reasons is null ? null : new PerformanceLimitReasonsResponse(
+                reasons.RawBitmask,
+                reasons.ActiveReasons,
+                reasons.PrimaryReason),
             fields,
             computed);
     }
+
+    private static WindowsTelemetryResponse BuildWindowsTelemetry(WindowsTelemetrySnapshot snapshot) =>
+        new(
+            snapshot.SchemaVersion,
+            snapshot.CapturedAt.ToUnixTimeMilliseconds(),
+            snapshot.State,
+            snapshot.Error,
+            new GpuIdentityResponse(
+                snapshot.Gpu.Index, snapshot.Gpu.Name, snapshot.Gpu.Uuid,
+                snapshot.Gpu.DriverVersion, snapshot.Gpu.NvmlVersion),
+            snapshot.Adapter is null ? null : new WindowsAdapterIdentityResponse(
+                $"0x{unchecked((ulong)snapshot.Adapter.Luid):x16}",
+                snapshot.Adapter.Description,
+                snapshot.Adapter.VendorId,
+                snapshot.Adapter.DeviceId,
+                snapshot.Adapter.SubsystemVendorId,
+                snapshot.Adapter.SubsystemDeviceId),
+            BuildWindowsMetric(snapshot.LocalMemory),
+            BuildWindowsMetric(snapshot.NonLocalMemory),
+            snapshot.Engines.Select(engine => new WindowsEngineResponse(
+                engine.EngineType, BuildWindowsMetric(engine.Utilization))).ToArray());
+
+    private static WindowsMetricResponse BuildWindowsMetric(WindowsTelemetryMetric metric) =>
+        new(metric.State, metric.Value, metric.Unit, metric.Error);
 
     private static BoardResponse? BuildBoard(DiscoveredGpu discovered)
     {

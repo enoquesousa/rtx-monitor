@@ -69,8 +69,8 @@ internal static class Program
             root.GetProperty("evidence_schema_version").GetInt32() == 1,
             "exportação deve declarar evidence schema 1");
         Check(
-            root.GetProperty("event").GetProperty("schema_version").GetInt32() == 3,
-            "exportação deve incorporar o evento v3 sem alterar seu contrato");
+            root.GetProperty("event").GetProperty("schema_version").GetInt32() == 4,
+            "exportação deve incorporar o evento v4 sem alterar seu contrato");
         Check(
             root.GetProperty("device_snapshot")
                 .GetProperty("board")

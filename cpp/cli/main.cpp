@@ -95,7 +95,7 @@ void print_help()
         << "  --count N       Stop watch mode after N samples; 0 means unlimited\n"
         << "  --buffer N      Retain the most recent 1 to 65536 events (default: 256)\n"
         << "  --json          Emit JSON (sample schema v1 in watch mode)\n"
-        << "  --events        Emit the full event stream (schema v3) as JSON Lines\n"
+        << "  --events        Emit the full event stream (schema v4) as JSON Lines\n"
         << "  --alert-threshold C   Raise an alert while --watch when die temperature reaches C (0-500)\n"
         << "  --alert-hysteresis C  Clear at threshold-C; 0 clears only below threshold\n"
         << "  --help          Show this help\n";
@@ -334,7 +334,7 @@ void print_event_computed_metrics_json(const rtxmon::ComputedMetricsReport &comp
 void print_event_json(const rtxmon::TelemetryEvent &event)
 {
     std::cout
-        << "{\"schema_version\":3"
+        << "{\"schema_version\":4"
         << ",\"event_type\":\"" << rtxmon::telemetry_event_kind_name(event.kind)
         << "\",\"sequence\":" << event.sequence
         << ",\"target_gpu_uuid\":\"" << json_escape(event.target_gpu_uuid)
@@ -385,6 +385,7 @@ void print_event_json(const rtxmon::TelemetryEvent &event)
     } else {
         std::cout << "null";
     }
+    std::cout << ",\"windows_telemetry\":null";
     std::cout << "}\n";
     std::cout.flush();
 }
@@ -613,6 +614,57 @@ void print_public_value_json(const rtxmon::PublicFieldValue &field)
     }
 }
 
+void print_performance_limit_reasons_json(const rtxmon::PublicTelemetryReport &telemetry)
+{
+    const auto current = std::find_if(
+        telemetry.fields.begin(),
+        telemetry.fields.end(),
+        [](const rtxmon::PublicFieldValue &field) {
+            return field.field == RTXMON_PUBLIC_FIELD_CLOCK_EVENT_REASONS_CURRENT;
+        });
+    if (current == telemetry.fields.end() ||
+        current->state != RTXMON_CAPABILITY_AVAILABLE ||
+        !current->unsigned_value.has_value()) {
+        std::cout << "null";
+        return;
+    }
+
+    struct Reason {
+        std::uint64_t mask;
+        const char *name;
+        const char *primary;
+    };
+    static constexpr Reason reasons[] = {
+        {1ULL << 0U, "gpu_idle", "idle"},
+        {1ULL << 1U, "application_clocks", "application_clocks"},
+        {1ULL << 2U, "software_power_cap", "power"},
+        {1ULL << 3U, "hardware_slowdown", "hardware_slowdown"},
+        {1ULL << 4U, "sync_boost", "sync_boost"},
+        {1ULL << 5U, "software_thermal", "thermal"},
+        {1ULL << 6U, "hardware_thermal", "thermal"},
+        {1ULL << 7U, "hardware_power_brake", "power_brake"},
+        {1ULL << 8U, "display_clock", "display_clock"},
+    };
+
+    const std::uint64_t raw = *current->unsigned_value;
+    const char *primary = raw == 0U ? "none" : "unknown";
+    bool first = true;
+    std::cout << "{\"raw_bitmask\":" << raw << ",\"active_reasons\":[";
+    for (const auto &reason : reasons) {
+        if ((raw & reason.mask) == 0U) {
+            continue;
+        }
+        if (first) {
+            primary = reason.primary;
+            first = false;
+        } else {
+            std::cout << ',';
+        }
+        std::cout << '"' << reason.name << '"';
+    }
+    std::cout << "],\"primary_reason\":\"" << primary << "\"}";
+}
+
 void print_event_public_telemetry_json(const rtxmon::PublicTelemetryReport &telemetry)
 {
     std::size_t available = 0U;
@@ -646,7 +698,9 @@ void print_event_public_telemetry_json(const rtxmon::PublicTelemetryReport &tele
         << ",\"not_supported\":" << not_supported
         << ",\"provider_unavailable\":" << provider_unavailable
         << ",\"query_failed\":" << query_failed << "}"
-        << ",\"fields\":[";
+        << ",\"performance_limit_reasons\":";
+    print_performance_limit_reasons_json(telemetry);
+    std::cout << ",\"fields\":[";
     for (std::size_t index = 0U; index < telemetry.fields.size(); ++index) {
         const auto &field = telemetry.fields[index];
         if (index != 0U) {
@@ -742,7 +796,7 @@ void print_public_telemetry_json(
     }
 
     std::cout
-        << "{\"schema_version\":1"
+        << "{\"schema_version\":2"
         << ",\"gpu\":{\"index\":" << gpu.index
         << ",\"name\":\"" << json_escape(gpu.name)
         << "\",\"uuid\":\"" << json_escape(gpu.uuid)
@@ -755,7 +809,9 @@ void print_public_telemetry_json(
         << ",\"not_supported\":" << not_supported
         << ",\"provider_unavailable\":" << provider_unavailable
         << ",\"query_failed\":" << query_failed << "}"
-        << ",\"fields\":[";
+        << ",\"performance_limit_reasons\":";
+    print_performance_limit_reasons_json(telemetry);
+    std::cout << ",\"fields\":[";
 
     for (std::size_t index = 0U; index < telemetry.fields.size(); ++index) {
         const auto &field = telemetry.fields[index];
