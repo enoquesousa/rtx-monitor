@@ -19,13 +19,14 @@
 extern "C" {
 #endif
 
-#define RTXMON_ABI_VERSION 5U
+#define RTXMON_ABI_VERSION 7U
 #define RTXMON_TEXT_CAPACITY 96U
 #define RTXMON_MAX_THERMAL_PROVIDERS 3U
 #define RTXMON_MAX_THERMAL_CAPABILITIES 8U
 #define RTXMON_MAX_PUBLIC_FIELDS 48U
 #define RTXMON_MAX_COMPUTED_METRICS 4U
 #define RTXMON_MAX_METRIC_INPUTS 2U
+#define RTXMON_PRIVATE_PROFILE_TEXT_CAPACITY 128U
 
 typedef struct rtxmon_context rtxmon_context_t;
 typedef struct rtxmon_metrics_context rtxmon_metrics_context_t;
@@ -42,7 +43,9 @@ typedef enum rtxmon_status {
     RTXMON_STATUS_NOT_SUPPORTED = 8,
     RTXMON_STATUS_GPU_LOST = 9,
     RTXMON_STATUS_BACKEND_ERROR = 10,
-    RTXMON_STATUS_ABI_MISMATCH = 11
+    RTXMON_STATUS_ABI_MISMATCH = 11,
+    RTXMON_STATUS_RATE_LIMITED = 12,
+    RTXMON_STATUS_TIMEOUT = 13
 } rtxmon_status_t;
 
 typedef enum rtxmon_sensor_kind {
@@ -269,6 +272,53 @@ typedef struct rtxmon_private_voltage_sample {
     uint64_t timestamp_unix_ms;
 } rtxmon_private_voltage_sample_t;
 
+typedef enum rtxmon_private_profile_state {
+    RTXMON_PRIVATE_PROFILE_UNKNOWN = 0,
+    RTXMON_PRIVATE_PROFILE_ACTIVE = 1,
+    RTXMON_PRIVATE_PROFILE_REVOKED = 2
+} rtxmon_private_profile_state_t;
+
+enum {
+    RTXMON_PRIVATE_IDENTITY_VENDOR = 1U,
+    RTXMON_PRIVATE_IDENTITY_DEVICE = 2U,
+    RTXMON_PRIVATE_IDENTITY_SUBSYSTEM_VENDOR = 4U,
+    RTXMON_PRIVATE_IDENTITY_SUBSYSTEM_DEVICE = 8U,
+    RTXMON_PRIVATE_IDENTITY_UUID = 16U,
+    RTXMON_PRIVATE_IDENTITY_VBIOS = 32U,
+    RTXMON_PRIVATE_IDENTITY_DRIVER = 64U
+};
+
+typedef enum rtxmon_private_operation_state {
+    RTXMON_PRIVATE_OPERATION_UNKNOWN = 0,
+    RTXMON_PRIVATE_OPERATION_COMPATIBLE = 1,
+    RTXMON_PRIVATE_OPERATION_REVOKED = 2,
+    RTXMON_PRIVATE_OPERATION_IDENTITY_UNAVAILABLE = 3,
+    RTXMON_PRIVATE_OPERATION_IDENTITY_MISMATCH = 4,
+    RTXMON_PRIVATE_OPERATION_MODULE_UNAVAILABLE = 5,
+    RTXMON_PRIVATE_OPERATION_GPU_NOT_FOUND = 6,
+    RTXMON_PRIVATE_OPERATION_IDENTITY_AMBIGUOUS = 7,
+    RTXMON_PRIVATE_OPERATION_QUERY_FAILED = 8,
+    RTXMON_PRIVATE_OPERATION_RATE_LIMITED = 9, /* Reserved; diagnostics do not consume the fence. */
+    RTXMON_PRIVATE_OPERATION_TIMEOUT = 10
+} rtxmon_private_operation_state_t;
+
+typedef struct rtxmon_private_profile_report {
+    uint32_t struct_size;
+    uint32_t gpu_index;
+    uint32_t profile_revision;
+    uint32_t profile_state;
+    uint32_t identity_checked_flags;
+    uint32_t identity_match_flags;
+    uint32_t thermal_state;
+    uint32_t voltage_state;
+    char profile_id[RTXMON_PRIVATE_PROFILE_TEXT_CAPACITY];
+    char revocation_reason[RTXMON_PRIVATE_PROFILE_TEXT_CAPACITY];
+    uint32_t thermal_min_interval_ms;
+    uint32_t thermal_timeout_ms;
+    uint32_t voltage_min_interval_ms;
+    uint32_t voltage_timeout_ms;
+} rtxmon_private_profile_report_t;
+
 typedef struct rtxmon_board_identity {
     uint32_t struct_size;
     uint32_t gpu_index;
@@ -433,6 +483,11 @@ rtxmon_read_gpu_die_temperature(
  * Reads the fixed-profile experimental thermal channels directly through
  * NVAPI. The call fails closed unless PCI identity, VBIOS, driver, interface,
  * and ABI all match the validated RTX 3060 profile. GPU-Z is not used.
+ * Compiled policy admits this operation at most once per 100 ms across all
+ * contexts in a process. A 2000 ms monotonic budget includes lock wait and
+ * identity gates. Late values are discarded; a timeout permanently blocks
+ * both private readers in this process. This cannot cancel a synchronous
+ * driver call: use a process supervisor when a hard response deadline is needed.
  */
 RTXMON_API rtxmon_status_t RTXMON_CALL
 rtxmon_read_private_thermal_channels(
@@ -441,9 +496,26 @@ rtxmon_read_private_thermal_channels(
     rtxmon_private_thermal_sample_t *out_sample);
 
 /*
+ * Reports compiled policy and public identity/module gates without invoking any
+ * private acquisition function. COMPATIBLE does not prove a sample or physical
+ * sensor support. A populated report returns OK even when an operation is blocked.
+ * checked flags identify successfully obtained identity fields, match flags their
+ * exact catalog matches (VBIOS comparison is case-insensitive).
+ * Diagnostics never consume the operation rate fence. A latched acquisition
+ * timeout reports TIMEOUT for non-revoked operations without backend access.
+ */
+RTXMON_API rtxmon_status_t RTXMON_CALL
+rtxmon_get_private_profile_status(
+    rtxmon_context_t *context,
+    uint32_t gpu_index,
+    rtxmon_private_profile_report_t *out_report);
+
+/*
  * Reads the fixed-profile experimental core-voltage status. The call fails
  * closed unless PCI identity, VBIOS, driver, interface, and ABI all match the
  * validated RTX 3060 profile.
+ * Uses an independent process-wide 100 ms rate fence and the same 2000 ms
+ * budget and process timeout latch documented for the private thermal reader.
  */
 RTXMON_API rtxmon_status_t RTXMON_CALL
 rtxmon_read_private_voltage_status(

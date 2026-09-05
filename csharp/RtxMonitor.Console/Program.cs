@@ -16,6 +16,7 @@ internal enum RunMode
     Telemetry,
     ThermalWatch,
     VoltageWatch,
+    ProfileStatus,
     History,
     Export,
 }
@@ -68,6 +69,10 @@ internal static class Program
         try
         {
             Console.OutputEncoding = Encoding.UTF8;
+            if (args.Length > 0 && args[0] == "--private-worker")
+            {
+                return await PrivateWorkerServer.RunAsync(args).ConfigureAwait(false);
+            }
             Options options = ParseOptions(args);
 
             if (options.Mode == RunMode.History)
@@ -97,17 +102,9 @@ internal static class Program
                 return await WatchAsync(targetUuid, target, options).ConfigureAwait(false);
             }
 
-            if (options.Mode == RunMode.ThermalWatch)
+            if (options.Mode is RunMode.ThermalWatch or RunMode.VoltageWatch)
             {
-                using NvidiaMonitor thermalMonitor = NvidiaMonitor.Open();
-                GpuInfo thermalGpu = ResolveGpu(thermalMonitor, options);
-                return await ThermalWatchAsync(thermalMonitor, thermalGpu, options).ConfigureAwait(false);
-            }
-            if (options.Mode == RunMode.VoltageWatch)
-            {
-                using NvidiaMonitor voltageMonitor = NvidiaMonitor.Open();
-                GpuInfo voltageGpu = ResolveGpu(voltageMonitor, options);
-                return await VoltageWatchAsync(voltageMonitor, voltageGpu, options).ConfigureAwait(false);
+                return await PrivateWatchAsync(options).ConfigureAwait(false);
             }
 
             using NvidiaMonitor monitor = NvidiaMonitor.Open();
@@ -118,6 +115,13 @@ internal static class Program
                 return 0;
             }
 
+            if (options.Mode == RunMode.ProfileStatus)
+            {
+                uint profileGpuIndex = options.GpuUuid is null
+                    ? options.GpuIndex : monitor.GetGpuByUuid(options.GpuUuid).Index;
+                PrintPrivateProfileStatus(monitor.GetPrivateProfileStatus(profileGpuIndex), options.Json);
+                return 0;
+            }
             GpuInfo gpu = ResolveGpu(monitor, options);
             if (options.Mode == RunMode.Capabilities)
             {
@@ -204,10 +208,17 @@ internal static class Program
         bool retentionSet = false;
         bool queryFilterSet = false;
         bool queryLimitSet = false;
+        bool profileStatusSet = false;
+        int modeOptionCount = 0;
 
         for (int index = 0; index < args.Length; index++)
         {
             string argument = args[index];
+            if (argument is "--once" or "--watch" or "--list" or "--capabilities" or "--telemetry" or
+                "--thermal-watch" or "--voltage-watch" or "--profile-status" or "--history" or "--export")
+            {
+                modeOptionCount++;
+            }
             switch (argument)
             {
                 case "--help":
@@ -235,6 +246,10 @@ internal static class Program
                     break;
                 case "--voltage-watch":
                     mode = RunMode.VoltageWatch;
+                    break;
+                case "--profile-status":
+                    mode = RunMode.ProfileStatus;
+                    profileStatusSet = true;
                     break;
                 case "--history":
                     mode = RunMode.History;
@@ -327,6 +342,10 @@ internal static class Program
             }
         }
 
+        if (profileStatusSet && (modeOptionCount != 1 || intervalSet || countSet || bufferSet))
+        {
+            throw new ArgumentException("--profile-status é um diagnóstico único e não aceita outro modo ou opções de coleta");
+        }
         if (interval is < 100 or > 60000)
         {
             throw new ArgumentException("--interval deve estar entre 100 e 60000 ms");
@@ -439,10 +458,31 @@ internal static class Program
             queryLimit);
     }
 
-    private static async Task<int> ThermalWatchAsync(
-        NvidiaMonitor monitor,
-        GpuInfo gpu,
-        Options options)
+    private static void PrintPrivateProfileStatus(PrivateProfileStatus report, bool json)
+    {
+        if (json)
+        {
+            Console.WriteLine(report.ToJson(DateTimeOffset.UtcNow));
+            return;
+        }
+
+        Console.WriteLine($"Perfil experimental: {report.ProfileId} | revisão {report.ProfileRevision} | {report.ProfileState}");
+        if (report.RevocationReason is not null)
+        {
+            Console.WriteLine($"Revogação: {report.RevocationReason}");
+        }
+        foreach (PrivateProfileIdentityCheck check in report.IdentityChecks)
+        {
+            Console.WriteLine($"  {check.Field}: {check.State}");
+        }
+        Console.WriteLine($"Térmico: {PrivateProfileStatus.StateName(report.ThermalState)}");
+        Console.WriteLine($"  Intervalo mínimo {report.ThermalMinIntervalMilliseconds} ms; prazo nativo {report.ThermalTimeoutMilliseconds} ms");
+        Console.WriteLine($"Tensão: {PrivateProfileStatus.StateName(report.VoltageState)}");
+        Console.WriteLine($"  Intervalo mínimo {report.VoltageMinIntervalMilliseconds} ms; prazo nativo {report.VoltageTimeoutMilliseconds} ms");
+        Console.WriteLine("Compatibilidade para tentar aquisição. Nenhuma leitura privada realizada; retorno ainda não avaliado. GSP não observado.");
+    }
+
+    private static async Task<int> PrivateWatchAsync(Options options)
     {
         using var cancellation = new CancellationTokenSource();
         ConsoleCancelEventHandler handler = (_, eventArgs) =>
@@ -453,50 +493,61 @@ internal static class Program
         Console.CancelKeyPress += handler;
         try
         {
-            long emitted = 0;
-            while (!cancellation.IsCancellationRequested &&
-                   (options.Count == 0 || emitted < options.Count))
+            string operation = options.Mode == RunMode.ThermalWatch ? "thermal" : "voltage";
+            string executable = Environment.ProcessPath
+                ?? throw new InvalidOperationException("Não foi possível localizar o executável do monitor.");
+            var startInfo = new ProcessStartInfo(executable);
+            if (string.Equals(Path.GetFileNameWithoutExtension(executable), "dotnet", StringComparison.OrdinalIgnoreCase))
             {
-                PrivateThermalSample sample = monitor.ReadPrivateThermalChannels(gpu.Index);
-                long monotonicNs = GetMonotonicNanoseconds();
+                startInfo.ArgumentList.Add(typeof(Program).Assembly.Location);
+            }
+            startInfo.ArgumentList.Add("--private-worker");
+            startInfo.ArgumentList.Add(operation);
+            startInfo.ArgumentList.Add(options.GpuUuid is null ? "--gpu" : "--gpu-uuid");
+            startInfo.ArgumentList.Add(options.GpuUuid ?? options.GpuIndex.ToString(CultureInfo.InvariantCulture));
+            await using PrivateWorkerClient worker = await PrivateWorkerClient.StartAsync(
+                startInfo, operation, cancellation.Token).ConfigureAwait(false);
+            if (options.IntervalMilliseconds < worker.MinimumIntervalMilliseconds)
+            {
+                throw new ArgumentException($"O perfil exige intervalo mínimo de {worker.MinimumIntervalMilliseconds} ms.");
+            }
+
+            long emitted = 0;
+            while (!cancellation.IsCancellationRequested && (options.Count == 0 || emitted < options.Count))
+            {
+                string payload = await worker.ReadSampleAsync(cancellation.Token).ConfigureAwait(false);
+                cancellation.Token.ThrowIfCancellationRequested();
                 if (options.Json)
                 {
-                    Console.WriteLine(JsonSerializer.Serialize(new
-                    {
-                        schema_version = 1,
-                        source_kind = PrivateThermalSample.SourceKind,
-                        gpu_index = sample.GpuIndex,
-                        gpu_uuid = gpu.Uuid,
-                        captured_at_utc = sample.CapturedAt.ToString("O"),
-                        captured_at_unix_ms = sample.TimestampUnixMilliseconds,
-                        monotonic_ns = monotonicNs,
-                        monotonic_frequency_hz = Stopwatch.Frequency,
-                        gpu_die_temperature_c = sample.GpuDieTemperatureC,
-                        gpu_hotspot_temperature_c = sample.GpuHotspotTemperatureC,
-                        delta_c = Math.Round(sample.DeltaC, 3),
-                        native_status = sample.NativeStatus,
-                        profile_evidence_stage = PrivateThermalSample.ProfileEvidenceStage,
-                        profile_name = PrivateThermalSample.Profile,
-                        interface_id = PrivateThermalSample.InterfaceId,
-                        structure_version = PrivateThermalSample.StructureVersion,
-                        nvapi_module_sha256 = PrivateThermalSample.NvapiModuleSha256,
-                        function_rva = PrivateThermalSample.FunctionRva,
-                    }));
+                    Console.WriteLine(payload);
                 }
                 else
                 {
-                    Console.WriteLine(
-                        $"{sample.CapturedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | " +
-                        $"GPU Die {sample.GpuDieTemperatureC:F2} °C | " +
-                        $"Hotspot {sample.GpuHotspotTemperatureC:F2} °C | " +
-                        $"Delta {sample.DeltaC:F2} °C | {PrivateThermalSample.SourceKind} | " +
-                        PrivateThermalSample.ProfileEvidenceStage);
+                    using JsonDocument document = JsonDocument.Parse(payload);
+                    JsonElement sample = document.RootElement;
+                    DateTimeOffset capturedAt = sample.GetProperty("captured_at_utc").GetDateTimeOffset();
+                    if (operation == "thermal")
+                    {
+                        Console.WriteLine(
+                            $"{capturedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | " +
+                            $"GPU Die {sample.GetProperty("gpu_die_temperature_c").GetDouble():F2} °C | " +
+                            $"Hotspot {sample.GetProperty("gpu_hotspot_temperature_c").GetDouble():F2} °C | " +
+                            $"Delta {sample.GetProperty("delta_c").GetDouble():F2} °C | " +
+                            $"{PrivateThermalSample.SourceKind} | {PrivateThermalSample.ProfileEvidenceStage}");
+                    }
+                    else
+                    {
+                        Console.WriteLine(
+                            $"{capturedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | " +
+                            $"GPU Core {sample.GetProperty("gpu_core_voltage_v").GetDouble():F6} V " +
+                            $"({sample.GetProperty("gpu_core_voltage_microvolts").GetUInt32()} µV) | " +
+                            $"{PrivateVoltageSample.SourceKind} | {PrivateVoltageSample.ProfileEvidenceStage}");
+                    }
                 }
                 emitted++;
                 if (options.Count == 0 || emitted < options.Count)
                 {
-                    await Task.Delay(options.IntervalMilliseconds, cancellation.Token)
-                        .ConfigureAwait(false);
+                    await Task.Delay(options.IntervalMilliseconds, cancellation.Token).ConfigureAwait(false);
                 }
             }
             return 0;
@@ -510,81 +561,6 @@ internal static class Program
             Console.CancelKeyPress -= handler;
         }
     }
-
-    private static async Task<int> VoltageWatchAsync(
-        NvidiaMonitor monitor,
-        GpuInfo gpu,
-        Options options)
-    {
-        using var cancellation = new CancellationTokenSource();
-        ConsoleCancelEventHandler handler = (_, eventArgs) =>
-        {
-            eventArgs.Cancel = true;
-            cancellation.Cancel();
-        };
-        Console.CancelKeyPress += handler;
-        try
-        {
-            long emitted = 0;
-            while (!cancellation.IsCancellationRequested &&
-                   (options.Count == 0 || emitted < options.Count))
-            {
-                PrivateVoltageSample sample = monitor.ReadPrivateVoltageStatus(gpu.Index);
-                long monotonicNs = GetMonotonicNanoseconds();
-                if (options.Json)
-                {
-                    Console.WriteLine(JsonSerializer.Serialize(new
-                    {
-                        schema_version = 1,
-                        source_kind = PrivateVoltageSample.SourceKind,
-                        gpu_index = sample.GpuIndex,
-                        gpu_uuid = gpu.Uuid,
-                        captured_at_utc = sample.CapturedAt.ToString("O"),
-                        captured_at_unix_ms = sample.TimestampUnixMilliseconds,
-                        monotonic_ns = monotonicNs,
-                        monotonic_frequency_hz = Stopwatch.Frequency,
-                        gpu_core_voltage_microvolts = sample.GpuCoreVoltageMicrovolts,
-                        gpu_core_voltage_v = sample.GpuCoreVoltageV,
-                        native_status = sample.NativeStatus,
-                        profile_evidence_stage = PrivateVoltageSample.ProfileEvidenceStage,
-                        profile_name = PrivateVoltageSample.Profile,
-                        interface_id = PrivateVoltageSample.InterfaceId,
-                        structure_version = PrivateVoltageSample.StructureVersion,
-                        nvapi_module_sha256 = PrivateVoltageSample.NvapiModuleSha256,
-                        function_rva = PrivateVoltageSample.FunctionRva,
-                    }));
-                }
-                else
-                {
-                    Console.WriteLine(
-                        $"{sample.CapturedAt:yyyy-MM-dd HH:mm:ss.fff zzz} | " +
-                        $"GPU Core {sample.GpuCoreVoltageV:F6} V " +
-                        $"({sample.GpuCoreVoltageMicrovolts} µV) | " +
-                        $"{PrivateVoltageSample.SourceKind} | " +
-                        PrivateVoltageSample.ProfileEvidenceStage);
-                }
-                emitted++;
-                if (options.Count == 0 || emitted < options.Count)
-                {
-                    await Task.Delay(options.IntervalMilliseconds, cancellation.Token)
-                        .ConfigureAwait(false);
-                }
-            }
-            return 0;
-        }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-        {
-            return 0;
-        }
-        finally
-        {
-            Console.CancelKeyPress -= handler;
-        }
-    }
-
-    private static long GetMonotonicNanoseconds() => checked(
-        (long)(((Int128)Stopwatch.GetTimestamp() * 1_000_000_000L) /
-            Stopwatch.Frequency));
 
     private static string NextValue(string[] args, ref int index, string option)
     {
@@ -654,6 +630,7 @@ internal static class Program
               --telemetry    Lê o catálogo público documentado e as métricas calculadas
               --thermal-watch Lê die e hotspot diretamente da NVAPI, sem GPU-Z
               --voltage-watch Lê tensão experimental somente no perfil RTX 3060 validado
+              --profile-status Diagnostica compatibilidade do perfil sem adquirir sensores privados
               --gpu INDEX     Índice da GPU, começando em zero
               --gpu-uuid UUID Seleciona a GPU por UUID persistente; não use junto com --gpu
               --interval MS   Intervalo de 100 a 60000 ms (padrão: 1000)

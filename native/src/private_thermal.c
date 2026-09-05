@@ -1,5 +1,6 @@
 #include "rtxmon_internal.h"
 #include "private_profile.h"
+#include "private_profile_gate.h"
 
 #include <limits.h>
 #include <string.h>
@@ -14,50 +15,6 @@ RTXMON_PRIVATE_THERM_STATIC_ASSERT(
     sizeof(rtxmon_nvapi_therm_channel_status_v2_t) == 168U,
     "private NVAPI thermal channel ABI changed");
 
-static int profile_matches(
-    rtxmon_context_t *context,
-    nvmlDevice_t device,
-    const rtxmon_nvml_pci_info_t *pci)
-{
-    char driver[RTXMON_TEXT_CAPACITY] = {0};
-    char uuid[RTXMON_TEXT_CAPACITY] = {0};
-    char vbios[RTXMON_TEXT_CAPACITY] = {0};
-    nvmlReturn_t result;
-    const uint32_t vendor_id = pci->pci_device_id & 0xffffU;
-    const uint32_t device_id = (pci->pci_device_id >> 16U) & 0xffffU;
-    const uint32_t subsystem_vendor_id = pci->pci_subsystem_id & 0xffffU;
-    const uint32_t subsystem_device_id = (pci->pci_subsystem_id >> 16U) & 0xffffU;
-
-    if (context->nvml.device_get_uuid == NULL ||
-        context->nvml.system_get_driver_version == NULL ||
-        context->nvml.device_get_vbios_version == NULL) {
-        return 0;
-    }
-    result = context->nvml.device_get_uuid(device, uuid, (uint32_t)sizeof(uuid));
-    if (result != NVML_SUCCESS) {
-        return 0;
-    }
-    result = context->nvml.system_get_driver_version(driver, (uint32_t)sizeof(driver));
-    if (result != NVML_SUCCESS) {
-        return 0;
-    }
-    result = context->nvml.device_get_vbios_version(device, vbios, (uint32_t)sizeof(vbios));
-    if (result != NVML_SUCCESS) {
-        return 0;
-    }
-    uuid[sizeof(uuid) - 1U] = '\0';
-    driver[sizeof(driver) - 1U] = '\0';
-    vbios[sizeof(vbios) - 1U] = '\0';
-    return rtxmon_private_profile_matches(
-        vendor_id,
-        device_id,
-        subsystem_vendor_id,
-        subsystem_device_id,
-        uuid,
-        vbios,
-        driver);
-}
-
 static rtxmon_status_t map_nvapi_status(rtxmon_nvapi_status_t status)
 {
     if (status == RTXMON_NVAPI_NOT_SUPPORTED ||
@@ -69,38 +26,6 @@ static rtxmon_status_t map_nvapi_status(rtxmon_nvapi_status_t status)
         return RTXMON_STATUS_GPU_NOT_FOUND;
     }
     return RTXMON_STATUS_BACKEND_ERROR;
-}
-
-static rtxmon_nvapi_status_t find_gpu(
-    rtxmon_context_t *context,
-    const rtxmon_nvml_pci_info_t *pci,
-    rtxmon_nvapi_gpu_handle_t *out_handle)
-{
-    rtxmon_nvapi_gpu_handle_t handles[RTXMON_NVAPI_MAX_PHYSICAL_GPUS] = {0};
-    uint32_t count = 0U;
-    uint32_t matches = 0U;
-    uint32_t i;
-    rtxmon_nvapi_status_t result = context->nvapi.enum_physical_gpus(handles, &count);
-
-    *out_handle = NULL;
-    if (result != RTXMON_NVAPI_OK || count > RTXMON_NVAPI_MAX_PHYSICAL_GPUS) {
-        return result != RTXMON_NVAPI_OK ? result : RTXMON_NVAPI_ERROR;
-    }
-    for (i = 0U; i < count; ++i) {
-        uint32_t bus = 0U, slot = 0U, device = 0U, subsystem = 0U, revision = 0U, extended = 0U;
-        if (context->nvapi.gpu_get_bus_id(handles[i], &bus) != RTXMON_NVAPI_OK ||
-            context->nvapi.gpu_get_bus_slot_id(handles[i], &slot) != RTXMON_NVAPI_OK ||
-            context->nvapi.gpu_get_pci_identifiers(
-                handles[i], &device, &subsystem, &revision, &extended) != RTXMON_NVAPI_OK) {
-            continue;
-        }
-        if (bus == pci->bus && slot == pci->device && device == pci->pci_device_id &&
-            subsystem == pci->pci_subsystem_id) {
-            *out_handle = handles[i];
-            ++matches;
-        }
-    }
-    return matches == 1U ? RTXMON_NVAPI_OK : RTXMON_NVAPI_NVIDIA_DEVICE_NOT_FOUND;
 }
 
 static int32_t fixed8_to_millic(int32_t raw)
@@ -117,52 +42,67 @@ rtxmon_status_t RTXMON_CALL rtxmon_read_private_thermal_channels(
 {
     rtxmon_private_thermal_sample_t sample;
     rtxmon_nvapi_gpu_handle_t handle = NULL;
-    rtxmon_nvml_pci_info_t pci = {0};
-    nvmlDevice_t device = NULL;
-    nvmlReturn_t nvml_result;
+    rtxmon_private_profile_report_t report = {0};
+    rtxmon_private_acquisition_t acquisition;
+    const rtxmon_private_profile_catalog_t *profile = rtxmon_private_catalog_get();
+    const rtxmon_private_operation_policy_t *policy = &profile->thermal;
+    rtxmon_status_t gate_status;
     rtxmon_nvapi_status_t result;
     int32_t raw_values[2] = {0, 0};
     int32_t millic_values[2] = {0, 0};
     uint32_t channel;
 
-    if (context == NULL || out_sample == NULL) {
+    if (out_sample == NULL) {
         return RTXMON_STATUS_INVALID_ARGUMENT;
     }
     if (out_sample->struct_size < sizeof(*out_sample)) {
         return RTXMON_STATUS_ABI_MISMATCH;
     }
-    if (context->nvapi_initialized == 0 || context->nvapi.gpu_therm_channel_get_status == NULL) {
-        return RTXMON_STATUS_NOT_SUPPORTED;
-    }
-    nvml_result = context->nvml.device_get_handle_by_index_v2(gpu_index, &device);
-    if (nvml_result != NVML_SUCCESS) {
-        return nvml_result == NVML_ERROR_NOT_FOUND ? RTXMON_STATUS_GPU_NOT_FOUND : RTXMON_STATUS_BACKEND_ERROR;
-    }
-    nvml_result = rtxmon_get_pci_info_internal(context, device, &pci);
-    if (nvml_result != NVML_SUCCESS) {
-        return RTXMON_STATUS_BACKEND_ERROR;
-    }
-
     (void)memset(&sample, 0, sizeof(sample));
     sample.struct_size = (uint32_t)sizeof(sample);
     sample.gpu_index = gpu_index;
-    if (!profile_matches(context, device, &pci)) {
+    sample.native_status = RTXMON_NVAPI_INVALID_ARGUMENT;
+    *out_sample = sample;
+
+    if (context == NULL || context->initialized == 0) {
+        return RTXMON_STATUS_INVALID_ARGUMENT;
+    }
+    if (profile->revoked != 0U || policy->revoked != 0U) {
         sample.native_status = RTXMON_NVAPI_NOT_SUPPORTED;
         sample.timestamp_unix_ms = rtxmon_timestamp_unix_ms_internal();
         *out_sample = sample;
         return RTXMON_STATUS_NOT_SUPPORTED;
     }
-
-    rtxmon_lock_nvapi_internal();
-    result = find_gpu(context, &pci, &handle);
+    gate_status = rtxmon_private_acquisition_begin_internal(&acquisition, policy);
+    if (gate_status == RTXMON_STATUS_OK) {
+        gate_status = rtxmon_private_profile_evaluate_internal(context, gpu_index, &report, &handle, &acquisition);
+    }
+    if (gate_status == RTXMON_STATUS_OK) {
+        gate_status = rtxmon_private_operation_status_internal(report.thermal_state, &sample.native_status);
+    }
+    if (gate_status == RTXMON_STATUS_OK) {
+        gate_status = rtxmon_private_acquisition_admit_internal(&acquisition, RTXMON_PRIVATE_THERMAL, policy);
+    }
+    if (gate_status != RTXMON_STATUS_OK) {
+        goto finish;
+    }
+    result = RTXMON_NVAPI_OK;
     if (result == RTXMON_NVAPI_OK) {
         for (channel = 0U; channel < 2U; ++channel) {
             rtxmon_nvapi_therm_channel_status_v2_t status;
             int32_t raw;
             (void)memset(&status, 0, sizeof(status));
-            status.version = RTXMON_NVAPI_THERM_CHANNEL_STATUS_V2_VERSION;
+            status.version = policy->structure_version;
             status.channel_mask = 1U << channel;
+            gate_status = rtxmon_private_acquisition_check_internal(&acquisition);
+            if (gate_status != RTXMON_STATUS_OK) {
+                goto finish;
+            }
             result = context->nvapi.gpu_therm_channel_get_status(handle, &status);
+            gate_status = rtxmon_private_acquisition_check_internal(&acquisition);
+            if (gate_status != RTXMON_STATUS_OK) {
+                goto finish;
+            }
             if (result == RTXMON_NVAPI_OK &&
                 status.version != RTXMON_NVAPI_THERM_CHANNEL_STATUS_V2_VERSION) {
                 result = RTXMON_NVAPI_INCOMPATIBLE_STRUCT_VERSION;
@@ -199,10 +139,20 @@ rtxmon_status_t RTXMON_CALL rtxmon_read_private_thermal_channels(
                 RTXMON_PRIVATE_THERMAL_HOTSPOT_VALID;
         }
     }
-    rtxmon_unlock_nvapi_internal();
-
     sample.native_status = result;
+    gate_status = result == RTXMON_NVAPI_OK ? RTXMON_STATUS_OK : map_nvapi_status(result);
+finish:
     sample.timestamp_unix_ms = rtxmon_timestamp_unix_ms_internal();
+    if (rtxmon_private_acquisition_check_internal(&acquisition) != RTXMON_STATUS_OK) {
+        gate_status = RTXMON_STATUS_TIMEOUT;
+    }
+    if (gate_status == RTXMON_STATUS_TIMEOUT || gate_status == RTXMON_STATUS_RATE_LIMITED) {
+        sample.native_status = RTXMON_NVAPI_ERROR;
+        sample.value_flags = 0U;
+        sample.gpu_die_temperature_millic = 0;
+        sample.gpu_hotspot_temperature_millic = 0;
+    }
+    rtxmon_private_acquisition_end_internal(&acquisition);
     *out_sample = sample;
-    return result == RTXMON_NVAPI_OK ? RTXMON_STATUS_OK : map_nvapi_status(result);
+    return gate_status;
 }

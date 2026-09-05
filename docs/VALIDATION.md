@@ -1,5 +1,47 @@
 # Validação
 
+## Validação da v0.9 para a Galax RTX 3060 de 12 GB
+
+Marco concluído em 2026-09-05 para a unidade e configuração registradas no [fechamento](research/2026-09-05-v09-completion.md). Produto 0.9.0, ABI 7. O [manifesto do perfil](profiles/rtx3060-galax-12gb.json) ancora catálogo, fontes e fixtures; ambos os scripts de CI executam a auditoria offline e seus testes negativos. A validação Linux cobre portabilidade sem GPU. O smoke físico Windows usa a placa alvo e uma instância temporária do serviço com banco isolado.
+
+## Diagnóstico do perfil experimental
+
+### Reproduzir a validação do checkout
+
+No Windows x64, com Visual Studio 2022/C++, CMake 3.25+, .NET 8 e Python 3.10+ disponíveis:
+
+```powershell
+.\scripts\verify-ci.ps1 -Configuration Release
+```
+
+No Linux x64, com GCC/G++, CMake 3.25+, Ninja, .NET 8, Python 3.10+ e `timeout`:
+
+```bash
+bash scripts/verify-ci-linux.sh Release
+```
+
+Esses comandos não exigem GPU. O job Linux usa restore normal do NuGet; o feed local usado na validação inicial em contêiner não é configuração do repositório. O CI verifica o snapshot compilado contra as fontes/fixtures ancoradas e testa alterações inválidas. O Lab Linux verifica a recusa antecipada da plataforma, sem repetir a suíte exclusiva do Windows.
+
+Depois de um build aprovado, o teste físico da placa alvo é separado:
+
+```powershell
+.\scripts\verify.ps1 -Configuration Release -SkipBuild
+```
+
+Ele usa uma instância temporária do serviço, porta livre e banco isolado. Aprovação do CI sem GPU, aprovação de revisão de PR, merge e implantação do serviço são etapas distintas. Os resultados históricos completos e seus limites permanecem no registro de fechamento.
+
+### Consultar a compatibilidade
+
+```powershell
+dotnet .\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.dll --profile-status --json
+```
+
+A saída segue [private-profile-status-v2.schema.json](schema/private-profile-status-v2.schema.json): sete verificações de identidade, revisão/estado do perfil, motivo de revogação, estado e limites de cada operação. `compatible` significa elegível para tentar uma leitura, sujeita à janela dinâmica de taxa; `acquisition_performed` permanece falso, `returned_payload_state` permanece `not_evaluated` e GSP permanece `not_observed`. O diagnóstico não chama as funções privadas. Uma GPU ausente selecionada por índice também produz relatório inelegível; seleção por UUID inexistente continua sendo erro de seleção. O schema v1 permanece histórico.
+
+Os testes de aquisição usam relógio simulado para os limites de 100/2000 ms, compartilhamento entre contextos, lock ocupado, gates lentos e retornos tardios. Após timeout, os leitores ficam bloqueados no processo. A suíte `RtxMonitor.Console.Tests` valida o supervisor com filhos simulados: handshake, aquisição, espera ociosa, cancelamento, timeout, protocolo inválido e encerramento por PID. Os modos reais `--thermal-watch` e `--voltage-watch` preservam seus schemas de amostra e agora executam no worker. Referência: [ADR 0012](adr/0012-private-acquisition-budgets-and-worker.md).
+
+CTest inclui variantes isoladas de perfil ativo, perfil revogado, térmico revogado e tensão revogada, sem setters na biblioteca de produção. Mocks contam chamadas e verificam identidade ausente/divergente, módulo ausente, associação ambígua, falha de consulta parcial, versão de retorno incorreta, erro após escrita do valor e limpeza de saídas anteriores. O CI também valida P/Invoke, JSON, rejeição de elegibilidade contraditória e opções de coleta incompatíveis com o diagnóstico. O smoke físico valida o relatório sem exigir que a máquina suporte o perfil privado. Resultados da retomada estão no [registro de 2026-09-05](research/2026-09-05-v09-profile-policy-validation.md).
+
 ## Leitura direta de die e hotspot
 
 Depois do build, valide a aquisição sem GPU-Z:
@@ -20,7 +62,7 @@ dotnet .\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.dll `
   --voltage-watch --count 3 --interval 500 --json
 ```
 
-Cada linha válida deve satisfazer [`private-voltage-sample-v1.schema.json`](schema/private-voltage-sample-v1.schema.json) e preservar relógio UTC e monotônico, microvolts brutos, volts derivados, `profile_evidence_stage`, UUID físico, perfil, interface `0x465f9bcf`, estrutura `0x0001004c`, hash do módulo e RVA. Fora do perfil exato, qualquer divergência de identidade, módulo, estrutura ou faixa falha fechada sem publicar valor. A ABI 5 torna o export explícito; DLL ABI 4 anterior é rejeitada na abertura, e uma resolução opcional ausente ou concorrente falha como `not_supported`, sem vazar `EntryPointNotFoundException`. Este modo não participa do coletor padrão, serviço, HTTP/SSE, SQLite ou exportação.
+Cada linha válida deve satisfazer [`private-voltage-sample-v1.schema.json`](schema/private-voltage-sample-v1.schema.json) e preservar relógio UTC e monotônico, microvolts brutos, volts derivados, `profile_evidence_stage`, UUID físico, perfil, interface `0x465f9bcf`, estrutura `0x0001004c`, hash do módulo e RVA. Fora do perfil exato, qualquer divergência de identidade, módulo, estrutura ou faixa falha fechada sem publicar valor. A ABI 5 introduziu o export; a ABI atual é 7, e DLLs anteriores são rejeitadas na abertura. Uma resolução opcional ausente ou concorrente falha como `not_supported`, sem vazar `EntryPointNotFoundException`. Este modo não participa do coletor padrão, serviço, HTTP/SSE, SQLite ou exportação.
 
 ## Critérios de aceite
 

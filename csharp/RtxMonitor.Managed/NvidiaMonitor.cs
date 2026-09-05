@@ -124,6 +124,19 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
             native.TimestampUnixMilliseconds);
     }
 
+    public PrivateProfileStatus GetPrivateProfileStatus(uint index)
+    {
+        ThrowIfDisposed();
+        NativePrivateProfileStatus native = NativePrivateProfileStatus.Create();
+        NativeStatus status = NativeMethods.rtxmon_get_private_profile_status(context, index, ref native);
+        if (status != NativeStatus.Ok)
+        {
+            Throw(status, $"Não foi possível avaliar o perfil experimental da GPU {index}");
+        }
+
+        return PrivateProfileStatus.FromNative(native);
+    }
+
     public PrivateVoltageSample ReadPrivateVoltageStatus(uint index)
     {
         ThrowIfDisposed();
@@ -326,6 +339,7 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
         int sampleSize = Marshal.SizeOf<NativeTemperatureSample>();
         int privateThermalSize = Marshal.SizeOf<NativePrivateThermalSample>();
         int privateVoltageSize = Marshal.SizeOf<NativePrivateVoltageSample>();
+        int privateProfileSize = Marshal.SizeOf<NativePrivateProfileStatus>();
         int boardIdentitySize = Marshal.SizeOf<NativeBoardIdentity>();
         int providerSize = Marshal.SizeOf<NativeThermalProviderResult>();
         int capabilitySize = Marshal.SizeOf<NativeThermalCapability>();
@@ -335,7 +349,7 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
         int metricOptionsSize = Marshal.SizeOf<NativeComputedMetricOptions>();
         int metricSize = Marshal.SizeOf<NativeComputedMetric>();
         int metricReportSize = Marshal.SizeOf<NativeComputedMetricsReport>();
-        if (gpuInfoSize != 392 || sampleSize != 32 || privateThermalSize != 40 || privateVoltageSize != 32 || boardIdentitySize != 240 ||
+        if (gpuInfoSize != 392 || sampleSize != 32 || privateThermalSize != 40 || privateVoltageSize != 32 || privateProfileSize != 304 || boardIdentitySize != 240 ||
             providerSize != 16 || capabilitySize != 48 || reportSize != 456 ||
             publicValueSize != 64 || publicReportSize != 3096 || metricOptionsSize != 16 ||
             metricSize != 64 || metricReportSize != 280)
@@ -343,6 +357,7 @@ public sealed class NvidiaMonitor : IPublicTelemetrySession
             throw new InvalidOperationException(
                 $"Layout P/Invoke incompatível: gpu_info={gpuInfoSize}, sample={sampleSize}, " +
                 $"private_thermal={privateThermalSize}, private_voltage={privateVoltageSize}, board={boardIdentitySize}, provider={providerSize}, capability={capabilitySize}, " +
+                $"private_profile={privateProfileSize}, " +
                 $"report={reportSize}, public_value={publicValueSize}, public_report={publicReportSize}, " +
                 $"metric_options={metricOptionsSize}, metric={metricSize}, metric_report={metricReportSize}.");
         }

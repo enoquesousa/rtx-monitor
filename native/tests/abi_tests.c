@@ -1,3 +1,6 @@
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
 #include <rtxmon/rtxmon.h>
 #include "../src/rtxmon_internal.h"
 #include "../src/private_profile.h"
@@ -6,7 +9,13 @@ _Static_assert(sizeof(rtxmon_private_thermal_sample_t) == 40U, "private thermal 
 _Static_assert(sizeof(rtxmon_private_voltage_sample_t) == 32U, "private voltage ABI changed");
 
 #include <stdio.h>
+#include <stddef.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <time.h>
+#endif
 
 #if defined(_MSC_VER)
 #define RTXMON_STATIC_ASSERT(condition, message) static_assert(condition, message)
@@ -15,6 +24,13 @@ _Static_assert(sizeof(rtxmon_private_voltage_sample_t) == 32U, "private voltage 
 #endif
 
 RTXMON_STATIC_ASSERT(sizeof(rtxmon_temperature_sample_t) == 32U, "sample ABI changed");
+RTXMON_STATIC_ASSERT(sizeof(rtxmon_private_profile_report_t) == 304U, "private profile ABI changed");
+RTXMON_STATIC_ASSERT(offsetof(rtxmon_private_profile_report_t, profile_id) == 32U, "profile id offset changed");
+RTXMON_STATIC_ASSERT(offsetof(rtxmon_private_profile_report_t, revocation_reason) == 160U, "revocation reason offset changed");
+RTXMON_STATIC_ASSERT(offsetof(rtxmon_private_profile_report_t, thermal_min_interval_ms) == 288U, "thermal interval offset changed");
+RTXMON_STATIC_ASSERT(offsetof(rtxmon_private_profile_report_t, thermal_timeout_ms) == 292U, "thermal timeout offset changed");
+RTXMON_STATIC_ASSERT(offsetof(rtxmon_private_profile_report_t, voltage_min_interval_ms) == 296U, "voltage interval offset changed");
+RTXMON_STATIC_ASSERT(offsetof(rtxmon_private_profile_report_t, voltage_timeout_ms) == 300U, "voltage timeout offset changed");
 RTXMON_STATIC_ASSERT(sizeof(rtxmon_gpu_info_t) == 392U, "GPU info ABI changed");
 RTXMON_STATIC_ASSERT(sizeof(rtxmon_board_identity_t) == 240U, "board identity ABI changed");
 RTXMON_STATIC_ASSERT(
@@ -48,7 +64,19 @@ static int check(int condition, const char *message)
     return 1;
 }
 
-static const char *mock_uuid = RTXMON_PRIVATE_PROFILE_UUID;
+static const char *mock_uuid = "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd";
+/* These ABI integration cases use the real library clock. Boundary/timeout
+ * behavior is tested separately using link-time fake clocks, without sleeping.
+ */
+static void wait_private_interval(void)
+{
+#if defined(_WIN32)
+    Sleep(100U);
+#else
+    struct timespec delay = {0, 100000000L};
+    while (nanosleep(&delay, &delay) != 0) { }
+#endif
+}
 static uint32_t mock_thermal_call_count;
 static uint32_t mock_voltage_call_count;
 static int mock_fail_second_thermal_call;
@@ -106,7 +134,7 @@ static nvmlReturn_t RTXMON_NVML_CALL mock_device_get_vbios_version(
     if (version == NULL || length == 0U) {
         return NVML_ERROR_INVALID_ARGUMENT;
     }
-    (void)snprintf(version, length, "%s", RTXMON_PRIVATE_PROFILE_VBIOS);
+    (void)snprintf(version, length, "%s", "94.06.25.00.fc");
     version[length - 1U] = '\0';
     return NVML_SUCCESS;
 }
@@ -118,7 +146,7 @@ static nvmlReturn_t RTXMON_NVML_CALL mock_system_get_driver_version(
     if (version == NULL || length == 0U) {
         return NVML_ERROR_INVALID_ARGUMENT;
     }
-    (void)snprintf(version, length, "%s", RTXMON_PRIVATE_PROFILE_DRIVER);
+    (void)snprintf(version, length, "%s", "610.88");
     version[length - 1U] = '\0';
     return NVML_SUCCESS;
 }
@@ -213,6 +241,7 @@ static void initialize_private_context(rtxmon_context_t *context)
     context->nvapi.gpu_therm_channel_get_status = mock_gpu_therm_channel_get_status;
     context->nvapi.gpu_voltage_status = mock_gpu_voltage_status;
     context->nvapi_initialized = 1;
+    context->initialized = 1;
 }
 
 static int test_private_thermal_fail_closed(void)
@@ -223,7 +252,7 @@ static int test_private_thermal_fail_closed(void)
     rtxmon_status_t status;
 
     initialize_private_context(&context);
-    mock_uuid = RTXMON_PRIVATE_PROFILE_UUID;
+    mock_uuid = "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd";
     mock_thermal_call_count = 0U;
     mock_fail_second_thermal_call = 0;
     mock_return_wrong_second_mask = 0;
@@ -231,6 +260,7 @@ static int test_private_thermal_fail_closed(void)
     mock_thermal_channel1_raw = 50 * 256;
     (void)memset(&sample, 0, sizeof(sample));
     sample.struct_size = (uint32_t)sizeof(sample);
+    wait_private_interval();
     status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
     failures += check(
         status == RTXMON_STATUS_OK &&
@@ -244,6 +274,7 @@ static int test_private_thermal_fail_closed(void)
     mock_thermal_call_count = 0U;
     (void)memset(&sample, 0xff, sizeof(sample));
     sample.struct_size = (uint32_t)sizeof(sample);
+    wait_private_interval();
     status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
     failures += check(
         status == RTXMON_STATUS_NOT_SUPPORTED && mock_thermal_call_count == 0U &&
@@ -251,11 +282,12 @@ static int test_private_thermal_fail_closed(void)
             sample.gpu_hotspot_temperature_millic == 0,
         "private thermal UUID mismatch fails before NVAPI and clears values");
 
-    mock_uuid = RTXMON_PRIVATE_PROFILE_UUID;
+    mock_uuid = "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd";
     mock_thermal_call_count = 0U;
     mock_fail_second_thermal_call = 1;
     (void)memset(&sample, 0xff, sizeof(sample));
     sample.struct_size = (uint32_t)sizeof(sample);
+    wait_private_interval();
     status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
     failures += check(
         status == RTXMON_STATUS_BACKEND_ERROR && mock_thermal_call_count == 2U &&
@@ -268,6 +300,7 @@ static int test_private_thermal_fail_closed(void)
     mock_return_wrong_second_mask = 1;
     (void)memset(&sample, 0xff, sizeof(sample));
     sample.struct_size = (uint32_t)sizeof(sample);
+    wait_private_interval();
     status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
     failures += check(
         status == RTXMON_STATUS_BACKEND_ERROR && mock_thermal_call_count == 2U &&
@@ -281,6 +314,7 @@ static int test_private_thermal_fail_closed(void)
     mock_thermal_channel1_raw = 10256;
     (void)memset(&sample, 0xff, sizeof(sample));
     sample.struct_size = (uint32_t)sizeof(sample);
+    wait_private_interval();
     status = rtxmon_read_private_thermal_channels(&context, 0U, &sample);
     failures += check(
         status == RTXMON_STATUS_BACKEND_ERROR && mock_thermal_call_count == 2U &&
@@ -299,10 +333,11 @@ static int test_private_voltage_identity_gate(void)
     rtxmon_status_t status;
 
     initialize_private_context(&context);
-    mock_uuid = RTXMON_PRIVATE_PROFILE_UUID;
+    mock_uuid = "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd";
     mock_voltage_call_count = 0U;
     (void)memset(&sample, 0, sizeof(sample));
     sample.struct_size = (uint32_t)sizeof(sample);
+    wait_private_interval();
     status = rtxmon_read_private_voltage_status(&context, 0U, &sample);
     failures += check(
         status == RTXMON_STATUS_OK && mock_voltage_call_count == 1U &&
@@ -314,6 +349,7 @@ static int test_private_voltage_identity_gate(void)
     mock_voltage_call_count = 0U;
     (void)memset(&sample, 0xff, sizeof(sample));
     sample.struct_size = (uint32_t)sizeof(sample);
+    wait_private_interval();
     status = rtxmon_read_private_voltage_status(&context, 0U, &sample);
     failures += check(
         status == RTXMON_STATUS_NOT_SUPPORTED && mock_voltage_call_count == 0U &&
@@ -429,6 +465,12 @@ int main(void)
     rtxmon_status_t status;
 
     failures += check(rtxmon_abi_version() == RTXMON_ABI_VERSION, "ABI version");
+    failures += check(RTXMON_ABI_VERSION == 7U && RTXMON_STATUS_RATE_LIMITED == 12 &&
+        RTXMON_STATUS_TIMEOUT == 13 && RTXMON_PRIVATE_OPERATION_TIMEOUT == 10,
+        "acquisition ABI status numbers are stable");
+    failures += check(strcmp(rtxmon_status_string(RTXMON_STATUS_RATE_LIMITED), "private operation rate limited") == 0 &&
+        strcmp(rtxmon_status_string(RTXMON_STATUS_TIMEOUT), "private acquisition timed out; restart process required") == 0,
+        "acquisition statuses have actionable text");
     failures += check(
         strcmp(rtxmon_status_string(RTXMON_STATUS_OK), "ok") == 0,
         "status string");

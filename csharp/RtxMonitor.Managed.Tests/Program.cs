@@ -70,6 +70,7 @@ internal static class Program
         TestPerformanceLimitReasonsAreTranslated();
         TestTelemetryJsonV3PreservesProvenance();
         TestOptionalNativeExportProbeFailsClosed();
+        failures += PrivateProfileStatusTests.Run();
 
         if (failures == 0)
         {

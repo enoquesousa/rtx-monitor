@@ -17,6 +17,8 @@ internal enum NativeStatus
     GpuLost = 9,
     BackendError = 10,
     AbiMismatch = 11,
+    RateLimited = 12,
+    Timeout = 13,
 }
 
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
@@ -79,6 +81,37 @@ internal struct NativePrivateThermalSample
     internal static NativePrivateThermalSample Create() => new()
     {
         StructSize = checked((uint)Marshal.SizeOf<NativePrivateThermalSample>()),
+    };
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+internal struct NativePrivateProfileStatus
+{
+    internal uint StructSize;
+    internal uint GpuIndex;
+    internal uint ProfileRevision;
+    internal uint ProfileState;
+    internal uint IdentityCheckedFlags;
+    internal uint IdentityMatchFlags;
+    internal uint ThermalState;
+    internal uint VoltageState;
+
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+    internal string ProfileId;
+
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+    internal string RevocationReason;
+
+    internal uint ThermalMinIntervalMilliseconds;
+    internal uint ThermalTimeoutMilliseconds;
+    internal uint VoltageMinIntervalMilliseconds;
+    internal uint VoltageTimeoutMilliseconds;
+
+    internal static NativePrivateProfileStatus Create() => new()
+    {
+        StructSize = checked((uint)Marshal.SizeOf<NativePrivateProfileStatus>()),
+        ProfileId = string.Empty,
+        RevocationReason = string.Empty,
     };
 }
 
@@ -312,7 +345,7 @@ internal static class NativeMethods
     internal const int MaxPublicFields = 48;
     internal const int MaxComputedMetrics = 4;
     internal const int MaxMetricInputs = 2;
-    internal const uint AbiVersion = 5;
+    internal const uint AbiVersion = 7;
     internal const uint PrivateThermalDieValid = 1U << 0;
     internal const uint PrivateThermalHotspotValid = 1U << 1;
     internal const uint PrivateVoltageCoreValid = 1U << 0;
@@ -410,6 +443,12 @@ internal static class NativeMethods
         SafeRtxmonContext context,
         uint gpuIndex,
         ref NativePrivateThermalSample sample);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+    internal static extern NativeStatus rtxmon_get_private_profile_status(
+        SafeRtxmonContext context,
+        uint gpuIndex,
+        ref NativePrivateProfileStatus report);
 
     [DllImport(
         Library,

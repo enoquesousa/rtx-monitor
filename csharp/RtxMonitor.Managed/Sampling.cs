@@ -14,6 +14,8 @@ public enum MonitoringStatus
     GpuLost = 9,
     BackendError = 10,
     AbiMismatch = 11,
+    RateLimited = 12,
+    Timeout = 13,
 }
 
 public enum TelemetryEventKind

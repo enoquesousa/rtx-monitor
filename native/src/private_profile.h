@@ -4,14 +4,7 @@
 #include <ctype.h>
 #include <stdint.h>
 #include <string.h>
-
-#define RTXMON_PRIVATE_PROFILE_VENDOR_ID 0x10deU
-#define RTXMON_PRIVATE_PROFILE_DEVICE_ID 0x2504U
-#define RTXMON_PRIVATE_PROFILE_SUBSYSTEM_VENDOR_ID 0x10deU
-#define RTXMON_PRIVATE_PROFILE_SUBSYSTEM_DEVICE_ID 0x1536U
-#define RTXMON_PRIVATE_PROFILE_UUID "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd"
-#define RTXMON_PRIVATE_PROFILE_VBIOS "94.06.25.00.fc"
-#define RTXMON_PRIVATE_PROFILE_DRIVER "610.88"
+#include "private_profile_catalog.h"
 #define RTXMON_PRIVATE_THERMAL_MIN_RAW (-40 * 256)
 #define RTXMON_PRIVATE_THERMAL_DIE_MAX_RAW (125 * 256)
 #define RTXMON_PRIVATE_THERMAL_HOTSPOT_MAX_RAW (150 * 256)
@@ -43,13 +36,13 @@ static inline int rtxmon_private_profile_matches(
     const char *vbios,
     const char *driver)
 {
-    return vendor_id == RTXMON_PRIVATE_PROFILE_VENDOR_ID &&
-        device_id == RTXMON_PRIVATE_PROFILE_DEVICE_ID &&
-        subsystem_vendor_id == RTXMON_PRIVATE_PROFILE_SUBSYSTEM_VENDOR_ID &&
-        subsystem_device_id == RTXMON_PRIVATE_PROFILE_SUBSYSTEM_DEVICE_ID &&
-        uuid != NULL && strcmp(uuid, RTXMON_PRIVATE_PROFILE_UUID) == 0 &&
-        driver != NULL && strcmp(driver, RTXMON_PRIVATE_PROFILE_DRIVER) == 0 &&
-        rtxmon_private_ascii_equal_ignore_case(vbios, RTXMON_PRIVATE_PROFILE_VBIOS);
+    const rtxmon_private_profile_catalog_t *profile = rtxmon_private_catalog_get();
+    return vendor_id == profile->vendor_id && device_id == profile->device_id &&
+        subsystem_vendor_id == profile->subsystem_vendor_id &&
+        subsystem_device_id == profile->subsystem_device_id &&
+        uuid != NULL && strcmp(uuid, profile->uuid) == 0 &&
+        driver != NULL && strcmp(driver, profile->driver) == 0 &&
+        rtxmon_private_ascii_equal_ignore_case(vbios, profile->vbios);
 }
 
 static inline int rtxmon_private_thermal_channel_result_valid(

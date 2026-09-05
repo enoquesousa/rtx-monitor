@@ -23,7 +23,10 @@ struct rtxmon_context {
 };
 
 RTXMON_INTERNAL void rtxmon_lock_nvapi_internal(void);
+RTXMON_INTERNAL int rtxmon_try_lock_nvapi_internal(void);
 RTXMON_INTERNAL void rtxmon_unlock_nvapi_internal(void);
+RTXMON_INTERNAL void rtxmon_pause_lock_wait_internal(void);
+RTXMON_INTERNAL uint64_t rtxmon_monotonic_ms_internal(void);
 
 RTXMON_INTERNAL nvmlReturn_t rtxmon_get_pci_info_internal(
     rtxmon_context_t *context,

@@ -2,7 +2,7 @@
 
 > Temperatura de GPUs NVIDIA lida diretamente do driver — sem depender de GPU-Z, analisar texto ou inventar valores.
 
-O **RTX Monitor** é um monitor de baixo nível cujo acesso à GPU é somente leitura. Ele mostra a temperatura atual do chip gráfico, inventaria os canais publicados pelo driver e calcula tendências que podem ser refeitas a partir do histórico. A v0.8 também mantém um laboratório separado e opt-in para analisar artefatos offline e observar, de forma passiva, caminhos já executados por ferramentas assinadas.
+O **RTX Monitor** é um monitor de baixo nível dedicado à **Galax RTX 3060 de 12 GB do proprietário**, com acesso à GPU somente leitura. Ele mostra a temperatura atual do chip gráfico, inventaria os canais publicados pelo driver e calcula tendências que podem ser refeitas a partir do histórico. O laboratório separado e opt-in preserva a origem dos sensores experimentais. A v0.9 fixa a compatibilidade da placa por UUID, PCI/subsystem, VBIOS, driver e módulo, com revogação, limites de aquisição e testes reproduzíveis.
 
 Com ele, você pode responder duas perguntas de forma objetiva:
 
@@ -75,6 +75,20 @@ Ou pelo aplicativo C#:
 ```
 
 Os dois comandos atualizam a leitura a cada segundo. No modo contínuo, o índice inicial é convertido para o UUID da GPU. Se o driver reiniciar ou o índice mudar, o monitor procura novamente o mesmo UUID em vez de trocar silenciosamente de placa. Pressione `Ctrl+C` para encerrar.
+
+### Confira a compatibilidade do perfil experimental
+
+O primeiro incremento da v0.9 adiciona um diagnóstico do perfil compilado:
+
+```powershell
+.\csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe --profile-status --json
+```
+
+Ele informa revisão, revogação, correspondência de placa/UUID/VBIOS/driver e elegibilidade das operações térmica e de tensão. `compatible` permite tentar a aquisição; a estrutura e os valores só serão validados durante uma leitura. O diagnóstico não adquire sensores privados. Uma incompatibilidade produz um relatório com o motivo e `eligible_for_acquisition: false`; código de saída zero significa que o diagnóstico foi produzido, não que os sensores estejam disponíveis. Use `--gpu INDEX` ou `--gpu-uuid UUID` para selecionar a placa.
+
+O contrato atual está em [private-profile-status-v2.schema.json](docs/schema/private-profile-status-v2.schema.json) e as políticas em [ADR 0011](docs/adr/0011-private-profile-policy-and-diagnostic.md) e [ADR 0012](docs/adr/0012-private-acquisition-budgets-and-worker.md). O diagnóstico também informa intervalo mínimo e prazo nativo. A v0.9 consolida exclusivamente o perfil da Galax RTX 3060 de 12 GB; futuras alterações do driver ou VBIOS dessa placa exigem nova validação.
+
+Os modos `--thermal-watch` e `--voltage-watch` usam um processo de coleta supervisionado. Cada operação respeita intervalo mínimo de 100 ms e descarta resultados recebidos após o prazo nativo de 2 segundos. O supervisor encerra a coleta quando a resposta demora mais de 5 segundos, ou quando você pressiona `Ctrl+C`; a inicialização tem prazo de 10 segundos. Não há reinício automático após falha. O intervalo entre amostras continua configurável de 100 a 60000 ms. O [ADR 0012](docs/adr/0012-private-acquisition-budgets-and-worker.md) detalha os limites de cancelamento e encerramento.
 
 ### Monitore die e hotspot sem GPU-Z
 
@@ -297,6 +311,7 @@ O catálogo completo, os IDs consultados e as fórmulas estão em [PUBLIC_TELEME
 | `--list` | Lista as GPUs NVIDIA encontradas |
 | `--capabilities` | Mostra as fontes e os canais térmicos públicos |
 | `--telemetry` | Lê o catálogo documentado e as métricas calculadas |
+| `--profile-status` | Diagnostica o perfil experimental sem adquirir sensores privados (C#) |
 | `--gpu INDEX` | Seleciona a GPU pelo índice, começando em zero |
 | `--gpu-uuid UUID` | Seleciona uma GPU pela identidade persistente; não use junto com `--gpu` |
 | `--interval MS` | Define o intervalo de 100 a 60000 milissegundos |
@@ -628,7 +643,7 @@ A verificação:
 - testa ROM/PCIR/BIT com fixtures sintéticas, todas as truncagens e o limite de 16 MiB sem firmware proprietário.
 - testa a estrutura térmica v2, a escala `raw / 256`, a associação die/hotspot e os schemas correspondentes sem GPU.
 
-O GitHub Actions usa `scripts/verify-ci.ps1`, que não exige GPU. A validação física continua separada em `scripts/verify.ps1`.
+O GitHub Actions usa `scripts/verify-ci.ps1` no Windows e `scripts/verify-ci-linux.sh` no Linux, sem exigir GPU. A validação física da placa alvo continua separada em `scripts/verify.ps1`. O teste Linux comprova portabilidade e recusa de operações indisponíveis; NVAPI privado permanece exclusivo do Windows.
 
 ## Caminho até a engenharia reversa
 
@@ -640,7 +655,7 @@ A prioridade agora é construir evidência, não uma interface gráfica. Cada et
 | **v0.6.0** | Serviço local headless, HTTP/SSE e Windows Service concluídos |
 | **v0.7.0** | Telemetria pública e métricas rastreáveis concluídas |
 | **v0.8.0** | Concluída: laboratório ancorado, análise de séries, leitura térmica/tensão opt-in em perfil fixo, repetição independente de tensão e observação bruta de cooler |
-| **v0.9.0** | Expandir e repetir perfis de aquisição sem relaxar a fronteira de segurança |
+| **v0.9.0** | Perfil da Galax RTX 3060 12 GB auditável, revogação, regressão, limites de aquisição e worker supervisionado |
 | **v0.10.0** | Validar candidatos com repetição e referências independentes |
 | **v0.11.0** | Publicar candidatos validados em um provedor experimental separado |
 | **v1.0.0** | Estabilizar contratos, operação e governança dos perfis |
@@ -659,9 +674,9 @@ Os critérios completos estão no [roadmap de engenharia](docs/ROADMAP.md). A re
 - Não transforma um sensor desconhecido em hotspot, VRM ou memória.
 - A DLL NVIDIA é carregada por um caminho confiável do sistema.
 - A identidade entre NVML e NVAPI é correlacionada pelo endereço PCI, não pela ordem em que as APIs listam as placas.
-- A camada nativa já possui um caminho de carregamento para Linux, mas os scripts de compilação e validação desta versão são voltados ao Windows x64.
+- A camada nativa e as suítes portáveis possuem validação Linux sem GPU; o perfil privado da placa alvo é Windows x64.
 
-A v0.8 conclui a primeira trilha experimental separada e opt-in. A parte offline preserva, ancora e analisa arquivos fornecidos pelo operador; as ferramentas anexadas observam somente chamadas que um processo assinado já executa; e as duas aquisições diretas são fixas ao perfil validado, sem entrar no coletor estável. Expandir perfis ou publicar um provider experimental geral continua nos marcos seguintes. Veja os critérios de evidência no [roadmap de engenharia](docs/ROADMAP.md).
+A v0.9 consolida as duas aquisições diretas no perfil exato da Galax RTX 3060 de 12 GB. A [auditoria do catálogo](docs/profiles/README.md) registra a política compilada e a origem das fixtures. Alterações futuras no driver ou VBIOS desta mesma placa exigem nova validação. GSP permanece `not_observed`; o projeto não afirma compatibilidade com versões desconhecidas. A correlação de candidatos e a publicação dos sensores experimentais no serviço seguem nos próximos marcos do [roadmap de engenharia](docs/ROADMAP.md).
 
 ## Documentação técnica
 
