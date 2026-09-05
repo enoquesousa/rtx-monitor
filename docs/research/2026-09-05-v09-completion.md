@@ -47,9 +47,17 @@ A fixture de buffers vem da imagem GPU-Z **x86**, distinta da imagem autorizada 
 
 Logs locais: `evidence/v09-final-ci-20260905.log`, `evidence/v09-final-linux-ci-20260905.log`, `evidence/v09-final-smoke-20260905.log` e `evidence/v09-final-20260905/`.
 
-O Linux foi executado em contêiner Debian Bookworm x64, sem GPU, com SDK .NET 8 e GCC 12. A imagem foi fixada pelo digest `sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8`. A conexão NuGet do contêiner não confiava no certificado apresentado; a execução usou sete pacotes já presentes no cache do projeto, com SHA-512 conferido, em feed local isolado. A verificação TLS não foi desabilitada. Isso não comprova restore online pelo job GitHub Actions, que foi preparado mas não executado remotamente.
+O Linux local foi executado em contêiner Debian Bookworm x64, sem GPU, com SDK .NET 8 e GCC 12. A imagem foi fixada pelo digest `sha256:bb32ba3ba3ea36e38572d9d8db76fa15f7cbf722f3f886e06bca6d528bd4fba8`. A conexão NuGet do contêiner não confiava no certificado apresentado; essa execução usou sete pacotes já presentes no cache do projeto, com SHA-512 conferido, em feed local isolado. A verificação TLS não foi desabilitada. O restore normal do NuGet foi posteriormente validado pelo CI remoto abaixo.
 
 O snapshot Windows/Linux tem SHA-256 canônico `5a7e71afe5143665da456ff7d0850ed8f4043123517ea2d4c5c3e0fb9a153e45`. Essa comparação é do catálogo/ABI offline. O [guia NVIDIA para WSL](https://docs.nvidia.com/cuda/wsl-user-guide/index.html) também distingue as limitações de NVML nesse ambiente; nenhum canal privado Linux foi declarado equivalente por este teste.
+
+## Publicação da branch e CI remoto
+
+O commit [`a3c7504`](https://github.com/enoquesousa/rtx-monitor/commit/a3c750400d99ac293f3d5998a62567102aef6bea) publicou a implementação e documentação da v0.9 na branch `codex/v09-profile-compatibility`, com a [PR #11](https://github.com/enoquesousa/rtx-monitor/pull/11) direcionada a `main`.
+
+O [CI remoto 33995095124](https://github.com/enoquesousa/rtx-monitor/actions/runs/33995095124), referente a esse commit, terminou com sucesso em ambos os jobs: Windows x64 em 3 min 52 s e Linux x64 em 1 min 3 s. Os checkouts remotos reproduziram 32/28 CTest, auditoria, testes .NET aplicáveis e restore normal de dependências, sem os arquivos ignorados de evidência/build locais. A execução Windows também aprovou schemas, formatação e paridade de versão 0.9.0.
+
+Este registro identifica a revisão testada. Novos commits da PR exigem conferir seus próprios checks. Revisão/aprovação formal da PR, merge e implantação do serviço permanecem estados distintos da validação técnica registrada aqui.
 
 ## Comparação física final
 
