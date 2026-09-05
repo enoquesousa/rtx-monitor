@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-O RTX Monitor deve evoluir de um leitor confiável das APIs públicas para uma plataforma de pesquisa capaz de investigar dados não documentados da placa.
+O RTX Monitor deve evoluir de um leitor confiável das APIs públicas para uma plataforma de pesquisa capaz de investigar dados não documentados da Galax RTX 3060 de 12 GB do proprietário. Esse é o único hardware alvo, conforme escopo explicitado em 2026-09-05. Perfis representam configurações comprovadas desta mesma unidade; suportar outras placas não é objetivo do projeto.
 
 O resultado esperado não é apenas encontrar números que mudam. O projeto deve conseguir responder, para cada valor:
 
@@ -231,15 +231,24 @@ Leitura de MMIO não é automaticamente inofensiva: alguns registradores podem t
 
 O Linux é útil nesta etapa porque oferece interfaces PCI e `hwmon` documentadas e porque os módulos de kernel abertos da NVIDIA permitem estudar parte do caminho do driver. Arquivos `config`, `resourceN` e `rom` do `sysfs` não devem ser confundidos com interfaces exclusivamente de leitura; permissões elevadas não eliminam efeitos colaterais. O firmware GSP também não possui ABI estável entre versões.
 
-### v0.9.0 — expansão controlada de perfis de aquisição
+### v0.9.0 — consolidação do perfil da Galax RTX 3060 de 12 GB
 
-Objetivo: repetir a aquisição allowlisted em mais execuções e perfis sem relaxar a fronteira criada na v0.8.0.
+Estado: **concluída em 2026-09-05 para a placa alvo**, com produto 0.9.0 e ABI 7. O [registro de fechamento](research/2026-09-05-v09-completion.md) reúne critérios, testes e limites da entrega.
+
+O primeiro incremento formalizou o perfil existente em catálogo compilado com revisão, revogação global/por operação e diagnóstico `--profile-status` sem aquisição privada. Diagnóstico e leitores compartilham os gates de identidade e associação; testes com variantes revogadas verificam bloqueio antes da chamada privada e limpeza de saídas após falhas. A ABI 6 adicionou o relatório inicial de elegibilidade. Duas sessões da retomada produziram 48 amostras diretas comparadas com logs correntes de GPU-Z/HWiNFO, ainda no mesmo perfil e sem promoção de evidência. Ver [ADR 0011](adr/0011-private-profile-policy-and-diagnostic.md) e [registro da retomada](research/2026-09-05-v09-profile-policy-validation.md).
+
+O segundo incremento, também de 2026-09-05, acrescenta limites compilados de taxa/prazo, relógio monotônico, descarte de retorno tardio e bloqueio das operações após timeout. Os modos experimentais C# passam a usar um filho persistente supervisionado, com prazos para inicialização, aquisição e encerramento; timeout/cancelamento não produzem amostra nem reiniciam o worker. O diagnóstico v2/ABI 7 registra a política. Ver [ADR 0012](adr/0012-private-acquisition-budgets-and-worker.md) e [validação de limites](research/2026-09-05-v09-acquisition-limits-validation.md).
+
+O escopo foi esclarecido pelo proprietário em 2026-09-05: exclusivamente sua Galax RTX 3060 de 12 GB. A exigência anterior de ampliar para outros perfis físicos foi substituída pela rastreabilidade completa da configuração alvo. Driver ou VBIOS novos desta mesma unidade continuam exigindo nova evidência e revisão; essa decisão não os torna compatíveis automaticamente.
+
+Objetivo: repetir e auditar a aquisição allowlisted na configuração comprovada da placa alvo, preservando a fronteira criada na v0.8.0.
 
 Entregas:
 
-- revisão independente de novos perfis e operações;
-- regressão por fixtures para cada combinação exata de placa, VBIOS, driver e GSP;
-- comparação Windows/Linux quando as duas plataformas observarem o mesmo canal;
+- revisão independente dos gates e operações do perfil alvo;
+- regressão por fixtures com origem, hash e distinção entre a imagem GPU-Z x86 e o monitor x64;
+- registro da combinação exata de placa, VBIOS e driver; GSP explicitamente `not_observed`, sem declaração de suporte a outras versões;
+- portabilidade Linux sem GPU e registro de aplicabilidade: as duas operações privadas usam NVAPI Windows e não possuem canal Linux equivalente implementado;
 - revogação de perfil, compatibilidade explícita e auditoria de mudanças da allowlist;
 - testes de falha fechada para identidade, offset, largura, taxa, timeout e versão diferentes.
 
@@ -247,7 +256,10 @@ Critério de saída:
 
 - nenhuma ampliação de perfil ocorre por configuração fornecida pelo usuário;
 - perfis incompatíveis ou revogados não produzem bytes;
-- cada novo perfil mantém um pacote reproduzível e os mesmos limites de segurança da v0.8.0.
+- o perfil da placa alvo mantém pacote reproduzível, auditoria da política compilada e os mesmos limites de segurança da v0.8.0;
+- builds, regressão offline e smoke físico Windows passam com versão de produto 0.9.0; o serviço instalado é uma implantação separada.
+
+Fechamento: catálogo auditado em Windows/Linux com snapshot idêntico; 32 CTest Windows, 28 CTest Linux, 14 testes de auditoria e suítes .NET aprovados. A coleta final acrescentou 48 amostras válidas comparadas com referências atuais, e o executável empacotado produziu mais quatro amostras válidas. Revogação por operação retorna antes de lock/consultas ao backend. Nenhum desses resultados promove cooler/RPM/PWM ou adiciona sensores privados ao serviço.
 
 ### v0.10.0 — correlação e validação de candidatos
 

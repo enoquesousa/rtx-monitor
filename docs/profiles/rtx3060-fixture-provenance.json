@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "purpose": "Offline regression of recorded thermal/voltage response layouts for the owner's single Galax RTX 3060 12 GB. No acquisition, new profile, or cross-architecture module approval.",
+  "fixture_header": "native/tests/fixtures/rtx3060-recorded-responses.h",
+  "board": {
+    "name": "NVIDIA GeForce RTX 3060",
+    "uuid": "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd",
+    "driver_version": "610.88",
+    "nvml_version": "13.610.88",
+    "pci_bus_id": "00000000:01:00.0",
+    "pci_vendor_id": "0x10de",
+    "pci_device_id": "0x2504",
+    "pci_subsystem_vendor_id": "0x10de",
+    "pci_subsystem_device_id": "0x1536",
+    "vbios_version": "94.06.25.00.fc"
+  },
+  "source_capture": {
+    "application": "GPU-Z 2.70.0",
+    "architecture": "x86",
+    "module_name": "nvapi_impl.dll",
+    "module_sha256": "fbc9aed43bfa5bda19b7f83a809a081a0ce454b6d6003dcabc565ecb3e6afdaf",
+    "thermal_function_rva": "0x001ad310",
+    "voltage_function_rva": "0x00198010",
+    "evidence_kind": "Previously recorded returned buffers; the fixture does not initiate a driver call."
+  },
+  "separate_runtime_profile": {
+    "source": "native/src/private_profile_catalog.c",
+    "architecture": "x64",
+    "module_sha256": "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4",
+    "thermal_function_rva": "0x001e0bc0",
+    "voltage_function_rva": "0x001c9070",
+    "relationship": "A different module image with independent existing allowlisting. The x86 fixture is not evidence authorizing these x64 addresses or hashes."
+  },
+  "extraction": "For each selected sample, encode every raw_words entry in source order as one unsigned 32-bit little-endian word. Keep the complete 168/168/76-byte response, with no regenerated fields or native struct serialization.",
+  "sources": [
+    {
+      "artifact_path": "evidence/v08-final-20260827-190125/experiment/packages/thermal-observation-v2/artifact/payload.bin",
+      "artifact_sha256": "53bc805205fe83337cd5beaf444eadef2d6ed2e5beb93b32341668cdf6aa1bca",
+      "capture_session_id": "f87d1f01-7be6-47d9-ad7b-aec41aa5d38c",
+      "capture_started_utc": "2026-08-27T22:02:14.8791718+00:00",
+      "source_kind": "nvapi_therm_channel_v2_observation",
+      "structure_version": "0x000200a8",
+      "selected_samples": [
+        {
+          "json_pointer": "/samples/0/raw_words",
+          "sequence": 1,
+          "channel_index": 0,
+          "return_status": "0x00000000",
+          "size_bytes": 168,
+          "little_endian_bytes_sha256": "7376a393ae70cb9f74c7d2cfb83cb3222e8df55b8e0df3204c0753768f2e7298"
+        },
+        {
+          "json_pointer": "/samples/1/raw_words",
+          "sequence": 2,
+          "channel_index": 1,
+          "return_status": "0x00000000",
+          "size_bytes": 168,
+          "little_endian_bytes_sha256": "6fca36a8cecdcaf3fbfe86f945692c622db0e530c1ea895f9da62431028ae05f"
+        }
+      ]
+    },
+    {
+      "artifact_path": "evidence/v08-final-20260827-190125/experiment/packages/voltage-observation-v2/artifact/payload.bin",
+      "artifact_sha256": "1be0120bb22eca396de09eaeb8b2d230b75240c61b9a1370f98c415e481cb33d",
+      "capture_session_id": "2af357d9-1cbb-475c-8ea5-a63fc8b601c0",
+      "capture_started_utc": "2026-08-27T22:02:27.1729992+00:00",
+      "source_kind": "nvapi_voltage_status_v1_observation",
+      "structure_version": "0x0001004c",
+      "selected_samples": [
+        {
+          "json_pointer": "/samples/0/raw_words",
+          "sequence": 1,
+          "channel_index": null,
+          "return_status": "0x00000000",
+          "size_bytes": 76,
+          "little_endian_bytes_sha256": "3aff11bdd3608043218cd1067a86ad9576c3dfc8aba52c3c17b5b883bd55c0e1"
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "thermal_raw_fixed_8": [
+      9488,
+      12168
+    ],
+    "thermal_celsius_exact": [
+      37.0625,
+      47.53125
+    ],
+    "thermal_millicelsius_rounded": [
+      37063,
+      47531
+    ],
+    "rounding": "Nearest millidegree, halfway away from zero; expected values calculated from recorded Celsius using decimal rounding.",
+    "voltage_microvolts": 956250,
+    "voltage_volts_exact": 0.95625,
+    "return_status": 0
+  },
+  "limitations": [
+    "The positive exact-value assertions detect decoder code selecting the wrong recorded word or applying the wrong scale.",
+    "The negative cases test independently changed low-word size, upper-word revision, channel mask, and callback failure after complete or partial writes.",
+    "A driver that shifts data while retaining valid metadata can still expose plausible zeros or values. This fixture does not prove detection of arbitrary unseen layout drift.",
+    "No physical measurement, Linux NVAPI support, other GPU model, driver version, VBIOS, or module image is validated by replaying these buffers."
+  ]
+}

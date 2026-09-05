@@ -226,6 +226,19 @@ try {
     Assert-LastExitCode -Description 'C# public telemetry catalog'
     $csharpTelemetry = $csharpTelemetryOutput | ConvertFrom-Json
 
+    $profileStatusOutput = (& $csharpExecutable --profile-status --json | Out-String).Trim()
+    Assert-LastExitCode -Description 'C# experimental profile diagnostic'
+    $profileStatusSchema = Join-Path $projectRoot 'docs\schema\private-profile-status-v2.schema.json'
+    if (-not ($profileStatusOutput | Test-Json -SchemaFile $profileStatusSchema)) {
+        throw 'Physical profile diagnostic must satisfy its schema without requiring private sensor support.'
+    }
+    $missingProfileOutput = (& $csharpExecutable --profile-status --gpu 4294967295 --json | Out-String).Trim()
+    Assert-LastExitCode -Description 'C# missing GPU profile diagnostic'
+    if (-not ($missingProfileOutput | Test-Json -SchemaFile $profileStatusSchema) -or
+        @(($missingProfileOutput | ConvertFrom-Json).operations | Where-Object { $_.eligible_for_acquisition }).Count -ne 0) {
+        throw 'An absent GPU must produce a diagnostic with no eligible operation.'
+    }
+
     $smiOutput = (& nvidia-smi `
         --query-gpu=index,uuid,temperature.gpu `
         --format=csv,noheader,nounits | Select-Object -First 1)
@@ -559,7 +572,7 @@ try {
             $record.store_schema_version -ne 1 -or
             $record.event.schema_version -ne 4 -or
             $record.run.run_id -ne $historyRunId -or
-            $record.run.application_version -ne '0.8.0' -or
+            $record.run.application_version -ne '0.9.0' -or
             $record.device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid -or
             $record.device_snapshot.board.profile_key -ne $cppCapabilities.board.profile_key -or
             $null -eq $record.event.public_telemetry -or
@@ -643,9 +656,9 @@ try {
     }
     if ($null -eq $serviceHealth -or
         -not $serviceHealth.ready -or
-        $serviceHealth.service_version -ne '0.8.0' -or
+        $serviceHealth.service_version -ne '0.9.0' -or
         $serviceHealth.storage.state -ne 'available') {
-        throw 'Local service did not become ready with SQLite and version 0.8.0.'
+        throw 'Local service did not become ready with SQLite and version 0.9.0.'
     }
 
     $serviceDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -682,7 +695,7 @@ try {
         throw "The local service differed by more than 5 C: $($allTemperatures -join ', ')."
     }
     if ($serviceHistory.count -lt 2 -or
-        $serviceHistory.items[0].run.application_version -ne '0.8.0' -or
+        $serviceHistory.items[0].run.application_version -ne '0.9.0' -or
         $serviceHistory.items[0].event.schema_version -ne 4 -or
         $null -eq $serviceHistory.items[0].event.public_telemetry -or
         $serviceHistory.items[0].device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid) {

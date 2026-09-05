@@ -1,5 +1,13 @@
 # Arquitetura de engenharia
 
+## Perfil alvo e aquisição na v0.9
+
+O único hardware alvo é a Galax RTX 3060 de 12 GB do proprietário. O catálogo compilado fixa a unidade por UUID, PCI/subsystem, VBIOS, driver e módulo; o manifesto em `docs/profiles/` é um registro de auditoria offline, não uma configuração carregada pelo monitor.
+
+`--profile-status` usa a ABI 7 para relatar compatibilidade e política sem adquirir sensores privados. Nos modos `--thermal-watch` e `--voltage-watch`, o processo principal supervisiona um worker que abre o backend, repete os gates e devolve amostras pelos contratos JSON existentes. Os leitores nativos recusam operações revogadas antes de lock/consultas e impõem frequência e prazo por processo. O supervisor limita também inicialização, resposta e encerramento do filho; não reinicia uma coleta que falhou.
+
+Os detalhes estão nos [ADRs de política](adr/0011-private-profile-policy-and-diagnostic.md) e [limites de aquisição](adr/0012-private-acquisition-budgets-and-worker.md). O [registro de fechamento](research/2026-09-05-v09-completion.md) distingue testes offline, leituras físicas, pacote local e serviço instalado. Linux valida os componentes portáveis e o mesmo catálogo sem GPU; não implementa as duas aquisições NVAPI privadas.
+
 ## Canal térmico direto da NVAPI
 
 No Windows, `rtxmon_read_private_thermal_channels` resolve opcionalmente a interface NVAPI `0x65fe3aad` e lê diretamente do driver os canais 0 e 1. A aquisição não inicia, não se anexa nem consulta o GPU-Z. Os valores são retornados em milésimos de grau Celsius depois da conversão do ponto fixo com oito bits fracionários.
@@ -155,7 +163,7 @@ A fronteira nativa é C, não C++, porque nomes, exceções e layouts C++ não f
 - `rtxmon_computed_metrics_report_t`: quatro métricas calculadas no mesmo timestamp do snapshot;
 - `rtxmon_status_t`: erros de argumento, backend, driver, permissão, suporte, GPU perdida e incompatibilidade de ABI.
 
-O chamador inicializa `struct_size`; a DLL rejeita um layout menor. A ABI atual é `RTXMON_ABI_VERSION = 5`: o incremento torna explícitos os exports experimentais térmico e de tensão adicionados na v0.8. DLLs ABI 4 anteriores são rejeitadas pelo consumidor atual antes da aquisição. Os layouts são testados em C e novamente medidos pelo runtime .NET antes da abertura do contexto.
+O chamador inicializa `struct_size`; a DLL rejeita um layout menor. A ABI atual é `RTXMON_ABI_VERSION = 7`: o relatório de compatibilidade `rtxmon_get_private_profile_status` possui 304 bytes, incluindo limites de frequência/prazo, e os status acrescentam `rate_limited`/`timeout`. O relatório foi introduzido na ABI 6 com 288 bytes; os exports térmico/tensão, na ABI 5. DLLs de ABI anterior são rejeitadas pelo consumidor atual antes da aquisição. Os layouts são testados em C e novamente medidos pelo runtime .NET antes da abertura do contexto. O catálogo/gate compartilhado estão no [ADR 0011](adr/0011-private-profile-policy-and-diagnostic.md); a aquisição limitada e o processo supervisor, no [ADR 0012](adr/0012-private-acquisition-budgets-and-worker.md).
 
 ### Semântica de disponibilidade
 

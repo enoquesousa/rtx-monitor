@@ -1,3 +1,7 @@
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <rtxmon/rtxmon.h>
 
 #include "rtxmon_internal.h"
@@ -10,6 +14,7 @@
 #if defined(_WIN32)
 #include <windows.h>
 #else
+#include <stdatomic.h>
 #include <time.h>
 #endif
 
@@ -51,6 +56,8 @@ static RTXMON_THREAD_LOCAL char rtxmon_error[RTXMON_ERROR_CAPACITY];
 
 #if defined(_WIN32)
 static SRWLOCK rtxmon_nvapi_global_lock = SRWLOCK_INIT;
+#else
+static atomic_flag rtxmon_nvapi_global_lock = ATOMIC_FLAG_INIT;
 #endif
 
 static void rtxmon_clear_error(void)
@@ -112,6 +119,19 @@ void rtxmon_lock_nvapi_internal(void)
 {
 #if defined(_WIN32)
     AcquireSRWLockExclusive(&rtxmon_nvapi_global_lock);
+#else
+    while (!rtxmon_try_lock_nvapi_internal()) {
+        rtxmon_pause_lock_wait_internal();
+    }
+#endif
+}
+
+int rtxmon_try_lock_nvapi_internal(void)
+{
+#if defined(_WIN32)
+    return TryAcquireSRWLockExclusive(&rtxmon_nvapi_global_lock) != 0;
+#else
+    return !atomic_flag_test_and_set(&rtxmon_nvapi_global_lock);
 #endif
 }
 
@@ -119,6 +139,37 @@ void rtxmon_unlock_nvapi_internal(void)
 {
 #if defined(_WIN32)
     ReleaseSRWLockExclusive(&rtxmon_nvapi_global_lock);
+#else
+    atomic_flag_clear(&rtxmon_nvapi_global_lock);
+#endif
+}
+
+void rtxmon_pause_lock_wait_internal(void)
+{
+#if defined(_WIN32)
+    Sleep(1U);
+#else
+    const struct timespec pause = {0, 1000000L};
+    (void)nanosleep(&pause, NULL);
+#endif
+}
+
+uint64_t rtxmon_monotonic_ms_internal(void)
+{
+#if defined(_WIN32)
+    LARGE_INTEGER counter, frequency;
+    if (!QueryPerformanceFrequency(&frequency) || !QueryPerformanceCounter(&counter) ||
+        frequency.QuadPart <= 0 || counter.QuadPart < 0) {
+        return UINT64_MAX;
+    }
+    return ((uint64_t)counter.QuadPart / (uint64_t)frequency.QuadPart) * 1000U +
+        ((uint64_t)counter.QuadPart % (uint64_t)frequency.QuadPart) * 1000U / (uint64_t)frequency.QuadPart;
+#else
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_sec < 0) {
+        return UINT64_MAX;
+    }
+    return (uint64_t)now.tv_sec * 1000U + (uint64_t)now.tv_nsec / 1000000U;
 #endif
 }
 
@@ -244,6 +295,10 @@ const char *RTXMON_CALL rtxmon_status_string(rtxmon_status_t status)
         return "monitoring backend error";
     case RTXMON_STATUS_ABI_MISMATCH:
         return "backend ABI version mismatch";
+    case RTXMON_STATUS_RATE_LIMITED:
+        return "private operation rate limited";
+    case RTXMON_STATUS_TIMEOUT:
+        return "private acquisition timed out; restart process required";
     default:
         return "unknown rtxmon status";
     }

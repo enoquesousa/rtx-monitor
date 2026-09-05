@@ -1,0 +1,234 @@
+{
+  "schema_version": 1,
+  "hardware_scope": {
+    "label": "GALAX NVIDIA GeForce RTX 3060 12 GB",
+    "label_source": "user_statement",
+    "instance_count": 1,
+    "pci_manufacturer_inference": false
+  },
+  "expected_snapshot": {
+    "schema_version": 1,
+    "snapshot_kind": "compiled_private_catalog",
+    "profile_count": 1,
+    "abi_version": 7,
+    "pointer_size_bytes": 8,
+    "acquisition_platform": "windows_x64",
+    "profile_id": "rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88",
+    "profile_revision": 2,
+    "revoked": false,
+    "revocation_reason": "",
+    "identity": {
+      "pci_vendor_id": "0x10de",
+      "pci_device_id": "0x2504",
+      "pci_subsystem_vendor_id": "0x10de",
+      "pci_subsystem_device_id": "0x1536",
+      "gpu_uuid": "GPU-fca3647e-8390-15a8-f23b-d0f870c9accd",
+      "vbios_version": "94.06.25.00.fc",
+      "driver_version": "610.88"
+    },
+    "module_sha256": "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4",
+    "gsp": {
+      "state": "not_observed",
+      "version": null
+    },
+    "thermal_channel_mask_offset_bytes": 4,
+    "thermal_channel_masks": [
+      1,
+      2
+    ],
+    "bounds": {
+      "thermal_min_raw": -10240,
+      "thermal_die_max_raw": 32000,
+      "thermal_hotspot_max_raw": 38400,
+      "thermal_max_delta_raw": 20480,
+      "voltage_min_microvolts": 100000,
+      "voltage_max_microvolts": 2000000
+    },
+    "operations": [
+      {
+        "operation": "thermal",
+        "revoked": false,
+        "revocation_reason": "",
+        "interface_id": "0x65fe3aad",
+        "function_rva": "0x001e0bc0",
+        "structure_version": "0x000200a8",
+        "structure_size_bytes": 168,
+        "version_offset_bytes": 0,
+        "value_offsets_bytes": [
+          40,
+          44
+        ],
+        "value_width_bytes": 4,
+        "signed_values": true,
+        "scale_divisor": 256,
+        "minimum_interval_ms": 100,
+        "timeout_ms": 2000
+      },
+      {
+        "operation": "voltage",
+        "revoked": false,
+        "revocation_reason": "",
+        "interface_id": "0x465f9bcf",
+        "function_rva": "0x001c9070",
+        "structure_version": "0x0001004c",
+        "structure_size_bytes": 76,
+        "version_offset_bytes": 0,
+        "value_offsets_bytes": [
+          40
+        ],
+        "value_width_bytes": 4,
+        "signed_values": false,
+        "scale_divisor": 1000000,
+        "minimum_interval_ms": 100,
+        "timeout_ms": 2000
+      }
+    ]
+  },
+  "policy_source_files": [
+    {
+      "path": "native/include/rtxmon/rtxmon.h",
+      "sha256_lf": "8645f3763b6a4d3a95ee3a22c2a11f20b70688ebd3f19d53feba4c00a64c034b",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/nvapi_abi.h",
+      "sha256_lf": "14a7ac3d893d5ee42855e80c98160786193a77ef9ee026f36393a85dcb393d96",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/nvapi_loader.c",
+      "sha256_lf": "9f19fe91c6e6717acbd6e3783c2fbfb7107b848510a355cf5ff6a101567bd11f",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_acquisition.c",
+      "sha256_lf": "0419945757d76b7fec0b79a95d64e84eab6a500b54bb5b962fb7481b1cc6283e",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_acquisition.h",
+      "sha256_lf": "7ec5f1d94edd0c28f3285e6cdc4c7c6955239a2a8d484df09fa74d7dacd096c9",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_module_profile.c",
+      "sha256_lf": "54cd1bf5d82e1debaf94f13f8341b0b7345b9b27b2014ea65d291c0c68ceded2",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_module_profile.h",
+      "sha256_lf": "ec78ddd93c0996c80e81a6180a94201a221b957f169de66f10f8f636daa63530",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_profile.h",
+      "sha256_lf": "0dbe09d93b4e890d5a9e86208e7af1326db756e583dbe526ff377ebf18b853f1",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_profile_catalog.c",
+      "sha256_lf": "b10a27064d5a1c2c914b950214fa7da93f72ccc20ef8f89889e937e579cbc976",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_profile_catalog.h",
+      "sha256_lf": "dc2a594c6c0a66fdde947126e53a4ac782c9898d4604274ee58522dc82142c16",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_profile_gate.c",
+      "sha256_lf": "66f068b0367e7f2b4e3851c114a755645f8a65f53830e62720b4e72c13223f3d",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_profile_gate.h",
+      "sha256_lf": "7a9cb1465628772c3b1400fc679948de553b4e0312f8b6d0c1257342c63e8b5e",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_thermal.c",
+      "sha256_lf": "03ada4339a8aeb00c69c3ccd740a2aae106d688840d60d5c8e3ae0f701bb25cb",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/private_voltage.c",
+      "sha256_lf": "6369b4b4e2eff2e0c8c725a6ce4e94ed5b965310d0289af374a8f6821e01d5ee",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/src/rtxmon.c",
+      "sha256_lf": "ef3af84c5aba18767b2a805bb017cb228a9c992b288cf0571587fe2cae8a5124",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    },
+    {
+      "path": "native/tests/private_catalog_snapshot.c",
+      "sha256_lf": "6603aed790e3dab9814b18c31fcb625b577c80f2d68a7fdcf7c0cd5bbc5c7da2",
+      "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
+    }
+  ],
+  "evidence_sources": [
+    {
+      "path": "docs/adr/0010-fixed-profile-private-nvapi-acquisition.md",
+      "sha256_lf": "d62824500f241f610dda1c848240a139b4853ec10dc16b3c17aaec33aed7aab6",
+      "provenance": "Historical acquisition decision for the exact x64 target and the two fixed operations."
+    },
+    {
+      "path": "docs/research/2026-08-26-rtx3060-nvapi-voltage-status-v1.md",
+      "sha256_lf": "faf30a3a773662c5911509487b49c28a9888b76f3626a796dd876c7a41f3585d",
+      "provenance": "Historical passive voltage observation and external references; x86 observation is distinct from the x64 acquisition module."
+    },
+    {
+      "path": "docs/research/2026-09-05-v09-profile-policy-validation.md",
+      "sha256_lf": "51205cdd5a7f1ce3c8d3af12793030da3b4a224f7298895d90a577a3a0f6a244",
+      "provenance": "Historical repeat on the same physical GPU, driver and VBIOS; current comparison does not promote evidence or validate another profile."
+    }
+  ],
+  "fixture_sources": [
+    {
+      "path": "csharp/RtxMonitor.Managed.Tests/Fixtures/private-profile-status-v2.json",
+      "sha256_lf": "4f37c42d2bd465107257cd27fd66335b0e9779160b21c44160e5e4e691628565",
+      "provenance": "Synthetic diagnostic contract fixture for the existing profile; contains no captured private payload."
+    },
+    {
+      "path": "docs/profiles/rtx3060-fixture-provenance.json",
+      "sha256_lf": "802268ee09b587f5264404ffe2c2e81e322f259141f5bb3443e0e5e5212a75a4",
+      "provenance": "Provenance and transformations for recorded x86 response bytes; explicitly distinct from authorization of the x64 acquisition module."
+    },
+    {
+      "path": "native/tests/fixtures/rtx3060-recorded-responses.h",
+      "sha256_lf": "75441de5b44614c879d6cfd5406f2dffd1a9033c10f73e88a90540df8afe67bf",
+      "provenance": "Selected previously recorded little-endian response bytes from the same physical GPU; decoder regression only."
+    },
+    {
+      "path": "native/tests/private_policy_tests.c",
+      "sha256_lf": "4dc72beecd187cb2c7c013975a656cb084f8af50f21c8a8145030619decb57df",
+      "provenance": "Regression consumer of recorded and synthetic responses; tests do not validate a different hardware, driver, VBIOS or GSP profile."
+    },
+    {
+      "path": "csharp/RtxMonitor.Managed.Tests/Fixtures/rtx3060-thermal-recorded-v1.json",
+      "sha256_lf": "fbf59f8957662e002ba903897b56075b19d9b8d454759cd8a1022604c3df7fb7",
+      "provenance": "Previously emitted real JSON from the x64 thermal reader on the target GPU; decoded sample contract, not a raw NVAPI response."
+    },
+    {
+      "path": "csharp/RtxMonitor.Managed.Tests/Fixtures/rtx3060-voltage-recorded-v1.json",
+      "sha256_lf": "10d83e3208e4ce9a5950f7e0d581bf1f7a30d66d8726703c73b4496195658b72",
+      "provenance": "Previously emitted real JSON from the x64 voltage reader on the target GPU; decoded sample contract, not a raw NVAPI response."
+    },
+    {
+      "path": "docs/profiles/rtx3060-runtime-fixture-provenance.json",
+      "sha256_lf": "8230564f09d867dfc983e207653c62983a0b304d6e84b25b13abb8a62049447c",
+      "provenance": "Local source paths, source hashes and capture timestamps for the two recorded x64 JSON sample fixtures."
+    }
+  ],
+  "revision_history": [
+    {
+      "revision": 2,
+      "recorded_on": "2026-09-05",
+      "change_summary": "First offline audit record for existing catalog revision 2: one user-identified GALAX RTX 3060 12 GB, exact current profile, fixed operations, 100 ms interval and 2000 ms acquisition budget. Final revocation hardening rejects the revoked operation before lock or backend access. Recorded x86 decoder vectors and real decoded x64 JSON samples retain separate provenance. No new hardware or GSP version validated.",
+      "snapshot_sha256": "5a7e71afe5143665da456ff7d0850ed8f4043123517ea2d4c5c3e0fb9a153e45",
+      "policy_sources_sha256": "dc14ae505caf37dc02722dad4f29f46b0234d397f70c6e822aace18e44084ca9",
+      "evidence_sources_sha256": "fc4a7bc72b37fc1a3ec6394f2fd138b8aa901e5e30b547eb45305753dfaa875f",
+      "fixture_sources_sha256": "a70a03acd515d115d49c270aa02ca1c1c69c13a3bd470eecf983c7e363ae54d1"
+    }
+  ]
+}

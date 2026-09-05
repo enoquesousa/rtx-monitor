@@ -123,6 +123,7 @@ int rtxmon_private_module_pointer_matches(
     unsigned char actual_hash[32];
     uintptr_t pointer_value;
     uintptr_t module_value;
+    DWORD path_length;
 
     if (pointer == NULL || !decode_sha256(expected_sha256, expected_hash) ||
         !GetModuleHandleExW(
@@ -130,11 +131,17 @@ int rtxmon_private_module_pointer_matches(
                 GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
             (LPCWSTR)pointer,
             &module) ||
-        module == NULL ||
-        GetModuleFileNameW(module, path, (DWORD)(sizeof(path) / sizeof(path[0]))) == 0U) {
+        module == NULL) {
         return 0;
     }
-    path[(sizeof(path) / sizeof(path[0])) - 1U] = L'\0';
+    path_length = GetModuleFileNameW(module, path, (DWORD)(sizeof(path) / sizeof(path[0])));
+    /* A truncated module path is not an identity. Never hash a shortened path,
+     * even on Windows versions which leave a truncated buffer unterminated.
+     */
+    if (path_length == 0U || path_length >= (DWORD)(sizeof(path) / sizeof(path[0]))) {
+        return 0;
+    }
+    path[path_length] = L'\0';
     pointer_value = (uintptr_t)pointer;
     module_value = (uintptr_t)(const void *)module;
     if (pointer_value < module_value || pointer_value - module_value != expected_rva ||

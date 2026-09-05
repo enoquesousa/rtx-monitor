@@ -2,6 +2,8 @@
 /artifacts/
 **/bin/
 **/obj/
+**/__pycache__/
+*.py[cod]
 .vs/
 .vscode/
 *.user

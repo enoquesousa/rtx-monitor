@@ -1,6 +1,46 @@
 #include "private_profile.h"
+#include "nvapi_abi.h"
 
+#include <stddef.h>
 #include <stdio.h>
+
+#if defined(_MSC_VER)
+#define RTXMON_LAYOUT_ASSERT(condition, message) static_assert(condition, message)
+#else
+#define RTXMON_LAYOUT_ASSERT(condition, message) _Static_assert(condition, message)
+#endif
+
+/* Compile-time contracts for the two existing private payloads only. These
+ * fixtures establish byte layout, not driver behavior or sensor support.
+ */
+RTXMON_LAYOUT_ASSERT(sizeof(rtxmon_nvapi_therm_channel_status_v2_t) == 168U, "thermal payload size");
+RTXMON_LAYOUT_ASSERT(offsetof(rtxmon_nvapi_therm_channel_status_v2_t, version) == 0U, "thermal version offset");
+RTXMON_LAYOUT_ASSERT(sizeof(((rtxmon_nvapi_therm_channel_status_v2_t *)0)->version) == 4U, "thermal version width");
+RTXMON_LAYOUT_ASSERT(offsetof(rtxmon_nvapi_therm_channel_status_v2_t, channel_mask) == 4U, "thermal mask offset");
+RTXMON_LAYOUT_ASSERT(sizeof(((rtxmon_nvapi_therm_channel_status_v2_t *)0)->channel_mask) == 4U, "thermal mask width");
+RTXMON_LAYOUT_ASSERT(offsetof(rtxmon_nvapi_therm_channel_status_v2_t, words) == 8U, "thermal words offset");
+RTXMON_LAYOUT_ASSERT(sizeof(((rtxmon_nvapi_therm_channel_status_v2_t *)0)->words) == 160U, "thermal words width");
+RTXMON_LAYOUT_ASSERT(sizeof(((rtxmon_nvapi_therm_channel_status_v2_t *)0)->words[0]) == 4U, "thermal word width");
+RTXMON_LAYOUT_ASSERT(offsetof(rtxmon_nvapi_therm_channel_status_v2_t, words) + 8U * sizeof(uint32_t) == 40U,
+    "thermal die reviewed byte offset");
+RTXMON_LAYOUT_ASSERT(offsetof(rtxmon_nvapi_therm_channel_status_v2_t, words) + 9U * sizeof(uint32_t) == 44U,
+    "thermal hotspot reviewed byte offset");
+RTXMON_LAYOUT_ASSERT(RTXMON_NVAPI_THERM_CHANNEL_STATUS_V2_VERSION == 0x000200a8U, "thermal exact version");
+RTXMON_LAYOUT_ASSERT((RTXMON_NVAPI_THERM_CHANNEL_STATUS_V2_VERSION & 0xffffU) == sizeof(rtxmon_nvapi_therm_channel_status_v2_t),
+    "thermal version encodes payload size");
+RTXMON_LAYOUT_ASSERT((RTXMON_NVAPI_THERM_CHANNEL_STATUS_V2_VERSION >> 16U) == 2U, "thermal version number");
+RTXMON_LAYOUT_ASSERT(sizeof(rtxmon_nvapi_voltage_status_v1_t) == 76U, "voltage payload size");
+RTXMON_LAYOUT_ASSERT(offsetof(rtxmon_nvapi_voltage_status_v1_t, version) == 0U, "voltage version offset");
+RTXMON_LAYOUT_ASSERT(sizeof(((rtxmon_nvapi_voltage_status_v1_t *)0)->version) == 4U, "voltage version width");
+RTXMON_LAYOUT_ASSERT(offsetof(rtxmon_nvapi_voltage_status_v1_t, words) == 4U, "voltage words offset");
+RTXMON_LAYOUT_ASSERT(sizeof(((rtxmon_nvapi_voltage_status_v1_t *)0)->words) == 72U, "voltage words width");
+RTXMON_LAYOUT_ASSERT(sizeof(((rtxmon_nvapi_voltage_status_v1_t *)0)->words[0]) == 4U, "voltage word width");
+RTXMON_LAYOUT_ASSERT(offsetof(rtxmon_nvapi_voltage_status_v1_t, words) + 9U * sizeof(uint32_t) == 40U,
+    "voltage value reviewed byte offset");
+RTXMON_LAYOUT_ASSERT(RTXMON_NVAPI_VOLTAGE_STATUS_V1_VERSION == 0x0001004cU, "voltage exact version");
+RTXMON_LAYOUT_ASSERT((RTXMON_NVAPI_VOLTAGE_STATUS_V1_VERSION & 0xffffU) == sizeof(rtxmon_nvapi_voltage_status_v1_t),
+    "voltage version encodes payload size");
+RTXMON_LAYOUT_ASSERT((RTXMON_NVAPI_VOLTAGE_STATUS_V1_VERSION >> 16U) == 1U, "voltage version number");
 
 static int check(int condition, const char *message)
 {

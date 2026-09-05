@@ -1,5 +1,6 @@
 #include "nvapi_loader.h"
 #include "private_module_profile.h"
+#include "private_profile_catalog.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -72,11 +73,6 @@ static void rtxmon_nvapi_close(void *library)
             return RTXMON_NVAPI_LOADER_INTERFACE_MISSING;                           \
         }                                                                            \
     } while (0)
-
-#define RTXMON_PRIVATE_NVAPI64_IMPL_SHA256 \
-    "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4"
-#define RTXMON_PRIVATE_THERMAL_X64_RVA 0x001e0bc0U
-#define RTXMON_PRIVATE_VOLTAGE_X64_RVA 0x001c9070U
 
 rtxmon_nvapi_loader_status_t rtxmon_nvapi_load(
     rtxmon_nvapi_api_t *api,
@@ -155,23 +151,27 @@ rtxmon_nvapi_loader_status_t rtxmon_nvapi_load(
         RTXMON_NVAPI_ID_GPU_GET_THERMAL_SETTINGS,
         "NvAPI_GPU_GetThermalSettings");
 
-    /* Private, optional driver interface used by established monitoring tools. */
+    /* Only resolve non-revoked operations in the compiled reviewed catalog. */
     {
-        void *private_pointer = api->query_interface(RTXMON_NVAPI_ID_GPU_THERM_CHANNEL_GET_STATUS);
+        const rtxmon_private_profile_catalog_t *profile = rtxmon_private_catalog_get();
+        void *private_pointer = profile->revoked == 0U && profile->thermal.revoked == 0U
+            ? api->query_interface(profile->thermal.interface_id) : NULL;
         if (rtxmon_private_module_pointer_matches(
                 private_pointer,
-                RTXMON_PRIVATE_THERMAL_X64_RVA,
-                RTXMON_PRIVATE_NVAPI64_IMPL_SHA256)) {
+                profile->thermal.function_rva,
+                profile->module_sha256)) {
             api->gpu_therm_channel_get_status =
                 (rtxmon_nvapi_gpu_therm_channel_get_status_fn)private_pointer;
         }
     }
     {
-        void *private_pointer = api->query_interface(RTXMON_NVAPI_ID_GPU_VOLTAGE_STATUS);
+        const rtxmon_private_profile_catalog_t *profile = rtxmon_private_catalog_get();
+        void *private_pointer = profile->revoked == 0U && profile->voltage.revoked == 0U
+            ? api->query_interface(profile->voltage.interface_id) : NULL;
         if (rtxmon_private_module_pointer_matches(
                 private_pointer,
-                RTXMON_PRIVATE_VOLTAGE_X64_RVA,
-                RTXMON_PRIVATE_NVAPI64_IMPL_SHA256)) {
+                profile->voltage.function_rva,
+                profile->module_sha256)) {
             api->gpu_voltage_status =
                 (rtxmon_nvapi_gpu_voltage_status_fn)private_pointer;
         }

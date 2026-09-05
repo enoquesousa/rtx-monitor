@@ -15,6 +15,7 @@ $csharpExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Confi
 $serviceExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64\RtxMonitor.Service.exe"
 $labExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Lab\bin\$Configuration\net8.0\rtxmon-lab.exe"
 $managedTestProject = Join-Path $projectRoot 'csharp\RtxMonitor.Managed.Tests\RtxMonitor.Managed.Tests.csproj'
+$consoleTestProject = Join-Path $projectRoot 'csharp\RtxMonitor.Console.Tests\RtxMonitor.Console.Tests.csproj'
 $storageTestProject = Join-Path $projectRoot 'csharp\RtxMonitor.Storage.Tests\RtxMonitor.Storage.Tests.csproj'
 $serviceTestProject = Join-Path $projectRoot 'csharp\RtxMonitor.Service.Tests\RtxMonitor.Service.Tests.csproj'
 $labTestProject = Join-Path $projectRoot 'csharp\RtxMonitor.Lab.Tests\RtxMonitor.Lab.Tests.csproj'
@@ -477,6 +478,10 @@ try {
         & dotnet build $storageTestProject --configuration $Configuration --nologo
     }
 
+    Invoke-Checked -Description 'Private worker supervisor test build' -Command {
+        & dotnet build $consoleTestProject --configuration $Configuration --nologo
+    }
+
     Invoke-Checked -Description 'Service test build' -Command {
         & dotnet build $serviceTestProject --configuration $Configuration --nologo
     }
@@ -487,6 +492,32 @@ try {
 
     Invoke-Checked -Description 'Native and C++ tests' -Command {
         & ctest --preset "windows-x64-$configurationLower"
+    }
+
+    $catalogSnapshot = Join-Path $nativeOutput 'private-catalog-snapshot.json'
+    Invoke-Checked -Description 'Offline compiled profile snapshot' -Command {
+        & (Join-Path $nativeOutput 'rtxmon_private_catalog_snapshot.exe') |
+            Set-Content -LiteralPath $catalogSnapshot -Encoding utf8
+    }
+    Invoke-Checked -Description 'Compiled profile audit' -Command {
+        & python (Join-Path $PSScriptRoot 'verify-private-profile.py') --snapshot $catalogSnapshot
+    }
+    Invoke-Checked -Description 'Profile audit negative tests' -Command {
+        & python -m unittest discover -s (Join-Path $PSScriptRoot 'tests') -p 'test_private_profile_audit.py'
+    }
+    foreach ($mode in @('thermal', 'voltage')) {
+        $recordedJson = Get-Content -LiteralPath (Join-Path $projectRoot "csharp/RtxMonitor.Managed.Tests/Fixtures/rtx3060-$mode-recorded-v1.json") -Raw
+        $recordedSchema = Join-Path $projectRoot "docs/schema/private-$mode-sample-v1.schema.json"
+        if (-not (Test-Json -Json $recordedJson -SchemaFile $recordedSchema)) {
+            throw "Recorded RTX 3060 $mode sample violates its contract."
+        }
+        $recordedSample = $recordedJson | ConvertFrom-Json
+        if ($mode -eq 'thermal' -and -not (Test-PrivateThermalSampleSemantics $recordedSample)) {
+            throw 'Recorded RTX 3060 thermal sample violates its delta contract.'
+        }
+        if ($mode -eq 'voltage' -and -not (Test-PrivateVoltageSampleSemantics $recordedSample)) {
+            throw 'Recorded RTX 3060 voltage sample violates its scaling contract.'
+        }
     }
 
     Invoke-Checked -Description 'Managed tests' -Command {
@@ -501,6 +532,10 @@ try {
             --project $storageTestProject `
             --configuration $Configuration `
             --no-build
+    }
+
+    Invoke-Checked -Description 'Private worker supervisor tests' -Command {
+        & dotnet run --project $consoleTestProject --configuration $Configuration --no-build
     }
 
     Invoke-Checked -Description 'Service tests' -Command {
@@ -524,6 +559,7 @@ try {
         $serviceProject,
         $labProject,
         $managedTestProject,
+        $consoleTestProject,
         $storageTestProject,
         $serviceTestProject,
         $labTestProject
@@ -534,6 +570,45 @@ try {
     }
 
     $capabilitySchema = Get-Content -Raw -LiteralPath $capabilitySchemaPath | ConvertFrom-Json
+    $historicalPrivateProfileSchema = Join-Path $projectRoot 'docs\schema\private-profile-status-v1.schema.json'
+    $historicalPrivateProfileFixture = Get-Content -Raw (Join-Path $projectRoot 'csharp\RtxMonitor.Managed.Tests\Fixtures\private-profile-status-v1.json')
+    if (-not ($historicalPrivateProfileFixture | Test-Json -SchemaFile $historicalPrivateProfileSchema)) {
+        throw 'Historical profile diagnostic v1 must remain valid.'
+    }
+    $privateProfileSchemaPath = Join-Path $projectRoot 'docs\schema\private-profile-status-v2.schema.json'
+    $privateProfileFixturePath = Join-Path $projectRoot 'csharp\RtxMonitor.Managed.Tests\Fixtures\private-profile-status-v2.json'
+    $privateProfileFixture = Get-Content -Raw -LiteralPath $privateProfileFixturePath
+    if (-not ($privateProfileFixture | Test-Json -SchemaFile $privateProfileSchemaPath)) {
+        throw 'Private profile diagnostic fixture must pass its schema.'
+    }
+    foreach ($mutation in @('revoked', 'mismatch', 'unavailable', 'acquired', 'duplicate-operation', 'timeout', 'rate', 'interval')) {
+        $contradictory = $privateProfileFixture | ConvertFrom-Json
+        switch ($mutation) {
+            'revoked' { $contradictory.profile_state = 'revoked'; $contradictory.revocation_reason = 'test revocation' }
+            'mismatch' { $contradictory.identity_checks[4].state = 'mismatch' }
+            'unavailable' { $contradictory.operations[0].state = 'module_unavailable' }
+            'acquired' { $contradictory.acquisition_performed = $true }
+            'duplicate-operation' { $contradictory.operations[1].operation = 'thermal' }
+            'timeout' { $contradictory.operations[0].state = 'timeout' }
+            'rate' { $contradictory.operations[0].state = 'rate_limited' }
+            'interval' { $contradictory.operations[0].minimum_interval_ms = 0 }
+        }
+        if ($contradictory | ConvertTo-Json -Depth 10 | Test-Json -SchemaFile $privateProfileSchemaPath -ErrorAction SilentlyContinue) {
+            throw "Private profile schema accepted contradictory eligibility: $mutation."
+        }
+    }
+    foreach ($diagnosticArguments in @(
+        @('--profile-status', '--thermal-watch'),
+        @('--voltage-watch', '--profile-status'),
+        @('--profile-status', '--interval', '500'),
+        @('--profile-status', '--count', '1'),
+        @('--profile-status', '--database', 'unused-profile-diagnostic.db')
+    )) {
+        $null = & $csharpExecutable @diagnosticArguments 2>&1
+        if ($LASTEXITCODE -ne 2) {
+            throw 'Private profile diagnostic must reject collection modes/options before opening a GPU.'
+        }
+    }
     if ($capabilitySchema.properties.schema_version.const -ne 2) {
         throw 'Capability schema must declare schema_version const 2.'
     }
@@ -1672,7 +1747,7 @@ try {
     }
 
     Write-Host 'Hardware-independent verification passed.'
-    Write-Host 'C/C++: build with warnings as errors and 14 CTest tests, including private profiles, VBIOS, and RM thermal protocol.'
+    Write-Host 'C/C++: build with warnings as errors and CTest, including private profile policy/revocation, VBIOS, and RM thermal protocol.'
     Write-Host 'C#: build, sampler, alert, SQLite storage, local service, laboratory tests, GPU-Z import/correlation, anchored experiment analysis, NVAPI thermal mapping, Windows handle identity, markers, and formatting.'
     Write-Host 'Schemas: stable telemetry plus v0.8 artifact, experiment, numeric-series, marker, analysis, VBIOS, GPU-Z, NVAPI, bounded IOCTL, and Windows handle contracts.'
     Write-Host "Version parity: C/C++ and C# $nativeVersion."

@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "source_kind": "private_profile_status",
+  "gpu_index": 0,
+  "evaluated_at_utc": "2026-09-05T00:00:00Z",
+  "profile_id": "rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88",
+  "profile_revision": 1,
+  "profile_state": "active",
+  "revocation_reason": null,
+  "acquisition_performed": false,
+  "returned_payload_state": "not_evaluated",
+  "gsp_state": "not_observed",
+  "identity_checks": [
+    {
+      "field": "pci_vendor_id",
+      "state": "matched"
+    },
+    {
+      "field": "pci_device_id",
+      "state": "matched"
+    },
+    {
+      "field": "pci_subsystem_vendor_id",
+      "state": "matched"
+    },
+    {
+      "field": "pci_subsystem_device_id",
+      "state": "matched"
+    },
+    {
+      "field": "gpu_uuid",
+      "state": "matched"
+    },
+    {
+      "field": "vbios_version",
+      "state": "matched"
+    },
+    {
+      "field": "driver_version",
+      "state": "matched"
+    }
+  ],
+  "operations": [
+    {
+      "operation": "thermal",
+      "state": "compatible",
+      "eligible_for_acquisition": true
+    },
+    {
+      "operation": "voltage",
+      "state": "compatible",
+      "eligible_for_acquisition": true
+    }
+  ]
+}

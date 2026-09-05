@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(
     rtx-monitor
-    VERSION 0.8.0
+    VERSION 0.9.0
     DESCRIPTION "Read-only NVIDIA RTX thermal monitor and capability inventory"
     LANGUAGES C CXX
 )
@@ -26,6 +26,9 @@ add_library(rtxmon_native SHARED
     native/src/nvapi_loader.c
     native/src/nvml_loader.c
     native/src/private_module_profile.c
+    native/src/private_profile_catalog.c
+    native/src/private_profile_gate.c
+    native/src/private_acquisition.c
     native/src/public_telemetry.c
     native/src/private_thermal.c
     native/src/private_voltage.c
@@ -131,6 +134,7 @@ if(RTXMON_BUILD_TESTS)
     set_tests_properties(rtxmon_abi PROPERTIES LABELS "unit;abi;no-gpu")
 
     add_executable(rtxmon_private_profile_tests
+        native/src/private_profile_catalog.c
         native/tests/private_profile_tests.c
     )
     target_include_directories(rtxmon_private_profile_tests PRIVATE native/src)
@@ -141,6 +145,55 @@ if(RTXMON_BUILD_TESTS)
     endif()
     add_test(NAME rtxmon_private_profile COMMAND rtxmon_private_profile_tests)
     set_tests_properties(rtxmon_private_profile PROPERTIES LABELS "unit;profile;no-gpu")
+
+    # Offline snapshot of the compiled allowlist; never links a GPU backend.
+    add_executable(rtxmon_private_catalog_snapshot
+        native/src/private_profile_catalog.c
+        native/tests/private_catalog_snapshot.c
+    )
+    target_include_directories(rtxmon_private_catalog_snapshot PRIVATE native/src native/include)
+    if(MSVC)
+        target_compile_options(rtxmon_private_catalog_snapshot PRIVATE /W4 /WX /utf-8)
+    else()
+        target_compile_options(rtxmon_private_catalog_snapshot PRIVATE -Wall -Wextra -Werror)
+    endif()
+
+    foreach(policy_variant active profile_revoked thermal_revoked voltage_revoked)
+        set(policy_target rtxmon_private_policy_${policy_variant}_tests)
+        add_executable(${policy_target}
+            native/src/private_profile_catalog.c
+            native/src/private_profile_gate.c
+            native/src/private_acquisition.c
+            native/src/private_thermal.c
+            native/src/private_voltage.c
+            native/tests/private_policy_tests.c
+        )
+        target_include_directories(${policy_target} PRIVATE native/include native/src)
+        target_compile_definitions(${policy_target} PRIVATE
+            RTXMON_BUILDING_NATIVE RTXMON_PRIVATE_PROFILE_TESTING
+            RTXMON_TEST_PROFILE_REVOKED=$<IF:$<STREQUAL:${policy_variant},profile_revoked>,1,0>
+            RTXMON_TEST_THERMAL_REVOKED=$<IF:$<STREQUAL:${policy_variant},thermal_revoked>,1,0>
+            RTXMON_TEST_VOLTAGE_REVOKED=$<IF:$<STREQUAL:${policy_variant},voltage_revoked>,1,0>
+        )
+        if(MSVC)
+            target_compile_options(${policy_target} PRIVATE /W4 /WX /utf-8)
+        else()
+            target_compile_options(${policy_target} PRIVATE -Wall -Wextra -Werror)
+        endif()
+        add_test(NAME rtxmon_private_policy_${policy_variant} COMMAND ${policy_target})
+        set_tests_properties(rtxmon_private_policy_${policy_variant}
+            PROPERTIES LABELS "unit;profile;security;no-gpu")
+    endforeach()
+
+    foreach(acquisition_case rate_fence identity_timeout association_timeout thermal_first_timeout
+        thermal_second_timeout voltage_timeout total_timeout lock_timeout lock_acquired_late
+        publication_timeout clock_unavailable admission_clock_unavailable admission_clock_regression
+        admission_clock_deadline)
+        add_test(NAME rtxmon_private_acquisition_${acquisition_case}
+            COMMAND rtxmon_private_policy_active_tests ${acquisition_case})
+        set_tests_properties(rtxmon_private_acquisition_${acquisition_case}
+            PROPERTIES LABELS "unit;profile;acquisition;no-gpu")
+    endforeach()
 
     add_executable(rtxmon_private_module_profile_tests
         native/src/private_module_profile.c
