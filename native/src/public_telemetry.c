@@ -17,7 +17,8 @@ typedef struct rtxmon_clock_descriptor {
 } rtxmon_clock_descriptor_t;
 
 enum {
-    RTXMON_PUBLIC_FIELDS_AFTER_FANS = 10U
+    RTXMON_PUBLIC_FIELDS_AFTER_FANS = 10U,
+    RTXMON_PUBLIC_MAX_FANS = 32U
 };
 
 static const rtxmon_field_descriptor_t rtxmon_nvml_fields[] = {
@@ -478,44 +479,12 @@ static void rtxmon_collect_memory(
         memory.used);
 }
 
-static void rtxmon_collect_fans(
+static void rtxmon_collect_legacy_fan_percent(
     rtxmon_context_t *context,
     nvmlDevice_t device,
-    rtxmon_public_telemetry_report_t *report)
+    rtxmon_public_telemetry_report_t *report,
+    nvmlReturn_t fallback_result)
 {
-    uint32_t fan_count = 0U;
-    nvmlReturn_t count_result = NVML_ERROR_FUNCTION_NOT_FOUND;
-
-    if (context->nvml.device_get_num_fans != NULL &&
-        context->nvml.device_get_fan_speed_v2 != NULL) {
-        uint32_t fan_index;
-        count_result = context->nvml.device_get_num_fans(device, &fan_count);
-        if (count_result == NVML_SUCCESS && fan_count > 0U) {
-            for (fan_index = 0U;
-                 fan_index < fan_count &&
-                 report->field_count + RTXMON_PUBLIC_FIELDS_AFTER_FANS <
-                     RTXMON_MAX_PUBLIC_FIELDS;
-                 ++fan_index) {
-                uint32_t speed = 0U;
-                const nvmlReturn_t result = context->nvml.device_get_fan_speed_v2(
-                    device,
-                    fan_index,
-                    &speed);
-                rtxmon_public_set_u64(
-                    rtxmon_public_add(
-                        report,
-                        RTXMON_PUBLIC_FIELD_FAN_SPEED_PERCENT,
-                        RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_V2,
-                        RTXMON_UNIT_PERCENT,
-                        fan_index,
-                        result,
-                        report->timestamp_unix_ms),
-                    speed);
-            }
-            return;
-        }
-    }
-
     if (context->nvml.device_get_fan_speed != NULL) {
         uint32_t speed = 0U;
         const nvmlReturn_t result = context->nvml.device_get_fan_speed(device, &speed);
@@ -538,8 +507,89 @@ static void rtxmon_collect_fans(
         RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_V2,
         RTXMON_UNIT_PERCENT,
         0U,
-        count_result,
+        fallback_result,
         report->timestamp_unix_ms);
+}
+
+static void rtxmon_collect_fan_rpm(
+    rtxmon_context_t *context,
+    nvmlDevice_t device,
+    rtxmon_public_telemetry_report_t *report,
+    uint32_t fan_index)
+{
+    rtxmon_nvml_fan_speed_info_v1_t speed;
+    nvmlReturn_t result = NVML_ERROR_FUNCTION_NOT_FOUND;
+    (void)memset(&speed, 0, sizeof(speed));
+    speed.version = RTXMON_NVML_FAN_SPEED_INFO_V1_VERSION;
+    speed.fan = fan_index;
+    if (context->nvml.device_get_fan_speed_rpm != NULL) {
+        result = context->nvml.device_get_fan_speed_rpm(device, &speed);
+        if (result == NVML_SUCCESS && speed.version != RTXMON_NVML_FAN_SPEED_INFO_V1_VERSION) {
+            result = NVML_ERROR_ARGUMENT_VERSION_MISMATCH;
+        } else if (result == NVML_SUCCESS && speed.fan != fan_index) {
+            result = NVML_ERROR_UNKNOWN;
+        }
+    }
+    /* Zero RPM is a legitimate successful result; failed payloads never acquire a value type. */
+    rtxmon_public_set_u64(
+        rtxmon_public_add(report, RTXMON_PUBLIC_FIELD_FAN_SPEED_INTENDED_RPM,
+            RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_RPM, RTXMON_UNIT_RPM, fan_index,
+            result, report->timestamp_unix_ms),
+        speed.speed);
+}
+
+static void rtxmon_collect_fans(
+    rtxmon_context_t *context,
+    nvmlDevice_t device,
+    rtxmon_public_telemetry_report_t *report)
+{
+    uint32_t fan_count = 0U;
+    uint32_t fan_index;
+    uint32_t required_fields = 0U;
+    nvmlReturn_t count_result = context->nvml.device_get_num_fans != NULL
+        ? context->nvml.device_get_num_fans(device, &fan_count)
+        : NVML_ERROR_FUNCTION_NOT_FOUND;
+
+    if (count_result == NVML_SUCCESS) {
+        if (fan_count == 0U) {
+            count_result = NVML_ERROR_NOT_SUPPORTED;
+        } else if (fan_count > RTXMON_PUBLIC_MAX_FANS) {
+            count_result = NVML_ERROR_INSUFFICIENT_SIZE;
+        } else {
+            required_fields = fan_count +
+                (context->nvml.device_get_fan_speed_v2 != NULL ? fan_count : 1U);
+            if (report->field_count > RTXMON_MAX_PUBLIC_FIELDS - RTXMON_PUBLIC_FIELDS_AFTER_FANS ||
+                required_fields > RTXMON_MAX_PUBLIC_FIELDS - RTXMON_PUBLIC_FIELDS_AFTER_FANS - report->field_count) {
+                /* Never query an unrepresentable fan set or silently truncate later telemetry. */
+                count_result = NVML_ERROR_INSUFFICIENT_SIZE;
+            }
+        }
+    }
+
+    if (count_result != NVML_SUCCESS) {
+        rtxmon_collect_legacy_fan_percent(context, device, report, count_result);
+        (void)rtxmon_public_add(report, RTXMON_PUBLIC_FIELD_FAN_SPEED_INTENDED_RPM,
+            RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_RPM, RTXMON_UNIT_RPM, 0U,
+            context->nvml.device_get_fan_speed_rpm == NULL ? NVML_ERROR_FUNCTION_NOT_FOUND : count_result,
+            report->timestamp_unix_ms);
+        return;
+    }
+
+    if (context->nvml.device_get_fan_speed_v2 == NULL) {
+        rtxmon_collect_legacy_fan_percent(context, device, report, NVML_ERROR_FUNCTION_NOT_FOUND);
+    }
+    for (fan_index = 0U; fan_index < fan_count; ++fan_index) {
+        if (context->nvml.device_get_fan_speed_v2 != NULL) {
+            uint32_t percent = 0U;
+            const nvmlReturn_t result = context->nvml.device_get_fan_speed_v2(device, fan_index, &percent);
+            rtxmon_public_set_u64(
+                rtxmon_public_add(report, RTXMON_PUBLIC_FIELD_FAN_SPEED_PERCENT,
+                    RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_V2, RTXMON_UNIT_PERCENT,
+                    fan_index, result, report->timestamp_unix_ms),
+                percent);
+        }
+        rtxmon_collect_fan_rpm(context, device, report, fan_index);
+    }
 }
 
 static void rtxmon_collect_performance_state(

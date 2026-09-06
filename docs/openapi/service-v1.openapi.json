@@ -877,6 +877,7 @@
         }
       },
       "publicTelemetry": {
+        "description": "Dynamic public fields retain the schema 2 HTTP envelope. fan_speed_intended_rpm uses the documented NVML intended fan speed in rpm; it does not establish a tachometer measurement, a physical fan label or PWM.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -965,6 +966,7 @@
         }
       },
       "publicTelemetryField": {
+        "description": "ProviderNativeId is provider-specific. For fan_speed_percent and fan_speed_intended_rpm it is the zero-based NVML fan index. Unavailable fields keep all numeric values null; an available zero RPM remains zero.",
         "type": "object",
         "additionalProperties": false,
         "required": [

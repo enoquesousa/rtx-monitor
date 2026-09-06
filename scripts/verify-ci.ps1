@@ -29,10 +29,10 @@ $storageAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Storage\bin\$Config
 $serviceAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64\RtxMonitor.Service.dll"
 $labAssembly = Join-Path $projectRoot "csharp\RtxMonitor.Lab\bin\$Configuration\net8.0\rtxmon-lab.dll"
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
-$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v2.schema.json'
+$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v3.schema.json'
 $eventSchemaV1Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
 $eventSchemaV2Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
-$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v4.schema.json'
+$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v5.schema.json'
 $evidenceSchemaPath = Join-Path $projectRoot 'docs\schema\evidence-record-v1.schema.json'
 $liveSchemaPath = Join-Path $projectRoot 'docs\schema\live-telemetry-v1.schema.json'
 $streamGapSchemaPath = Join-Path $projectRoot 'docs\schema\stream-gap-v1.schema.json'
@@ -59,6 +59,7 @@ $nvapiThermChannelSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-c
 $nvapiThermChannelV2SchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-v2-observation-v2.schema.json'
 $nvapiCoolerStatusSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-cooler-status-v1-observation-v1.schema.json'
 $nvapiCoolerStatusV2SchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-cooler-status-v1-observation-v2.schema.json'
+$nvapiCoolerAnalysisSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-cooler-status-analysis-v1.schema.json'
 $nvapiThermCorrelationSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-correlation-v1.schema.json'
 $nvapiThermCorrelationV2SchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-therm-channel-correlation-v2.schema.json'
 $nvapiVoltageObservationSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-voltage-status-v1-observation-v1.schema.json'
@@ -468,6 +469,16 @@ try {
         }
     }
 
+    Write-Host 'Validating synthetic cooler observation v3 helpers and schema...'
+    $syntheticCoolerJson = & (Join-Path $PSScriptRoot 'tests/test_cooler_observation_v3.ps1') | Out-String
+    $syntheticCoolerResult = $syntheticCoolerJson | ConvertFrom-Json
+    if ($syntheticCoolerResult.checks_passed -ne 37 -or
+        $syntheticCoolerResult.synthetic_only -ne $true -or
+        $syntheticCoolerResult.capture_executed -ne $false) {
+        throw 'Synthetic cooler observation v3 verification did not complete its offline contract.'
+    }
+    Write-Output $syntheticCoolerJson
+
     & (Join-Path $PSScriptRoot 'build.ps1') -Configuration $Configuration
 
     Invoke-Checked -Description 'Managed test build' -Command {
@@ -614,10 +625,10 @@ try {
     }
 
     $publicTelemetrySchema = Get-Content -Raw -LiteralPath $publicTelemetrySchemaPath | ConvertFrom-Json
-    if ($publicTelemetrySchema.properties.schema_version.const -ne 2 -or
-        $publicTelemetrySchema.properties.fields.minItems -ne 34 -or
+    if ($publicTelemetrySchema.properties.schema_version.const -ne 3 -or
+        $publicTelemetrySchema.properties.fields.minItems -ne 35 -or
         $publicTelemetrySchema.properties.computed_metrics.minItems -ne 4) {
-        throw 'Public telemetry schema must declare version 2, 34 fields, and four metrics.'
+        throw 'Public telemetry schema must declare version 3, 35 fields, and four metrics.'
     }
 
     $eventSchemaV1 = Get-Content -Raw -LiteralPath $eventSchemaV1Path | ConvertFrom-Json
@@ -631,10 +642,10 @@ try {
     }
 
     $eventSchema = Get-Content -Raw -LiteralPath $eventSchemaPath | ConvertFrom-Json
-    if ($eventSchema.properties.schema_version.const -ne 4 -or
+    if ($eventSchema.properties.schema_version.const -ne 5 -or
         $null -eq $eventSchema.properties.public_telemetry -or
         $null -eq $eventSchema.properties.computed_metrics) {
-        throw 'Telemetry event schema must declare version 4 and its enriched reports.'
+        throw 'Telemetry event schema must declare version 5 and its enriched reports.'
     }
 
     $eventTypes = @($eventSchema.properties.event_type.enum)
@@ -652,16 +663,20 @@ try {
         'telemetry-event-v2.schema.json' -notin $evidenceEventRefs -or
         'telemetry-event-v3.schema.json' -notin $evidenceEventRefs -or
         'telemetry-event-v4.schema.json' -notin $evidenceEventRefs -or
+        'telemetry-event-v5.schema.json' -notin $evidenceEventRefs -or
         2 -notin $evidenceRunEventVersions -or
         3 -notin $evidenceRunEventVersions -or
-        4 -notin $evidenceRunEventVersions) {
-        throw 'Evidence schema must declare evidence/store version 1 and accept telemetry events v2/v3/v4.'
+        4 -notin $evidenceRunEventVersions -or
+        5 -notin $evidenceRunEventVersions) {
+        throw 'Evidence schema must declare evidence/store version 1 and accept telemetry events v2/v3/v4/v5.'
     }
 
     $liveSchema = Get-Content -Raw -LiteralPath $liveSchemaPath | ConvertFrom-Json
+    $liveEventRefs = @($liveSchema.properties.event.oneOf | ForEach-Object { $_.'$ref' })
     if ($liveSchema.properties.schema_version.const -ne 1 -or
-        $liveSchema.properties.event.'$ref' -ne 'telemetry-event-v4.schema.json') {
-        throw 'Live telemetry schema must declare version 1 and embed telemetry event v4.'
+        'telemetry-event-v4.schema.json' -notin $liveEventRefs -or
+        'telemetry-event-v5.schema.json' -notin $liveEventRefs) {
+        throw 'Live telemetry schema must declare version 1 and accept telemetry events v4/v5.'
     }
 
     $streamGapSchema = Get-Content -Raw -LiteralPath $streamGapSchemaPath | ConvertFrom-Json
@@ -1347,6 +1362,27 @@ try {
         throw 'Synthetic cooler-status v2 report must pass nvapi-cooler-status-v1-observation-v2.schema.json.'
     }
     $nvapiCoolerStatusV2 = $nvapiCoolerStatusV2Json | ConvertFrom-Json
+    $nvapiCoolerAnalysisJson = (& $labExecutable analyze-nvapi-cooler-status `
+            --input $nvapiCoolerStatusV2FixturePath | Out-String)
+    if ($LASTEXITCODE -ne 0 -or -not ($nvapiCoolerAnalysisJson |
+            Test-Json -SchemaFile $nvapiCoolerAnalysisSchemaPath)) {
+        throw 'Offline cooler analysis output must pass its v1 schema.'
+    }
+    $nvapiCoolerAnalysis = $nvapiCoolerAnalysisJson | ConvertFrom-Json
+    if ($nvapiCoolerAnalysis.mapping_status -ne 'raw_unknown' -or
+        $nvapiCoolerAnalysis.temporal_alignment -ne 'unavailable_sequence_only' -or
+        $nvapiCoolerAnalysis.fields.Count -ne 16 -or
+        $null -ne $nvapiCoolerAnalysis.gpuz_reference) {
+        throw 'Untimed synthetic cooler evidence must preserve raw groups without a reference or sensor promotion.'
+    }
+    foreach ($field in @('mapping_status', 'evidence_stage')) {
+        $promotedCoolerAnalysis = $nvapiCoolerAnalysisJson | ConvertFrom-Json
+        $promotedCoolerAnalysis.$field = 'externally_validated'
+        if (($promotedCoolerAnalysis | ConvertTo-Json -Depth 20) |
+                Test-Json -SchemaFile $nvapiCoolerAnalysisSchemaPath -ErrorAction SilentlyContinue) {
+            throw 'The cooler analysis schema must reject automatic evidence promotion.'
+        }
+    }
     $nvapiCoolerStatusV2Schema = Get-Content `
         -Raw `
         -LiteralPath $nvapiCoolerStatusV2SchemaPath |

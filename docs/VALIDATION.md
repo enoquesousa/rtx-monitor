@@ -1,5 +1,19 @@
 # Validação
 
+## v0.10.0 concluída localmente
+
+A [validação de RPM público](research/2026-09-05-public-fan-rpm.md) registra a fonte NVML documentada, dois índices disponíveis e cobertura observada de **32/37**. O produto **0.10.0/ABI 7** foi concluído localmente, com JSON standalone v3, evento v5 e HTTP de telemetria v2; os contratos históricos permanecem legíveis. A pesquisa privada continua interrompida/parcial.
+
+Passaram **33 CTest no Windows**, **29 CTest no Linux**, **14 testes de auditoria em cada plataforma** e suítes .NET aplicáveis. Windows também aprovou 37 verificações PowerShell, serviço, schemas e formatação; Linux valida portabilidade sem GPU, com Managed/Storage/Console/Lab. Evidências: `evidence/v010-completion-20260905/windows-ci-final.log` e `linux/{ci.log,result.json,source-manifest.json}`. O snapshot Linux é delimitado pelo manifesto; alterações posteriores dos textos de ajuda `--events`, PowerShell e documentação foram verificadas na rodada Windows final, sem alegar identidade com o snapshot Linux. Pacote e smoke dos executáveis empacotados passaram.
+
+Na integração inicial, ainda com produto 0.9.0, o smoke físico aprovou executáveis, streams, persistência/exportação e serviço HTTP temporário. Duas sessões adicionais produziram 24 leituras válidas, com diferenças máximas de 11 RPM contra GPU-Z e 12 RPM contra HWiNFO. Esses resultados anteriores permanecem históricos e não comprovam acurácia física ou PWM. O serviço instalado 0.6.0 permaneceu separado.
+
+A captura privada v3 registrou dois preflights reais válidos de 10 segundos, mas a janela seguinte de 30 segundos foi rejeitada por retorno `0xffffff9b`; o buffer recusado não entra na análise. A investigação está interrompida/parcial, com causa do erro não verificada e campos `raw_unknown`. Não foram concluídas as seis janelas privadas previstas. Separadamente, três ciclos públicos passaram: 708 relatórios, 1.416 leituras RPM, diferença máxima de 16/20 RPM e lag máximo de 500/995 ms contra GPU-Z/HWiNFO, dentro dos critérios definidos. Os ciclos térmicos chegaram a 56 °C; isso não valida um limiar físico de fan nem transforma percepção de silêncio em prova de rotação zero. Smoke final do build, pacote e preservação passaram. [Resultados e limites](research/2026-09-05-v010-completion.md).
+
+## Primeiro incremento da v0.10: análise offline do cooler
+
+O [registro da implementação](research/2026-09-05-v010-cooler-offline-analysis.md) distingue a regressão por fixtures sintéticas da reaplicação a 36 amostras históricas. O novo analisador não coleta sensores. Seus testes verificam agrupamento por call site/entrada, valores uint32, redundâncias, limites, perfil, entradas inválidas e ausência de promoção; a referência opcional verifica janela única, prefixo delimitado, layouts anexados, valores ausentes e erros de dados. O CI Windows valida também o schema de saída e a recusa de promoção. As suítes offline do cooler são executadas antes do gate de operações Windows do Lab, permitindo regressão no Linux sem GPU.
+
 ## Validação da v0.9 para a Galax RTX 3060 de 12 GB
 
 Marco concluído em 2026-09-05 para a unidade e configuração registradas no [fechamento](research/2026-09-05-v09-completion.md). Produto 0.9.0, ABI 7. O [manifesto do perfil](profiles/rtx3060-galax-12gb.json) ancora catálogo, fontes e fixtures; ambos os scripts de CI executam a auditoria offline e seus testes negativos. A validação Linux cobre portabilidade sem GPU. O smoke físico Windows usa a placa alvo e uma instância temporária do serviço com banco isolado.
@@ -98,11 +112,11 @@ Uma entrega é considerada válida quando:
 28. desligamento gracioso confirma `completed_at` e `completion_reason=service_stopped` para cada run;
 29. uma execução física do serviço publica somente em loopback e preserva UUID, profile key e a versão atual no histórico;
 30. a instalação real no Windows já confirma configuração do SCM, ações de recuperação, ciclo stop/start, encerramento persistido do run e stream SSE crescente;
-31. C++ e C# expõem a mesma ordem, proveniência, IDs, unidades e estados para pelo menos 34 campos semânticos públicos;
+31. C++ e C# expõem a mesma ordem, proveniência, IDs, unidades e estados para 35 campos semânticos públicos;
 32. um campo indisponível mantém todos os valores nulos, enquanto um zero disponível continua sendo zero legítimo;
 33. cada relatório contém exatamente quatro métricas com fórmula, unidade, janela, amostras, entradas e origem `computed`;
 34. temperatura, potência e memória total aplicáveis são comparadas com uma consulta independente do `nvidia-smi`;
-35. eventos persistidos v4 contêm entradas brutas, métricas e telemetria Windows aplicável suficientes para reprodução posterior;
+35. eventos persistidos v5 contêm entradas brutas, métricas e telemetria Windows aplicável suficientes para reprodução posterior; eventos v1–v4 continuam legíveis;
 36. o laboratório cria e verifica um pacote de arquivo único sem sobrescrita, traversal, reparse point ou campo JSON extra;
 37. no Windows, o CLI offline aceita apenas arquivos de até 16 MiB e valida ROM, PCIR e BIT sem interpretar payloads de token; em outras plataformas, falha com `unsupported_platform` antes de acessar o path;
 38. o executável offline não depende de `rtxmon_native`, NVML ou NVAPI e usa somente fixtures sintéticas no CI;

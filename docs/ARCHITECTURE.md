@@ -1,6 +1,8 @@
 # Arquitetura de engenharia
 
-## Perfil alvo e aquisição na v0.9
+## Perfil alvo e aquisição na v0.10
+
+O produto 0.10.0, concluído localmente, mantém ABI 7 e os gates consolidados na v0.9. O CI passou 33 CTest no Windows e 29 no Linux, 14 testes de auditoria por plataforma e suítes .NET aplicáveis. O manifesto Linux delimita o snapshot de portabilidade sem GPU; alterações posteriores de texto de ajuda, PowerShell e documentação não integram esse snapshot. A conferência Windows final, três ciclos públicos, pacote e preservação passaram. A pesquisa privada continua interrompida/parcial, conforme o [relatório da v0.10](research/2026-09-05-v010-completion.md).
 
 O único hardware alvo é a Galax RTX 3060 de 12 GB do proprietário. O catálogo compilado fixa a unidade por UUID, PCI/subsystem, VBIOS, driver e módulo; o manifesto em `docs/profiles/` é um registro de auditoria offline, não uma configuração carregada pelo monitor.
 
@@ -81,12 +83,12 @@ Não há deduplicação semântica: duas APIs que reportam o mesmo die continuam
 1. O consumidor solicita `rtxmon_read_public_telemetry` para um índice validado.
 2. A camada C monta um snapshot com timestamp e consulta apenas a allowlist documentada.
 3. Campos 82, 83, 185–190 e 192–196 são enviados a `nvmlDeviceGetFieldValues`; as outras métricas usam funções NVML específicas.
-4. Cada ventoinha recebe um registro próprio quando a função v2 fornece a quantidade e os índices das ventoinhas.
+4. `nvmlDeviceGetNumFans` fornece a quantidade para consultas por índice; percentual e RPM pretendido usam funções públicas distintas e preservam seus próprios estados.
 5. Cada consulta preserva provedor exato, ID/seletor, tipo, unidade, código nativo e estado. Ausência mantém valores nulos.
 6. O motor C++ recebe o snapshot, atualiza uma janela limitada e produz quatro métricas rotuladas como `computed`.
-7. C++ e C# emitem o mesmo catálogo em `--telemetry`; o sampler incorpora os dois relatórios e a telemetria Windows aplicável no evento `sample` v4.
+7. C++ e C# emitem o mesmo catálogo em `--telemetry`; o sampler incorpora os dois relatórios e a telemetria Windows aplicável no evento `sample` v5.
 
-O catálogo tem 34 campos semânticos e capacidade para 48 registros por causa das ventoinhas repetíveis. A especificação completa está em [`PUBLIC_TELEMETRY.md`](PUBLIC_TELEMETRY.md), e a decisão em [ADR 0007](adr/0007-public-telemetry-and-computed-metrics.md).
+O catálogo tem 35 campos semânticos e capacidade para 48 registros por causa das ventoinhas repetíveis. A especificação completa está em [`PUBLIC_TELEMETRY.md`](PUBLIC_TELEMETRY.md), e a decisão em [ADR 0007](adr/0007-public-telemetry-and-computed-metrics.md).
 
 ## Fluxo do monitoramento resiliente
 
@@ -127,7 +129,7 @@ O avaliador não conhece sessão, GPU, thread ou relógio: é uma máquina de es
 6. `(run_id, stream_sequence)` torna a repetição idempotente; conteúdo diferente na mesma sequência é conflito, não atualização.
 7. Encerramento normal, `Ctrl+C` ou erro atualizam o run. A ausência de `completed_at_unix_ms` indica que nenhum encerramento foi confirmado.
 
-O banco mantém o evento original no schema v4 e colunas indexadas para consulta. O schema SQLite permanece 1 porque o JSON já é armazenado integralmente; runs históricos v2 e v3 continuam legíveis. `--history --json` e `--export` acrescentam o contexto do run e do snapshot conforme [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json). Um snapshot associado a uma lacuna é contexto anterior conhecido, não uma afirmação de que a GPU estava acessível naquele instante — ver [ADR 0005](adr/0005-sqlite-evidence-store.md).
+O banco mantém o evento original no schema v5 e colunas indexadas para consulta. O schema SQLite permanece 1 porque o JSON já é armazenado integralmente; runs históricos v1 a v4 continuam legíveis. `--history --json` e `--export` acrescentam o contexto do run e do snapshot conforme [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json). Um snapshot associado a uma lacuna é contexto anterior conhecido, não uma afirmação de que a GPU estava acessível naquele instante — ver [ADR 0005](adr/0005-sqlite-evidence-store.md).
 
 ## Fluxo do serviço local
 
@@ -255,7 +257,7 @@ O comando `--capabilities --json` usa `schema_version: 2` e separa:
 
 O contrato serializado é formalizado em [`docs/schema/capabilities-v2.schema.json`](schema/capabilities-v2.schema.json).
 
-O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v4.schema.json`](schema/telemetry-event-v4.schema.json). Cada envelope contém:
+O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-event-v5.schema.json`](schema/telemetry-event-v5.schema.json). Cada envelope contém:
 
 - `event_type`: `sample`, `gap`, `recovered`, `alert_raised` ou `alert_cleared`;
 - `sequence` global e crescente dentro de um processo, além do horário observado;
@@ -267,9 +269,11 @@ O comando `--watch --events` usa o schema independente [`docs/schema/telemetry-e
 - `public_telemetry`, com cobertura e valores brutos, presente nas amostras quando o provedor suporta o catálogo;
 - `computed_metrics`, com quatro fórmulas rastreáveis, presente junto do relatório público.
 
-Os schemas [`telemetry-event-v1.schema.json`](schema/telemetry-event-v1.schema.json) e [`telemetry-event-v2.schema.json`](schema/telemetry-event-v2.schema.json) permanecem publicados e imutáveis para validar streams históricos.
+Os schemas históricos de eventos v1, v2, v3 e v4 permanecem publicados e imutáveis para validar streams anteriores.
 
-O armazenamento usa schema SQLite 1. A exportação usa [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json) e aceita eventos e runs v2, v3 ou v4 sem renomear campos. O envelope acrescenta `event_id`, horário de armazenamento, run, ambiente e snapshot da placa; essa proveniência não altera o fato observado no evento.
+O armazenamento usa schema SQLite 1. A exportação usa [`evidence-record-v1.schema.json`](schema/evidence-record-v1.schema.json) e aceita eventos e runs v1 a v5 sem renomear campos. O envelope acrescenta `event_id`, horário de armazenamento, run, ambiente e snapshot da placa; essa proveniência não altera o fato observado no evento.
+
+O catálogo público inclui `fan_speed_intended_rpm`, unidade `rpm`, por índice enumerado pela NVML. O loader opcional e a coleta preservam os estados de ausência, erro e valor disponível, inclusive zero válido. O JSON standalone usa [public-telemetry-v3](schema/public-telemetry-v3.schema.json), enquanto o endpoint HTTP de telemetria mantém schema 2 com campos aditivos. Essa extensão não altera os layouts nativos ou a ABI 7 nem decodifica o cooler privado. O contrato e os resultados na unidade alvo estão na [validação de RPM público](research/2026-09-05-public-fan-rpm.md).
 
 O serviço usa API schema 1. Respostas HTTP são documentadas no OpenAPI; `/telemetry` expõe o último relatório confirmado, eventos SSE `telemetry` usam [`live-telemetry-v1.schema.json`](schema/live-telemetry-v1.schema.json), e descartes de entrega para clientes lentos usam [`stream-gap-v1.schema.json`](schema/stream-gap-v1.schema.json). A lista de GPUs expõe somente `last_sample_temperature_c` com o horário da amostra; esse campo não é renomeado para temperatura atual durante uma lacuna.
 
@@ -349,6 +353,8 @@ Device object, códigos e entradas entram somente como **evidência passiva do l
 O perfil de tensão segue duas camadas. O capturador passivo [`capture-gpuz-nvapi-voltage-status-v1.ps1`](../scripts/capture-gpuz-nvapi-voltage-status-v1.ps1) lê somente 19 DWORDs no call site pós-retorno fixo, comprova pelo `ModLoad` qual `nvapi_impl.dll` estava no processo alvo, sela no pacote o prefixo bruto LF-completo de cada referência, exige crescimento antes/meio/depois e confirma o detach `qqd`. O correlator v2 preserva layouts de sessões GPU-Z distintos sem misturá-los e só aceita uma sessão que cubra as três fronteiras temporais. A função direta `rtxmon_read_private_voltage_status` usa a mesma palavra 10/offset `0x28`, mas só depois dos gates exatos descritos no ADR 0010. As saídas opt-in seguem os schemas privados diretos; GPU-Z/HWiNFO não são dependências operacionais.
 
 O perfil cooler `0x35aed5e8` termina a v0.8 como observação passiva bruta: o contrato v2 fixa identidade GPU/PCI/subsystem/VBIOS/driver, artefatos anteriores e a imagem NVAPI comprovadamente carregada por `ModLoad`, além de dois call sites, estrutura v1 de 1.704 bytes e 426 DWORDs. Quatro palavras de cada entrada são copiadas como `raw_field_words`; nenhum código as publica como RPM, PWM, fan index, limite ou comando. O contrato de observação v1 permanece histórico.
+
+Na v0.10, o switch `-ObservationVersion3` acrescenta relógio UTC/uptime por parada pós-retorno e prefixos GPU-Z/HWiNFO selados antes/meio/depois, mantendo os gates e os bytes brutos. O relógio declara precisão de exibição, sem acurácia conhecida. Duas janelas reais de preflight de 10 segundos foram válidas; uma janela posterior de 30 segundos foi recusada por status `0xffffff9b`, cuja causa não foi verificada. A pesquisa privada permanece interrompida/parcial e `raw_unknown`; os ciclos públicos adicionais não substituem as seis janelas privadas previstas nem a repetição após reinício da referência. [Contrato v3](schema/nvapi-cooler-status-v1-observation-v3.schema.json) e [protocolo](EXPERIMENT_LAB.md#captura-cooler-v3-com-relógio-por-retorno-e-referências-seladas).
 
 O módulo C++ puro [`rm_thermal_protocol.hpp`](../cpp/include/rtxmon/lab/rm_thermal_protocol.hpp) representa somente o ABI publicado de `THERMAL_SYSTEM_EXECUTE_V2`: tamanhos, comandos, opcodes, requests em duas fases e validação de respostas. Ele não contém syscall, IOCTL, `D3DKMT_ESCAPE`, handle NVAPI/RM ou acesso ao driver. O transporte permanece uma porta separada; adicionar uma implementação Windows exige fonte primária para a rota WDDM, correspondência de versão e um teste que prove somente leitura antes de habilitá-la.
 

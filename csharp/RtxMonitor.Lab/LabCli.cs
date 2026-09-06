@@ -48,6 +48,7 @@ public static class LabCli
                     RunCorrelateNvapiVoltageStatus(args, standardOutput),
                 "correlate-nvapi-voltage-status-v2" =>
                     RunCorrelateNvapiVoltageStatusV2(args, standardOutput),
+                "analyze-nvapi-cooler-status" => RunAnalyzeNvapiCoolerStatus(args, standardOutput),
                 "finalize-experiment-manifest" =>
                     RunFinalizeExperimentManifest(args, standardOutput),
                 "analyze-experiment-series" =>
@@ -66,6 +67,7 @@ public static class LabCli
                     "correlate-nvapi-therm-channel, correlate-nvapi-therm-channel-v2, " +
                     "correlate-nvapi-voltage-status, " +
                     "correlate-nvapi-voltage-status-v2, " +
+                    "analyze-nvapi-cooler-status, " +
                     "finalize-experiment-manifest, analyze-experiment-series, " +
                     "classify-nvapi-ids, inventory-nvapi-candidates, " +
                     "resolve-windows-handle, or mark."),
@@ -114,6 +116,12 @@ public static class LabCli
             return 1;
         }
         catch (VoltageStatusCorrelationV2Exception error)
+        {
+            standardError.WriteLine(
+                LabJson.SerializeError(operation, "analysis_error", error.Message));
+            return 1;
+        }
+        catch (CoolerStatusAnalysisException error)
         {
             standardError.WriteLine(
                 LabJson.SerializeError(operation, "analysis_error", error.Message));
@@ -180,6 +188,7 @@ public static class LabCli
         "--gpuz-log FILE\n" +
         "  rtxmon-lab correlate-nvapi-voltage-status-v2 --observation REPORT " +
         "--gpuz-log FILE [--hwinfo-log FILE]\n" +
+        "  rtxmon-lab analyze-nvapi-cooler-status --input REPORT [--gpuz-log FILE]\n" +
         "  rtxmon-lab finalize-experiment-manifest --input DRAFT --package-root DIRECTORY\n" +
         "  rtxmon-lab analyze-experiment-series --manifest FILE " +
         "--expected-manifest-sha256 HASH --series-package RELATIVE_PATH " +
@@ -318,6 +327,21 @@ public static class LabCli
             RequireOption(options, "--gpuz-log"),
             OptionalOption(options, "--hwinfo-log"));
         standardOutput.WriteLine(LabJson.SerializeVoltageStatusCorrelationV2(report));
+        return 0;
+    }
+
+    private static int RunAnalyzeNvapiCoolerStatus(
+        IReadOnlyList<string> args,
+        TextWriter standardOutput)
+    {
+        Dictionary<string, string> options = ParseOptions(args, startIndex: 1);
+        RequireOnly(options, "--input", "--gpuz-log");
+        CoolerStatusAnalysisReport report = CoolerStatusAnalysis.AnalyzeFile(RequireOption(options, "--input"));
+        if (OptionalOption(options, "--gpuz-log") is string gpuzPath)
+        {
+            report = report with { GpuzReference = CoolerGpuzReference.AnalyzeFile(gpuzPath, report) };
+        }
+        standardOutput.WriteLine(LabJson.SerializeCoolerStatusAnalysis(report));
         return 0;
     }
 

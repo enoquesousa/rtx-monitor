@@ -241,6 +241,11 @@ rtxmon_nvml_loader_status_t rtxmon_nvml_load(
         "nvmlDeviceGetFanSpeed");
     RTXMON_RESOLVE_OPTIONAL(
         api,
+        device_get_fan_speed_rpm,
+        rtxmon_nvml_device_get_fan_speed_rpm_fn,
+        "nvmlDeviceGetFanSpeedRPM");
+    RTXMON_RESOLVE_OPTIONAL(
+        api,
         device_get_performance_state,
         rtxmon_nvml_device_get_performance_state_fn,
         "nvmlDeviceGetPerformanceState");

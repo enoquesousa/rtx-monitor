@@ -637,7 +637,7 @@ internal static class Program
               --count N       Encerra após N amostras; zero é ilimitado
               --buffer N      Retém de 1 a 65536 eventos recentes (padrão: 256)
               --json          JSON; em watch, mantém o schema de amostra v1
-              --events        Emite o stream completo de eventos (schema v4) como JSON Lines
+              --events        Emite o stream completo de eventos (schema v5) como JSON Lines
               --alert-threshold C   Dispara um alerta durante --watch ao atingir C °C (0-500)
               --alert-hysteresis C  Limpa em limiar-C; com 0, somente abaixo do limiar
               --database PATH Persiste --watch em SQLite ou seleciona o banco de uma consulta
@@ -910,7 +910,7 @@ internal static class Program
             PublicTelemetryCoverage coverage = report.Coverage;
             var payload = new
             {
-                schema_version = 2,
+                schema_version = 3,
                 gpu = new
                 {
                     index = gpu.Index,

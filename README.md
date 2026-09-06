@@ -2,7 +2,9 @@
 
 > Temperatura de GPUs NVIDIA lida diretamente do driver — sem depender de GPU-Z, analisar texto ou inventar valores.
 
-O **RTX Monitor** é um monitor de baixo nível dedicado à **Galax RTX 3060 de 12 GB do proprietário**, com acesso à GPU somente leitura. Ele mostra a temperatura atual do chip gráfico, inventaria os canais publicados pelo driver e calcula tendências que podem ser refeitas a partir do histórico. O laboratório separado e opt-in preserva a origem dos sensores experimentais. A v0.9 fixa a compatibilidade da placa por UUID, PCI/subsystem, VBIOS, driver e módulo, com revogação, limites de aquisição e testes reproduzíveis.
+O **RTX Monitor** é um monitor de baixo nível dedicado à **Galax RTX 3060 de 12 GB do proprietário**, com acesso à GPU somente leitura. Ele mostra a temperatura atual do chip gráfico, inventaria os canais publicados pelo driver e calcula tendências que podem ser refeitas a partir do histórico. O laboratório separado e opt-in preserva a origem dos sensores experimentais. A base da v0.9 fixa a compatibilidade da placa por UUID, PCI/subsystem, VBIOS, driver e módulo, com revogação, limites de aquisição e testes reproduzíveis.
+
+O produto **0.10.0/ABI 7 está concluído localmente**: inclui RPM pretendido pela API pública NVML nos dois índices, com cobertura observada de **32/37 campos disponíveis**. Passaram 33 CTest no Windows, 29 no Linux e 14 testes de auditoria em cada plataforma, além das suítes .NET aplicáveis. O manifesto delimita o snapshot Linux testado. Três ciclos públicos produziram 708 relatórios e 1.416 leituras RPM; pacote, smoke e preservação final passaram. A investigação privada foi interrompida e permanece parcial, com campos `raw_unknown`. [Resultados e limites](docs/research/2026-09-05-v010-completion.md).
 
 Com ele, você pode responder duas perguntas de forma objetiva:
 
@@ -17,6 +19,7 @@ Com ele, você pode responder duas perguntas de forma objetiva:
 | **Memória** | Campo `NVML_FI_DEV_MEMORY_TEMP` | Aparece somente quando o driver oferece suporte |
 | **Canais térmicos adicionais** | Inventário público da NVML e, no Windows, da NVAPI | Mantém o nome e a origem informados pelo driver |
 | **Hotspot** | Aquisição experimental NVAPI opt-in no Windows | Disponível somente no perfil fixo validado; não depende do GPU-Z em runtime |
+| **RPM pretendido** | API pública NVML `nvmlDeviceGetFanSpeedRPM` | Disponível por índice; não comprova tacômetro físico, PWM ou posição da ventoinha |
 | **VRM** | Somente se uma interface validada identificar esse alvo | Nunca é deduzido a partir de outro sensor |
 | **Valores estimados** | Não são usados | O projeto não interpola nem fabrica temperaturas |
 
@@ -136,7 +139,7 @@ Para receber também lacunas e recuperações como eventos JSON Lines:
 | `alert_raised` | A temperatura do die atingiu o limiar configurado |
 | `alert_cleared` | A temperatura do die caiu do limiar menos a histerese configurada |
 
-Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato atual está em [telemetry-event-v4.schema.json](docs/schema/telemetry-event-v4.schema.json); os schemas v1, v2 e v3 permanecem publicados para históricos anteriores.
+Durante uma lacuna, a última temperatura nunca é reapresentada como atual. O contrato atual está em [telemetry-event-v5.schema.json](docs/schema/telemetry-event-v5.schema.json); os schemas v1, v2, v3 e v4 permanecem publicados para históricos anteriores.
 
 ## Alerte quando a temperatura cruzar um limiar
 
@@ -282,7 +285,9 @@ O formato JSON completo está documentado em [capabilities-v2.schema.json](docs/
 
 ## Leia toda a telemetria documentada
 
-`--telemetry` consulta temperatura, potência, energia, clocks, utilização, memória, ventoinhas, P-state, motivos de limitação e uso de encoder/decoder. Cada campo mantém a função NVIDIA, o ID ou seletor nativo, a unidade, o código do driver e um estado explícito:
+`--telemetry` consulta temperatura, potência, energia, clocks, utilização, memória, ventoinhas, P-state, motivos de limitação e uso de encoder/decoder. Cada campo mantém a função NVIDIA, o ID ou seletor nativo, a unidade, o código do driver e um estado explícito.
+
+O campo `fan_speed_intended_rpm` acrescenta a rotação pretendida informada por `nvmlDeviceGetFanSpeedRPM`, em `rpm`, por índice NVML. Na Galax RTX 3060 de 12 GB alvo, os dois índices foram validados e a cobertura pública passou de 30/35 para **32/37**. Ausência ou falha permanece explícita, com valor nulo; zero retornado com sucesso continua válido. A leitura não comprova PWM ou posição física. Veja os [testes e a comparação com GPU-Z/HWiNFO](docs/research/2026-09-05-public-fan-rpm.md).
 
 ```powershell
 .\build\windows-x64\bin\Release\rtxmon.exe --telemetry
@@ -318,7 +323,7 @@ O catálogo completo, os IDs consultados e as fórmulas estão em [PUBLIC_TELEME
 | `--count N` | Encerra o modo contínuo após `N` amostras; zero significa ilimitado |
 | `--buffer N` | Mantém de 1 a 65536 eventos recentes em memória; o padrão é 256 |
 | `--json` | Produz JSON; no modo contínuo, preserva o schema de amostra v1 |
-| `--events` | Produz o stream completo de eventos (schema v4) como JSON Lines |
+| `--events` | Produz o stream completo de eventos (schema v5) como JSON Lines |
 | `--alert-threshold C` | Dispara um alerta durante `--watch` ao atingir `C` °C (0-500) |
 | `--alert-hysteresis C` | Define a margem de encerramento; com zero, o alerta só limpa abaixo do limiar |
 | `--database PATH` | Persiste `--watch` em SQLite ou seleciona o banco de uma consulta |
@@ -656,7 +661,7 @@ A prioridade agora é construir evidência, não uma interface gráfica. Cada et
 | **v0.7.0** | Telemetria pública e métricas rastreáveis concluídas |
 | **v0.8.0** | Concluída: laboratório ancorado, análise de séries, leitura térmica/tensão opt-in em perfil fixo, repetição independente de tensão e observação bruta de cooler |
 | **v0.9.0** | Perfil da Galax RTX 3060 12 GB auditável, revogação, regressão, limites de aquisição e worker supervisionado |
-| **v0.10.0** | Validar candidatos com repetição e referências independentes |
+| **v0.10.0** | Concluída localmente: RPM público, CI, três ciclos públicos, pacote e preservação; pesquisa privada interrompida/parcial e `raw_unknown` |
 | **v0.11.0** | Publicar candidatos validados em um provedor experimental separado |
 | **v1.0.0** | Estabilizar contratos, operação e governança dos perfis |
 
@@ -704,9 +709,12 @@ A v0.9 consolida as duas aquisições diretas no perfil exato da Galax RTX 3060 
 - [ADR 0010 — aquisição NVAPI privada com perfil fixo](docs/adr/0010-fixed-profile-private-nvapi-acquisition.md)
 - [OpenAPI do serviço local — v1](docs/openapi/service-v1.openapi.json)
 - [Schema JSON de capacidades](docs/schema/capabilities-v2.schema.json)
-- [Schema JSON do catálogo público atual — v2](docs/schema/public-telemetry-v2.schema.json)
+- [RPM público — integração, testes e comparação com GPU-Z/HWiNFO](docs/research/2026-09-05-public-fan-rpm.md)
+- [Schema JSON do catálogo público atual — v3](docs/schema/public-telemetry-v3.schema.json)
+- [Schema JSON histórico do catálogo público — v2](docs/schema/public-telemetry-v2.schema.json)
 - [Schema JSON histórico do catálogo público — v1](docs/schema/public-telemetry-v1.schema.json)
-- [Schema JSON de eventos atual — v4](docs/schema/telemetry-event-v4.schema.json)
+- [Schema JSON de eventos atual — v5](docs/schema/telemetry-event-v5.schema.json)
+- [Schema JSON histórico de eventos — v4](docs/schema/telemetry-event-v4.schema.json)
 - [Schema JSON histórico de eventos — v3](docs/schema/telemetry-event-v3.schema.json)
 - [Schema JSON histórico de eventos — v2](docs/schema/telemetry-event-v2.schema.json)
 - [Schema JSON histórico de eventos — v1](docs/schema/telemetry-event-v1.schema.json)
@@ -741,6 +749,8 @@ A v0.9 consolida as duas aquisições diretas no perfil exato da Galax RTX 3060 
 - [Schema endurecido da correlação de tensão NVAPI — v2](docs/schema/nvapi-voltage-status-correlation-v2.schema.json)
 - [Schema histórico da observação de cooler NVAPI — v1](docs/schema/nvapi-cooler-status-v1-observation-v1.schema.json)
 - [Schema endurecido da observação de cooler NVAPI — v2](docs/schema/nvapi-cooler-status-v1-observation-v2.schema.json)
+- [Análise offline do cooler e limites da evidência](docs/research/2026-09-05-v010-cooler-offline-analysis.md)
+- [Schema da análise offline do cooler — v1](docs/schema/nvapi-cooler-status-analysis-v1.schema.json)
 - [Schema de observação de IOCTLs do GPU-Z — v1](docs/schema/gpuz-device-io-control-observation-v1.schema.json)
 - [Schema de entradas limitadas de IOCTLs do GPU-Z — v1](docs/schema/gpuz-device-io-control-input-v1.schema.json)
 - [Schema de identidade de handle Windows — v1](docs/schema/windows-handle-identity-v1.schema.json)

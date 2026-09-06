@@ -14,6 +14,9 @@ internal static class Program
 
     private static int Main()
     {
+        CoolerStatusAnalysisTests.RunAll(Run);
+        CoolerGpuzReferenceTests.RunAll(Run);
+
         if (!OperatingSystem.IsWindows())
         {
             Run("unsupported Unix platform fails before file access", TestUnsupportedPlatform);

@@ -190,6 +190,48 @@ O analisador v2 verifica nome/tamanho/hash e localização do prefixo selado, ig
 
 O estado `matched_external_reference` vale para o perfil binário exato. Ele não declara uma ABI pública da NVIDIA, não identifica a construção física do sensor e não habilita esse valor no monitor estável.
 
+### Análise offline do cooler
+
+O primeiro incremento da v0.10 adiciona um analisador da observação cooler v2 já produzida pelo laboratório:
+
+```powershell
+dotnet run --project .\csharp\RtxMonitor.Lab -- analyze-nvapi-cooler-status `
+  --input C:\evidence-local\nvapi-cooler-status-v1-observation-v2.json `
+  --gpuz-log "C:\evidence-local\GPU-Z Sensor Log.txt"
+```
+
+`--gpuz-log` é opcional. O comando trabalha somente com arquivos e não exige GPU nem Administrador. Valida perfil, módulo, layout, sequência, contagens e redundância dos buffers antes de calcular mínimo, máximo, valores distintos e transições por call site/posição/campo. A posição de entrada e seu identificador bruto não recebem significado de fan index.
+
+A saída segue [nvapi-cooler-status-analysis-v1](schema/nvapi-cooler-status-analysis-v1.schema.json) e mantém `raw_unknown`. O contrato de captura legado tem apenas sequência e marcos globais, portanto `temporal_alignment=unavailable_sequence_only`. Com GPU-Z, lê somente o prefixo de tamanho registrado, exige três marcos em uma única sessão e preserva faixas de RPM/percentual da janela. O hash desse prefixo é calculado agora e aparece como `unsealed_historical_reference`; não é um selo histórico nem prova de correspondência entre cada retorno e cada linha. Sessões antigas com outro layout ficam separadas; timestamps inválidos dentro da janela são recusados. Valores ausentes continuam ausentes.
+
+Limites: observação até 16 MiB/1.024 retornos; prefixo GPU-Z até 16 MiB, completo e terminado em LF. O arquivo GPU-Z pode ter crescido além disso, desde que o prefixo registrado esteja dentro do limite. Um prefixo registrado maior é recusado. O contrato v3 abaixo acrescenta timestamps individuais e selagem durante novas capturas; não altera retroativamente a evidência v2 nem os limites deste analisador. [Resultados e reprodução](research/2026-09-05-v010-cooler-offline-analysis.md).
+
+### Captura cooler v3 com relógio por retorno e referências seladas
+
+O switch `-ObservationVersion3` de [`capture-gpuz-nvapi-cooler-status-v1.ps1`](../scripts/capture-gpuz-nvapi-cooler-status-v1.ps1) seleciona [`nvapi-cooler-status-v1-observation-v3.schema.json`](schema/nvapi-cooler-status-v1-observation-v3.schema.json). Sem o switch, o produtor continua emitindo v2. A v3 exige `-HwinfoLogPath`, além de GPU-Z, inventário e observação anterior ancorados. Os arquivos e o PID nas variáveis abaixo devem corresponder à sessão verificada; `$newCaptureDirectory` deve ser um diretório ainda inexistente, filho de `evidence` neste checkout:
+
+```powershell
+.\scripts\capture-gpuz-nvapi-cooler-status-v1.ps1 `
+  -ObservationVersion3 `
+  -GpuzProcessId $gpuzProcessId `
+  -CandidateInventoryPath $candidateInventoryPath `
+  -PriorObservationPath $priorObservationPath `
+  -GpuzLogPath $gpuzLogPath `
+  -HwinfoLogPath $hwinfoLogPath `
+  -DurationSeconds 10 `
+  -OutputDirectory $newCaptureDirectory
+```
+
+A captura conserva a exigência original de PowerShell como Administrador e todos os gates do perfil fixo: identidade da GPU/PCI/subsystem/VBIOS/driver, hashes de GPU-Z/inventário/observação anterior, debugger assinado e prova do módulo NVAPI carregado. A v3 não fornece outra rota de elevação. O anexo observa os mesmos dois retornos de chamadas do GPU-Z; não acrescenta consulta privada direta nem altera controles da placa. Cada execução dura de 10 a 60 segundos, admite no máximo 1.024 retornos e recusa reaproveitar o diretório de saída.
+
+Em cada parada, `.time -h 0` registra UTC e uptime do sistema. `captured_at_utc` identifica o momento em que o debugger está parado após a chamada; não é timestamp físico da aquisição do sensor. As precisões declaradas descrevem os dígitos exibidos pelo CDB, **sem limite conhecido de acurácia**. O contrato declara `timestamp_interpolation=false`, guarda o offset UTC local e a janela de supervisão, recusa relógios regressivos e não interpola nem corrige horários. Timestamps iguais podem ocorrer pela precisão de exibição.
+
+GPU-Z e HWiNFO recebem checkpoints `before`, `midpoint` e `after`, com tamanho, SHA-256, horário, última amostra, índice da sessão e header exato. Os logs precisam avançar com amostras completas na mesma sessão, header e encoding; cada prefixo anterior deve permanecer idêntico dentro do seguinte. A captura copia os prefixos finais completos, terminados em LF, para `sealed-gpuz-cooler-reference.csv` e `sealed-hwinfo-cooler-reference.csv`, junto de `nvapi-cooler-status-v1-observation-v3.json`. UTF-8 e o fallback Windows-1252 observado são explicitamente registrados. Um selo comprova a integridade dos bytes preservados, sem atribuir identidade física ao canal.
+
+Os limites da v3 são independentes: **64 MiB por referência**, **16 MiB para o JSON** e **16 MiB para o transcript do debugger**. Headers/sessões, contagens, layout e redundância entre os 426 DWORDs e `raw_entries` continuam sujeitos à validação. Uma nova `capture_session_id` identifica a captura; não comprova reinício do GPU-Z ou HWiNFO.
+
+A v3 permite investigar alinhamento por retorno. Sua simples emissão não promove campos privados, PWM ou posição física de fans. A avaliação dos dois ciclos e o estado de validação estão no [relatório da v0.10](research/2026-09-05-v010-completion.md).
+
 ### Tensão v1 e cooler bruto
 
 [`capture-gpuz-nvapi-voltage-status-v1.ps1`](../scripts/capture-gpuz-nvapi-voltage-status-v1.ps1) fixa `0x465f9bcf`, RVA x86 `0x00198010`, call site GPU-Z `0x0021cee7`, estrutura `0x0001004c` de 76 bytes e exatamente 19 DWORDs. Identidade completa da GPU, VBIOS, driver, binários e evidências anteriores são comparados antes do anexo. GPU-Z é obrigatório; HWiNFO só é incluído quando um CSV corrente cresce antes, no meio e depois da janela. O correlator `correlate-nvapi-voltage-status-v2` preserva o hash do prefixo inteiro e separa sessões GPU-Z com headers diferentes.

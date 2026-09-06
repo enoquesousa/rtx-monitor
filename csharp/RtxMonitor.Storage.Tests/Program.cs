@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using RtxMonitor.Managed;
 
@@ -11,6 +12,7 @@ internal static class Program
     private static async Task<int> Main()
     {
         Run("migration, restart, and evidence export", TestMigrationRestartAndEvidence);
+        Run("legacy event versions remain unchanged after reopening", TestLegacyEventVersions);
         Run("sequence conflict", TestSequenceConflict);
         Run("query filters and retention", TestQueryFiltersAndRetention);
         await RunAsync("concurrent writers", TestConcurrentWritersAsync).ConfigureAwait(false);
@@ -39,6 +41,12 @@ internal static class Program
         string runId = first.StartRun(RunOptions(gpu.Uuid, observedAt));
         long snapshotId = first.RegisterGpuSnapshot(runId, snapshot);
         TelemetryEvent sample = SampleEvent(1, gpu, 47, observedAt);
+        sample = sample with
+        {
+            PublicTelemetry = new PublicTelemetryReport(gpu.Index, observedAt,
+            sample.ObservedAtUnixMilliseconds,
+            [FanRpmValue(0, 0, sample.ObservedAtUnixMilliseconds), FanRpmValue(1, null, sample.ObservedAtUnixMilliseconds)])
+        };
         long firstEventId = first.AppendEvent(runId, sample, snapshotId);
         long retriedEventId = first.AppendEvent(runId, sample, snapshotId);
         Check(firstEventId == retriedEventId, "retry idempotente deve retornar o mesmo event_id");
@@ -69,11 +77,19 @@ internal static class Program
             root.GetProperty("evidence_schema_version").GetInt32() == 1,
             "exportação deve declarar evidence schema 1");
         Check(
-            root.GetProperty("event").GetProperty("schema_version").GetInt32() == 4,
-            "exportação deve incorporar o evento v4 sem alterar seu contrato");
+            root.GetProperty("event").GetProperty("schema_version").GetInt32() == 5,
+            "exportação deve incorporar o evento v5 sem alterar seu contrato");
         Check(
-            root.GetProperty("run").GetProperty("event_schema_version").GetInt32() == 4,
-            "exportação deve declarar o schema v4 também na proveniência do run");
+            root.GetProperty("run").GetProperty("event_schema_version").GetInt32() == 5,
+            "exportação deve declarar o schema v5 também na proveniência do run");
+        JsonElement fans = root.GetProperty("event").GetProperty("public_telemetry").GetProperty("fields");
+        Check(fans[0].GetProperty("value_u64").GetUInt64() == 0 &&
+            fans[0].GetProperty("provider_native_id").GetUInt32() == 0,
+            "zero RPM disponível deve sobreviver ao SQLite sem virar ausência");
+        Check(fans[1].GetProperty("value_u64").ValueKind == JsonValueKind.Null &&
+            fans[1].GetProperty("state").GetString() == "not_supported" &&
+            fans[1].GetProperty("provider_native_id").GetUInt32() == 1,
+            "RPM ausente e índice do segundo fan devem sobreviver ao SQLite");
         Check(
             root.GetProperty("device_snapshot")
                 .GetProperty("board")
@@ -81,6 +97,60 @@ internal static class Program
                 .GetString() == "10de:2504/1b4c:1530@94.06.14.40.72",
             "exportação deve incluir proveniência da placa");
     }
+
+    private static void TestLegacyEventVersions()
+    {
+        using var temporary = new TemporaryDatabase();
+        SqliteTelemetryStore store = CreateStore(temporary.DatabasePath);
+        var expected = new Dictionary<string, (int Version, string Json)>();
+        GpuInfo gpu = FakeGpu();
+        for (int version = 1; version <= 4; version++)
+        {
+            DateTimeOffset observedAt = DateTimeOffset.FromUnixTimeMilliseconds(1_700_000_000_000 + version);
+            string runId = store.StartRun(RunOptions(gpu.Uuid, observedAt));
+            TelemetryEvent sample = SampleEvent(1, gpu, 40 + version, observedAt);
+            long eventId = store.AppendEvent(runId, sample);
+            JsonObject legacy = JsonNode.Parse(TelemetryJson.Serialize(sample))!.AsObject();
+            legacy["schema_version"] = version;
+            if (version < 4) { legacy.Remove("windows_telemetry"); }
+            if (version < 3) { legacy.Remove("public_telemetry"); legacy.Remove("computed_metrics"); }
+            if (version < 2) { legacy.Remove("alert_threshold_c"); legacy.Remove("alert_hysteresis_c"); }
+            string legacyJson = legacy.ToJsonString();
+            using var connection = new SqliteConnection($"Data Source={temporary.DatabasePath}");
+            connection.Open();
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = "UPDATE telemetry_events SET event_schema_version=$version,event_json=$json WHERE event_id=$id; UPDATE monitor_runs SET event_schema_version=$version WHERE run_id=$run;";
+            command.Parameters.AddWithValue("$version", version);
+            command.Parameters.AddWithValue("$json", legacyJson);
+            command.Parameters.AddWithValue("$id", eventId);
+            command.Parameters.AddWithValue("$run", runId);
+            command.ExecuteNonQuery();
+            expected.Add(runId, (version, legacyJson));
+        }
+        SqliteConnection.ClearAllPools();
+        SqliteTelemetryStore reopened = SqliteTelemetryStore.Open(new TelemetryStoreOptions(
+            temporary.DatabasePath, openMode: TelemetryStoreOpenMode.OpenExisting));
+        foreach (StoredTelemetryEvidence evidence in reopened.QueryEvents(new TelemetryEventQuery(Limit: 10)))
+        {
+            (int version, string json) = expected[evidence.Run.RunId];
+            Check(evidence.EventSchemaVersion == version && evidence.Run.EventSchemaVersion == version &&
+                evidence.EventJson == json, "reabertura não pode migrar ou reserializar eventos históricos");
+            using JsonDocument exported = JsonDocument.Parse(EvidenceJson.Serialize(evidence));
+            Check(exported.RootElement.GetProperty("event").GetRawText() == json,
+                "exportação deve preservar integralmente cada contrato histórico");
+        }
+        Check(reopened.QueryEvents(new TelemetryEventQuery(Limit: 10)).Count == 4,
+            "as quatro versões históricas devem continuar consultáveis");
+    }
+
+    private static PublicTelemetryValue FanRpmValue(uint fanIndex, ulong? rpm, ulong timestamp) => new(
+        PublicTelemetryField.FanSpeedIntendedRpm, "fan_speed_intended_rpm",
+        PublicTelemetryProvider.NvmlFanSpeedRpm, "NVML nvmlDeviceGetFanSpeedRPM",
+        rpm.HasValue ? CapabilityState.Available : CapabilityState.NotSupported,
+        rpm.HasValue ? "available" : "not_supported", DataOrigin.DriverReported, "driver_reported",
+        rpm.HasValue ? TelemetryValueType.UnsignedInteger : TelemetryValueType.Unknown,
+        rpm.HasValue ? "unsigned_integer" : "unknown", TelemetryUnit.Rpm, "rpm",
+        rpm.HasValue ? 0 : 3, fanIndex, rpm, null, null, timestamp);
 
     private static void TestSequenceConflict()
     {

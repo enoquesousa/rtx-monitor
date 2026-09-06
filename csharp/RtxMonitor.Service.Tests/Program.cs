@@ -333,10 +333,23 @@ internal static class Program
             using JsonDocument telemetry = JsonDocument.Parse(
                 await telemetryResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
             JsonElement root = telemetry.RootElement;
-            Check(root.GetProperty("coverage").GetProperty("available").GetInt32() == 1,
+            Check(root.GetProperty("schema_version").GetInt32() == 2,
+                "campo RPM aditivo deve preservar o envelope HTTP schema 2");
+            Check(root.GetProperty("coverage").GetProperty("available").GetInt32() == 2,
                 "cobertura deve preservar campos disponíveis");
             Check(root.GetProperty("fields")[0].GetProperty("provider").GetString() == "NVML fake",
                 "endpoint deve preservar a proveniência do campo");
+            JsonElement fans = root.GetProperty("fields");
+            Check(fans[1].GetProperty("field").GetString() == "fan_speed_intended_rpm" &&
+                fans[1].GetProperty("provider").GetString() == "NVML nvmlDeviceGetFanSpeedRPM" &&
+                fans[1].GetProperty("provider_native_id").GetUInt32() == 0 &&
+                fans[1].GetProperty("unit").GetString() == "rpm" &&
+                fans[1].GetProperty("value_u64").GetUInt64() == 1100,
+                "HTTP deve transmitir intended RPM e índice NVML sem confundir com PWM");
+            Check(fans[2].GetProperty("provider_native_id").GetUInt32() == 1 &&
+                fans[2].GetProperty("state").GetString() == "not_supported" &&
+                fans[2].GetProperty("value_u64").ValueKind == JsonValueKind.Null,
+                "HTTP deve preservar RPM ausente do segundo fan como null");
             Check(root.GetProperty("computed_metrics").GetProperty("metrics")[0]
                     .GetProperty("formula").GetString() == "mean(gpu_die_temperature_c within window)",
                 "endpoint deve expor fórmula reproduzível");
@@ -440,6 +453,11 @@ internal static class Program
         Check(dataLine?.StartsWith("data: {", StringComparison.Ordinal) == true, "SSE deve emitir JSON");
         using (JsonDocument liveJson = JsonDocument.Parse(dataLine!["data: ".Length..]))
         {
+            JsonElement livePayload = liveJson.RootElement.GetProperty("event");
+            Check(livePayload.GetProperty("schema_version").GetInt32() == 5 &&
+                livePayload.GetProperty("public_telemetry").GetProperty("fields")[1]
+                    .GetProperty("unit").GetString() == "rpm",
+                "SSE deve emitir evento v5 com a unidade RPM do provedor documentado");
             Check(liveJson.RootElement.GetProperty("event").GetProperty("windows_telemetry")
                     .GetProperty("adapter").GetProperty("luid").GetString() ==
                 "0x000000000001669b",
@@ -653,7 +671,8 @@ internal static class Program
             47,
             null,
             timestamp);
-        var publicTelemetry = new PublicTelemetryReport(gpu.Index, now, timestamp, [field]);
+        var publicTelemetry = new PublicTelemetryReport(gpu.Index, now, timestamp,
+            [field, FanRpmValue(0, 1100, timestamp), FanRpmValue(1, null, timestamp)]);
         var metric = new ComputedMetric(
             ComputedMetricKind.GpuTemperatureWindowAverage,
             "gpu_temperature_window_average",
@@ -688,6 +707,15 @@ internal static class Program
             PublicTelemetry: publicTelemetry,
             ComputedMetrics: computed);
     }
+
+    private static PublicTelemetryValue FanRpmValue(uint fanIndex, ulong? rpm, ulong timestamp) => new(
+        PublicTelemetryField.FanSpeedIntendedRpm, "fan_speed_intended_rpm",
+        PublicTelemetryProvider.NvmlFanSpeedRpm, "NVML nvmlDeviceGetFanSpeedRPM",
+        rpm.HasValue ? CapabilityState.Available : CapabilityState.NotSupported,
+        rpm.HasValue ? "available" : "not_supported", DataOrigin.DriverReported, "driver_reported",
+        rpm.HasValue ? TelemetryValueType.UnsignedInteger : TelemetryValueType.Unknown,
+        rpm.HasValue ? "unsigned_integer" : "unknown", TelemetryUnit.Rpm, "rpm",
+        rpm.HasValue ? 0 : 3, fanIndex, rpm, null, null, timestamp);
 
     private static TelemetryEvent FakeGapEvent(ulong sequence)
     {

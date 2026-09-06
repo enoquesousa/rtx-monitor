@@ -66,4 +66,4 @@ timeout --kill-after=5s 30s dotnet \
     "$project_root/csharp/RtxMonitor.Lab/bin/$configuration/net8.0/rtxmon-lab.dll" \
     --help >/dev/null
 
-printf 'Linux portability CI passed: native no-GPU tests, Managed, Storage, Console fake workers, and Lab unsupported-platform guard.\n'
+printf 'Linux portability CI passed: native no-GPU tests, Managed, Storage, Console fake workers, Lab cooler offline analysis and unsupported-platform guard.\n'

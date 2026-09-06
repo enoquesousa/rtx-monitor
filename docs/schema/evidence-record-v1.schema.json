@@ -44,9 +44,11 @@
     },
     "event": {
       "oneOf": [
+        { "$ref": "telemetry-event-v1.schema.json" },
         { "$ref": "telemetry-event-v2.schema.json" },
         { "$ref": "telemetry-event-v3.schema.json" },
-        { "$ref": "telemetry-event-v4.schema.json" }
+        { "$ref": "telemetry-event-v4.schema.json" },
+        { "$ref": "telemetry-event-v5.schema.json" }
       ]
     }
   },
@@ -89,7 +91,7 @@
           "format": "uuid"
         },
         "event_schema_version": {
-          "enum": [2, 3, 4]
+          "enum": [1, 2, 3, 4, 5]
         },
         "started_at_unix_ms": {
           "type": "integer",

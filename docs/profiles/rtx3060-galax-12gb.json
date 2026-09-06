@@ -87,7 +87,7 @@
   "policy_source_files": [
     {
       "path": "native/include/rtxmon/rtxmon.h",
-      "sha256_lf": "8645f3763b6a4d3a95ee3a22c2a11f20b70688ebd3f19d53feba4c00a64c034b",
+      "sha256_lf": "657da1a5f5f777fe309e89911439557f9c139bd39dbc9d08e9bc0c7b63e3a92c",
       "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
     },
     {
@@ -157,7 +157,7 @@
     },
     {
       "path": "native/src/rtxmon.c",
-      "sha256_lf": "ef3af84c5aba18767b2a805bb017cb228a9c992b288cf0571587fe2cae8a5124",
+      "sha256_lf": "6d63bb1f8d59efdabedff37a3b653a2ae2f307d29a6adeaa32db7bd6efa0fea3",
       "provenance": "Reviewed compiled policy, ABI, loader gate, acquisition or offline snapshot source."
     },
     {
@@ -224,9 +224,9 @@
     {
       "revision": 2,
       "recorded_on": "2026-09-05",
-      "change_summary": "First offline audit record for existing catalog revision 2: one user-identified GALAX RTX 3060 12 GB, exact current profile, fixed operations, 100 ms interval and 2000 ms acquisition budget. Final revocation hardening rejects the revoked operation before lock or backend access. Recorded x86 decoder vectors and real decoded x64 JSON samples retain separate provenance. No new hardware or GSP version validated.",
+      "change_summary": "First offline audit record for existing catalog revision 2: one user-identified GALAX RTX 3060 12 GB, exact current profile, fixed operations, 100 ms interval and 2000 ms acquisition budget. Final revocation hardening rejects the revoked operation before lock or backend access. Recorded x86 decoder vectors and real decoded x64 JSON samples retain separate provenance. No new hardware or GSP version validated. Source audit refreshed on 2026-09-05 for additive public fan intended-RPM enum/string/ABI-layout assertions in rtxmon.h and rtxmon.c. The compiled private profile revision, snapshot, operations, pins and acquisition limits are unchanged.",
       "snapshot_sha256": "5a7e71afe5143665da456ff7d0850ed8f4043123517ea2d4c5c3e0fb9a153e45",
-      "policy_sources_sha256": "dc14ae505caf37dc02722dad4f29f46b0234d397f70c6e822aace18e44084ca9",
+      "policy_sources_sha256": "92ab4fbfce9de4c9e27161a4bd097dff34c46fffcad06829734312d23e785d5a",
       "evidence_sources_sha256": "fc4a7bc72b37fc1a3ec6394f2fd138b8aa901e5e30b547eb45305753dfaa875f",
       "fixture_sources_sha256": "a70a03acd515d115d49c270aa02ca1c1c69c13a3bd470eecf983c7e363ae54d1"
     }

@@ -152,6 +152,13 @@ typedef struct rtxmon_nvml_memory {
     uint64_t used;
 } rtxmon_nvml_memory_t;
 
+/* Documented NVML v1 structure. The speed is intended operating RPM. */
+typedef struct rtxmon_nvml_fan_speed_info_v1 {
+    uint32_t version;
+    uint32_t fan;
+    uint32_t speed;
+} rtxmon_nvml_fan_speed_info_v1_t;
+
 typedef union rtxmon_nvml_value {
     double double_value;
     int32_t signed_int_value;
@@ -174,6 +181,8 @@ typedef struct rtxmon_nvml_field_value {
 
 #define RTXMON_NVML_TEMPERATURE_V1_VERSION \
     ((uint32_t)(sizeof(rtxmon_nvml_temperature_v1_t) | (1U << 24U)))
+#define RTXMON_NVML_FAN_SPEED_INFO_V1_VERSION \
+    ((uint32_t)(sizeof(rtxmon_nvml_fan_speed_info_v1_t) | (1U << 24U)))
 
 typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_init_v2_fn)(void);
 typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_shutdown_fn)(void);
@@ -241,6 +250,9 @@ typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_fan_speed_v2_fn)(
 typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_fan_speed_fn)(
     nvmlDevice_t device,
     uint32_t *speed_percent);
+typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_fan_speed_rpm_fn)(
+    nvmlDevice_t device,
+    rtxmon_nvml_fan_speed_info_v1_t *fan_speed);
 typedef nvmlReturn_t(RTXMON_NVML_CALL *rtxmon_nvml_device_get_performance_state_fn)(
     nvmlDevice_t device,
     int *performance_state);
