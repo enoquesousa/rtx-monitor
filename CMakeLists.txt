@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(
     rtx-monitor
-    VERSION 0.9.0
+    VERSION 0.10.0
     DESCRIPTION "Read-only NVIDIA RTX thermal monitor and capability inventory"
     LANGUAGES C CXX
 )
@@ -132,6 +132,17 @@ if(RTXMON_BUILD_TESTS)
 
     add_test(NAME rtxmon_abi COMMAND rtxmon_abi_tests)
     set_tests_properties(rtxmon_abi PROPERTIES LABELS "unit;abi;no-gpu")
+
+    add_executable(rtxmon_public_fan_tests native/tests/public_fan_tests.c)
+    target_include_directories(rtxmon_public_fan_tests PRIVATE native/src)
+    target_link_libraries(rtxmon_public_fan_tests PRIVATE rtxmon_native)
+    if(MSVC)
+        target_compile_options(rtxmon_public_fan_tests PRIVATE /W4 /WX /utf-8)
+    else()
+        target_compile_options(rtxmon_public_fan_tests PRIVATE -Wall -Wextra -Werror)
+    endif()
+    add_test(NAME rtxmon_public_fans COMMAND rtxmon_public_fan_tests)
+    set_tests_properties(rtxmon_public_fans PROPERTIES LABELS "unit;public;fans;no-gpu")
 
     add_executable(rtxmon_private_profile_tests
         native/src/private_profile_catalog.c

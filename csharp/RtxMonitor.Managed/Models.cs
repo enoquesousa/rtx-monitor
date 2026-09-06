@@ -220,6 +220,7 @@ public enum PublicTelemetryField : uint
     PowerConsumptionDefaultLimitPercent = 32,
     PowerConsumptionCurrentLimitPercent = 33,
     TemperatureGpuLimitC = 34,
+    FanSpeedIntendedRpm = 35,
 }
 
 public enum PublicTelemetryProvider : uint
@@ -241,6 +242,7 @@ public enum PublicTelemetryProvider : uint
     NvmlSupportedClockThrottleReasonsLegacy = 15,
     ComputedPowerRatio = 16,
     NvmlTemperatureThreshold = 17,
+    NvmlFanSpeedRpm = 18,
 }
 
 public enum TelemetryValueType : uint
@@ -266,6 +268,7 @@ public enum TelemetryUnit : uint
     Microseconds = 9,
     CelsiusPerSecond = 10,
     Seconds = 11,
+    Rpm = 12,
 }
 
 public sealed record PublicTelemetryValue(

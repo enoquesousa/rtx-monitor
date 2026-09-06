@@ -68,7 +68,7 @@ internal static class Program
         TestAlertInvalidOptionsAreRejected();
         TestComputedMetricsAreReproducible();
         TestPerformanceLimitReasonsAreTranslated();
-        TestTelemetryJsonV3PreservesProvenance();
+        TestTelemetryJsonV5PreservesProvenance();
         TestOptionalNativeExportProbeFailsClosed();
         failures += PrivateProfileStatusTests.Run();
 
@@ -349,11 +349,16 @@ internal static class Program
             "valores derivados privados são calculados pela record e não aceitam contradição do chamador");
     }
 
-    private static void TestTelemetryJsonV3PreservesProvenance()
+    private static void TestTelemetryJsonV5PreservesProvenance()
     {
         const ulong timestamp = 1_700_000_000_000;
         GpuInfo gpu = Gpu(2, "GPU-JSON");
         PublicTelemetryReport telemetry = Telemetry(timestamp, 40, null);
+        telemetry = telemetry with
+        {
+            Fields = [.. telemetry.Fields,
+            FanRpmValue(0, 1100, timestamp), FanRpmValue(1, null, timestamp)]
+        };
         using var engine = new ComputedMetricsEngine(new ComputedMetricOptions(5000, 80, 16));
         ComputedMetricsReport computed = engine.Observe(telemetry);
         var sample = new TemperatureSample(
@@ -381,15 +386,41 @@ internal static class Program
 
         using JsonDocument document = JsonDocument.Parse(TelemetryJson.Serialize(telemetryEvent));
         JsonElement root = document.RootElement;
-        Check(root.GetProperty("schema_version").GetInt32() == 4, "evento enriquecido usa schema 4");
+        Check(root.GetProperty("schema_version").GetInt32() == 5, "evento com RPM usa schema 5");
         JsonElement field = root.GetProperty("public_telemetry").GetProperty("fields")[0];
         Check(field.GetProperty("provider").GetString() == "NVML fake", "provedor é persistido");
         Check(field.GetProperty("origin").GetString() == "driver_reported", "origem é persistida");
         Check(field.GetProperty("value_i64").GetInt64() == 40, "valor bruto é persistido");
+        JsonElement rpm = root.GetProperty("public_telemetry").GetProperty("fields")[1];
+        Check(rpm.GetProperty("field").GetString() == "fan_speed_intended_rpm" &&
+            rpm.GetProperty("provider").GetString() == "NVML nvmlDeviceGetFanSpeedRPM" &&
+            rpm.GetProperty("provider_native_id").GetUInt32() == 0 &&
+            rpm.GetProperty("unit").GetString() == "rpm" && rpm.GetProperty("value_u64").GetUInt64() == 1100,
+            "RPM deve preservar a semântica intended, provedor e índice NVML");
+        JsonElement absent = root.GetProperty("public_telemetry").GetProperty("fields")[2];
+        Check(absent.GetProperty("provider_native_id").GetUInt32() == 1 &&
+            absent.GetProperty("state").GetString() == "not_supported" &&
+            absent.GetProperty("value_type").GetString() == "unknown" &&
+            absent.GetProperty("value_u64").ValueKind == JsonValueKind.Null &&
+            absent.GetProperty("value_i64").ValueKind == JsonValueKind.Null &&
+            absent.GetProperty("value_f64").ValueKind == JsonValueKind.Null,
+            "RPM indisponível permanece null, sem virar zero nem outro fan");
+        Check((uint)PublicTelemetryField.FanSpeedIntendedRpm == 35 &&
+            (uint)PublicTelemetryProvider.NvmlFanSpeedRpm == 18 && (uint)TelemetryUnit.Rpm == 12,
+            "enums C# devem preservar os identificadores anexados à ABI 7");
         JsonElement metric = root.GetProperty("computed_metrics").GetProperty("metrics")[0];
         Check(metric.GetProperty("formula").GetString()!.Length > 0, "fórmula é persistida");
         Check(metric.GetProperty("inputs").GetArrayLength() == 1, "entradas são persistidas");
     }
+
+    private static PublicTelemetryValue FanRpmValue(uint fanIndex, ulong? rpm, ulong timestamp) => new(
+        PublicTelemetryField.FanSpeedIntendedRpm, "fan_speed_intended_rpm",
+        PublicTelemetryProvider.NvmlFanSpeedRpm, "NVML nvmlDeviceGetFanSpeedRPM",
+        rpm.HasValue ? CapabilityState.Available : CapabilityState.NotSupported,
+        rpm.HasValue ? "available" : "not_supported", DataOrigin.DriverReported, "driver_reported",
+        rpm.HasValue ? TelemetryValueType.UnsignedInteger : TelemetryValueType.Unknown,
+        rpm.HasValue ? "unsigned_integer" : "unknown", TelemetryUnit.Rpm, "rpm",
+        rpm.HasValue ? 0 : 3, fanIndex, rpm, null, null, timestamp);
 
     private static void TestPerformanceLimitReasonsAreTranslated()
     {

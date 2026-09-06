@@ -263,7 +263,13 @@ Fechamento: catálogo auditado em Windows/Linux com snapshot idêntico; 32 CTest
 
 ### v0.10.0 — correlação e validação de candidatos
 
-Objetivo: transformar observações brutas em hipóteses testáveis.
+Estado: **concluída localmente em 2026-09-05, produto 0.10.0/ABI 7; investigação privada parcial**. O primeiro incremento, de 2026-09-05, adiciona `analyze-nvapi-cooler-status`: validação offline da observação v2 e estatísticas separadas por call site, posição de entrada e campo bruto. A referência GPU-Z opcional isola a janela entre os marcos registrados, com hash calculado no momento da análise e sem pareamento individual. A reaplicação às 36 amostras históricas mantém `raw_unknown`: essa observação v2 não possui timestamps individuais, selagem original da referência ou variação que diferencie as hipóteses. Ver [implementação histórica](research/2026-09-05-v010-cooler-offline-analysis.md) e [estado atual da validação](research/2026-09-05-v010-completion.md).
+
+O segundo incremento integra a fonte pública documentada `nvmlDeviceGetFanSpeedRPM`: dois índices disponíveis e **32/37 campos públicos** observados. A integração inicial produziu 24 leituras válidas em duas sessões e passou no serviço temporário. O candidato 0.10.0 passou nas rodadas confirmadas de 33 CTest Windows, 29 CTest Linux, 14 testes de auditoria por plataforma e suítes .NET aplicáveis. O manifesto delimita o snapshot Linux testado; não se afirma identidade com os textos de ajuda, scripts e documentos alterados depois. JSON standalone v3, eventos v5 e HTTP de telemetria v2 preservam os contratos históricos. Três ciclos públicos passaram, com 708 relatórios e 1.416 leituras RPM, de 36 a 56 °C. CI Windows final, pacote, execução dos binários empacotados e preservação passaram; o serviço instalado 0.6.0 permanece separado. Ver [evidência de RPM público](research/2026-09-05-public-fan-rpm.md).
+
+A captura privada opt-in v3 acrescentou relógio por retorno e referências seladas. Dois preflights reais de 10 segundos foram válidos; uma janela de 30 segundos foi recusada por status `0xffffff9b`, sem desativar o gate nem aproveitar o buffer rejeitado. A causa permanece não verificada. A investigação é **interrompida/parcial**, os campos continuam `raw_unknown` e as seis janelas privadas do [plano operacional](research/2026-09-05-v010-cooler-experiment-plan.md) não foram concluídas. Novos ciclos públicos não substituem essa evidência nem a repetição após reinício da referência. O serviço instalado permanece uma implantação separada.
+
+Objetivo: transformar observações brutas em hipóteses testáveis e incorporar fontes públicas documentadas que resolvam leituras pendentes. Os critérios de promoção abaixo se aplicam aos candidatos privados.
 
 Para promover `raw_unknown` a `correlated`, um canal deve:
 

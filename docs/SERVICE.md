@@ -4,6 +4,10 @@
 
 `RtxMonitor.Service` executa a aquisição, persistência e API local em um único processo headless. O mesmo binário funciona em um terminal e como Windows Service.
 
+O produto **0.10.0, concluído localmente**, expõe `fan_speed_intended_rpm` em `rpm` por índice NVML quando disponível, preservando nulos em falhas. É velocidade pretendida pelo contrato público, sem comprovação de tacômetro físico ou PWM. O HTTP de telemetria mantém schema 2 e os eventos persistidos/SSE usam schema 5, com históricos anteriores legíveis. Na [validação de 2026-09-05](research/2026-09-05-public-fan-rpm.md), a implementação foi executada em serviço temporário; a instalação existente 0.6.0 permaneceu separada e não recebeu este incremento.
+
+O CI passou 33 CTest no Windows e 29 CTest no snapshot Linux de portabilidade, além de 14 testes de auditoria por plataforma e suítes .NET aplicáveis; a suíte Service passou no Windows. O teste Linux não comprova execução física da GPU nem substitui a validação do Windows Service. Três ciclos públicos, smoke final do build em serviço isolado na porta 11882 e smoke do pacote passaram. A preservação final confirmou serviço 0.6.0 saudável com mesmo início/PIDs. A pesquisa privada é parcial e não adiciona seus campos brutos ao serviço.
+
 O serviço não possui interface gráfica e não aceita conexões externas. Seu endpoint é sempre:
 
 ```text
@@ -77,7 +81,7 @@ Para criar uma publicação versionada:
 ```powershell
 .\scripts\publish-service.ps1 `
   -Configuration Release `
-  -OutputDirectory 'C:\Program Files\RtxMonitor\0.9.0'
+  -OutputDirectory 'C:\Program Files\RtxMonitor\0.10.0'
 ```
 
 ## Instalar no Windows
@@ -86,7 +90,7 @@ Abra o PowerShell como Administrador:
 
 ```powershell
 .\scripts\install-service.ps1 `
-  -PublishDirectory 'C:\Program Files\RtxMonitor\0.9.0' `
+  -PublishDirectory 'C:\Program Files\RtxMonitor\0.10.0' `
   -Start
 ```
 

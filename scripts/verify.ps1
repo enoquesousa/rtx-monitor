@@ -16,10 +16,10 @@ $cExecutable = Join-Path $nativeOutput 'rtxmon-c.exe'
 $csharpExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Console\bin\$Configuration\net8.0\RtxMonitor.Console.exe"
 $serviceExecutable = Join-Path $projectRoot "csharp\RtxMonitor.Service\bin\$Configuration\net8.0-windows\win-x64\RtxMonitor.Service.exe"
 $capabilitySchemaPath = Join-Path $projectRoot 'docs\schema\capabilities-v2.schema.json'
-$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v2.schema.json'
+$publicTelemetrySchemaPath = Join-Path $projectRoot 'docs\schema\public-telemetry-v3.schema.json'
 $eventSchemaV1Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v1.schema.json'
 $eventSchemaV2Path = Join-Path $projectRoot 'docs\schema\telemetry-event-v2.schema.json'
-$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v4.schema.json'
+$eventSchemaPath = Join-Path $projectRoot 'docs\schema\telemetry-event-v5.schema.json'
 $evidenceTempRoot = $null
 $serviceProcess = $null
 
@@ -171,8 +171,8 @@ try {
     }
 
     $publicTelemetrySchema = Get-Content -Raw -LiteralPath $publicTelemetrySchemaPath | ConvertFrom-Json
-    if ($publicTelemetrySchema.properties.schema_version.const -ne 2 -or
-        $publicTelemetrySchema.properties.fields.minItems -ne 34 -or
+    if ($publicTelemetrySchema.properties.schema_version.const -ne 3 -or
+        $publicTelemetrySchema.properties.fields.minItems -ne 35 -or
         $publicTelemetrySchema.properties.computed_metrics.minItems -ne 4) {
         throw 'The public telemetry JSON Schema is incomplete.'
     }
@@ -188,8 +188,8 @@ try {
     }
 
     $eventSchema = Get-Content -Raw -LiteralPath $eventSchemaPath | ConvertFrom-Json
-    if ($eventSchema.properties.schema_version.const -ne 4) {
-        throw 'The telemetry event JSON Schema is missing schema_version const 4.'
+    if ($eventSchema.properties.schema_version.const -ne 5) {
+        throw 'The telemetry event JSON Schema is missing schema_version const 5.'
     }
 
     & ctest --preset "windows-x64-$configurationLower"
@@ -316,7 +316,7 @@ try {
         throw 'C++ and C# returned different thermal capability counts.'
     }
 
-    if ($cppTelemetry.schema_version -ne 2 -or $csharpTelemetry.schema_version -ne 2 -or
+    if ($cppTelemetry.schema_version -ne 3 -or $csharpTelemetry.schema_version -ne 3 -or
         $cppTelemetry.gpu.uuid -ne $cppSample.gpu_uuid -or
         $csharpTelemetry.gpu.uuid -ne $cppSample.gpu_uuid -or
         $cppTelemetry.profile_key -ne $cppCapabilities.board.profile_key -or
@@ -508,13 +508,13 @@ try {
         -Source 'C++ resilient stream' `
         -Events $cppEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 4 `
+        -SchemaVersion 5 `
         -RequireEnrichedTelemetry
     Assert-EventStream `
         -Source 'C# resilient stream' `
         -Events $csharpEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 4 `
+        -SchemaVersion 5 `
         -RequireEnrichedTelemetry
 
     $cppAlertEvents = @(& $cppExecutable --watch --count 1 --interval 100 --events --alert-threshold 0) |
@@ -529,12 +529,12 @@ try {
         -Source 'C++ alert stream' `
         -Events $cppAlertEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 4
+        -SchemaVersion 5
     Assert-AlertStream `
         -Source 'C# alert stream' `
         -Events $csharpAlertEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 4
+        -SchemaVersion 5
 
     $evidenceTempRoot = Join-Path `
         ([System.IO.Path]::GetTempPath()) `
@@ -553,7 +553,7 @@ try {
         -Source 'C# persisted event stream' `
         -Events $storedEvents `
         -GpuUuid $cppSample.gpu_uuid `
-        -SchemaVersion 4 `
+        -SchemaVersion 5 `
         -RequireEnrichedTelemetry
 
     $history = @(& $csharpExecutable `
@@ -570,9 +570,9 @@ try {
     foreach ($record in $history) {
         if ($record.evidence_schema_version -ne 1 -or
             $record.store_schema_version -ne 1 -or
-            $record.event.schema_version -ne 4 -or
+            $record.event.schema_version -ne 5 -or
             $record.run.run_id -ne $historyRunId -or
-            $record.run.application_version -ne '0.9.0' -or
+            $record.run.application_version -ne '0.10.0' -or
             $record.device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid -or
             $record.device_snapshot.board.profile_key -ne $cppCapabilities.board.profile_key -or
             $null -eq $record.event.public_telemetry -or
@@ -656,9 +656,9 @@ try {
     }
     if ($null -eq $serviceHealth -or
         -not $serviceHealth.ready -or
-        $serviceHealth.service_version -ne '0.9.0' -or
+        $serviceHealth.service_version -ne '0.10.0' -or
         $serviceHealth.storage.state -ne 'available') {
-        throw 'Local service did not become ready with SQLite and version 0.9.0.'
+        throw 'Local service did not become ready with SQLite and version 0.10.0.'
     }
 
     $serviceDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)
@@ -695,8 +695,8 @@ try {
         throw "The local service differed by more than 5 C: $($allTemperatures -join ', ')."
     }
     if ($serviceHistory.count -lt 2 -or
-        $serviceHistory.items[0].run.application_version -ne '0.9.0' -or
-        $serviceHistory.items[0].event.schema_version -ne 4 -or
+        $serviceHistory.items[0].run.application_version -ne '0.10.0' -or
+        $serviceHistory.items[0].event.schema_version -ne 5 -or
         $null -eq $serviceHistory.items[0].event.public_telemetry -or
         $serviceHistory.items[0].device_snapshot.gpu.uuid -ne $cppSample.gpu_uuid) {
         throw 'Local service history did not preserve version and GPU provenance.'

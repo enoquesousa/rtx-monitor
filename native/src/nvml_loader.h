@@ -34,6 +34,7 @@ typedef struct rtxmon_nvml_api {
     rtxmon_nvml_device_get_num_fans_fn device_get_num_fans;
     rtxmon_nvml_device_get_fan_speed_v2_fn device_get_fan_speed_v2;
     rtxmon_nvml_device_get_fan_speed_fn device_get_fan_speed;
+    rtxmon_nvml_device_get_fan_speed_rpm_fn device_get_fan_speed_rpm;
     rtxmon_nvml_device_get_performance_state_fn device_get_performance_state;
     rtxmon_nvml_device_get_clock_reasons_fn device_get_current_clocks_event_reasons;
     rtxmon_nvml_device_get_clock_reasons_fn device_get_current_clocks_throttle_reasons;

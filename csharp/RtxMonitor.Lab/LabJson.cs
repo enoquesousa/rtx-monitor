@@ -5,6 +5,15 @@ namespace RtxMonitor.Lab;
 
 public static class LabJson
 {
+    public static string SerializeCoolerStatusAnalysis(CoolerStatusAnalysisReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return JsonSerializer.Serialize(report, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        });
+    }
+
     public static string SerializeExperimentManifest(string manifestJson)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestJson);

@@ -4,7 +4,7 @@ namespace RtxMonitor.Managed;
 
 public static class TelemetryJson
 {
-    public const int SchemaVersion = 4;
+    public const int SchemaVersion = 5;
 
     public static string Serialize(TelemetryEvent telemetryEvent)
     {

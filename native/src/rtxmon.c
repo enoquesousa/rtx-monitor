@@ -49,6 +49,12 @@ RTXMON_PRIVATE_STATIC_ASSERT(
     sizeof(rtxmon_nvml_memory_t) == 24U,
     "NVML memory ABI changed");
 RTXMON_PRIVATE_STATIC_ASSERT(
+    sizeof(rtxmon_nvml_fan_speed_info_v1_t) == 12U,
+    "NVML fan speed v1 ABI changed");
+RTXMON_PRIVATE_STATIC_ASSERT(
+    RTXMON_NVML_FAN_SPEED_INFO_V1_VERSION == 0x0100000cU,
+    "NVML fan speed v1 version changed");
+RTXMON_PRIVATE_STATIC_ASSERT(
     sizeof(rtxmon_nvapi_thermal_settings_v2_t) == 68U,
     "NVAPI thermal ABI changed");
 
@@ -520,6 +526,8 @@ const char *RTXMON_CALL rtxmon_public_field_string(uint32_t field)
         return "power_consumption_current_limit_percent";
     case RTXMON_PUBLIC_FIELD_TEMPERATURE_GPU_LIMIT_C:
         return "temperature_gpu_limit_c";
+    case RTXMON_PUBLIC_FIELD_FAN_SPEED_INTENDED_RPM:
+        return "fan_speed_intended_rpm";
     default:
         return "unknown_public_field";
     }
@@ -562,6 +570,8 @@ const char *RTXMON_CALL rtxmon_public_provider_string(uint32_t provider)
         return "RTX Monitor computed power ratio";
     case RTXMON_PUBLIC_PROVIDER_NVML_TEMPERATURE_THRESHOLD:
         return "NVML nvmlDeviceGetTemperatureThreshold";
+    case RTXMON_PUBLIC_PROVIDER_NVML_FAN_SPEED_RPM:
+        return "NVML nvmlDeviceGetFanSpeedRPM";
     default:
         return "unknown_public_provider";
     }
@@ -609,6 +619,8 @@ const char *RTXMON_CALL rtxmon_unit_string(uint32_t unit)
         return "celsius_per_second";
     case RTXMON_UNIT_SECONDS:
         return "seconds";
+    case RTXMON_UNIT_RPM:
+        return "rpm";
     case RTXMON_UNIT_UNKNOWN:
     default:
         return "unknown";
