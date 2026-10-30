@@ -1,0 +1,1347 @@
+[CmdletBinding()]
+param(
+    [ValidateRange(10, 60)]
+    [int]$DurationSeconds = 10,
+
+    [int]$GpuzProcessId,
+
+    [Parameter(Mandatory)]
+    [string]$CandidateInventoryPath,
+
+    [Parameter(Mandatory)]
+    [string]$PriorObservationPath,
+
+    [Parameter(Mandatory)]
+    [string]$GpuzLogPath,
+
+    [switch]$ObservationVersion3,
+
+    [string]$HwinfoLogPath,
+
+    [ValidateRange(0, 31)]
+    [int]$GpuIndex = 0,
+
+    [string]$RtxmonConsolePath,
+
+    [string]$CdbPath,
+
+    [string]$OutputDirectory
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$failurePath = $null
+
+trap {
+    $failureText = $_ | Out-String
+    if (-not [string]::IsNullOrWhiteSpace($failurePath)) {
+        $failureText | Set-Content -LiteralPath $failurePath -Encoding utf8NoBOM
+    }
+
+    [Console]::Error.WriteLine($failureText.TrimEnd())
+    exit 1
+}
+
+$profile = [ordered]@{
+    name = 'gpuz-2.70.0-nvapi-610.88-cooler-status-v1'
+    gpu_name = 'NVIDIA GeForce RTX 3060'
+    gpu_uuid = 'GPU-11111111-2222-3333-4444-555555555555'
+    driver_version = '610.88'
+    nvml_version = '13.610.88'
+    pci_bus_id = '00000000:01:00.0'
+    pci_vendor_id = '0x10de'
+    pci_device_id = '0x2504'
+    pci_subsystem_vendor_id = '0x10de'
+    pci_subsystem_device_id = '0x1536'
+    vbios_version = '94.06.25.00.fc'
+    gpuz_sha256 = '6cb0ef29682452de81a9576808881685161411a1fad00938ba04131159979c29'
+    candidate_inventory_sha256 = '3aaada9b367dacca7cf74511bae8532bd79b7f8bd06b9bb609056f3d9da1f1d7'
+    prior_observation_sha256 = 'f580f67da61df2287257fb023fe277d310fdf424f588bbd96d01ac01433f8de2'
+    nvapi_module_name = 'nvapi_impl.dll'
+    nvapi_module_sha256 = 'fbc9aed43bfa5bda19b7f83a809a081a0ce454b6d6003dcabc565ecb3e6afdaf'
+    interface_id = '0x35aed5e8'
+    function_rva = '0x001b9f10'
+    caller_module_name = 'GPU-Z.exe'
+    caller_rvas = @('0x0021d654', '0x0021d824')
+    debugger_module_name = 'GPU_Z'
+    capture_point = 'post_call_return'
+    buffer_pointer_expression = 'poi(@esp+4)'
+    return_status_register = 'eax'
+    structure_version = '0x000106a8'
+    structure_size_bytes = 1704
+    structure_word_count = 426
+    count_byte_offset = 4
+    entry_base_offset = 40
+    entry_stride_bytes = 52
+    entry_capacity = 32
+    raw_field_byte_offsets_within_entry = @(4, 8, 12, 16)
+}
+$maximumCaptureRecords = 1024
+$maximumDebugLogSizeBytes = 16MB
+# V3 seals existing append-only local logs with a separate 64 MiB storage bound per reference.
+# The debugger transcript and observation JSON retain their independent 16 MiB bounds.
+$maximumGpuzPrefixSizeBytes = 64MB
+$maximumHwinfoPrefixSizeBytes = 64MB
+$gpuzFanChannels = @('Fan 1 Speed (RPM) [RPM]', 'Fan 1 Speed (%) [%]', 'Fan 2 Speed (RPM) [RPM]', 'Fan 2 Speed (%) [%]')
+$hwinfoFanChannels = @('GPU Ventilador1 [RPM]', 'GPU Ventilador1 [%]', 'GPU Ventilador2 [RPM]', 'GPU Ventilador2 [%]')
+
+function Assert-Administrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw 'This attached cooler-status capture requires an elevated PowerShell session.'
+    }
+}
+
+function Get-PeMachine {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+    try {
+        if ($stream.Length -lt 64) {
+            throw "The PE image is truncated: '$Path'."
+        }
+
+        $reader = [IO.BinaryReader]::new($stream)
+        try {
+            $stream.Position = 0x3c
+            $peOffset = $reader.ReadUInt32()
+            if ($peOffset -gt $stream.Length - 6) {
+                throw "The PE header offset is invalid: '$Path'."
+            }
+
+            $stream.Position = $peOffset
+            if ($reader.ReadUInt32() -ne 0x00004550) {
+                throw "The PE signature is invalid: '$Path'."
+            }
+
+            return $reader.ReadUInt16()
+        }
+        finally {
+            $reader.Dispose()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Resolve-SignedModuleByHash {
+    param(
+        [Parameter(Mandatory)]
+        [string]$ModuleName,
+
+        [Parameter(Mandatory)]
+        [string]$ExpectedSha256
+    )
+
+    if ($ModuleName -ne 'nvapi_impl.dll') {
+        throw "The fixed cooler-status profile does not accept module '$ModuleName'."
+    }
+
+    $windowsRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)
+    $repository = Join-Path $windowsRoot 'System32\DriverStore\FileRepository'
+    $matches = @(
+        Get-ChildItem -LiteralPath $repository -Filter $ModuleName -File -Recurse -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                $path = [IO.Path]::GetFullPath($_.FullName)
+                $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($hash -eq $ExpectedSha256) {
+                    $signature = Get-AuthenticodeSignature -LiteralPath $path
+                    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+                        $null -eq $signature.SignerCertificate -or
+                        ($signature.SignerCertificate.Subject -notlike '*NVIDIA Corporation*' -and
+                            $signature.SignerCertificate.Subject -notlike
+                                '*Microsoft Windows Hardware Compatibility Publisher*')) {
+                        throw "NVAPI module signature validation failed: '$path'."
+                    }
+
+                    $path
+                }
+            } |
+            Sort-Object -Unique
+    )
+    if ($matches.Count -eq 0) {
+        throw "No signed '$ModuleName' matches SHA-256 $ExpectedSha256."
+    }
+
+    return $matches[0]
+}
+
+function Assert-RegularLocalFile {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [string]$Description,
+
+        [Parameter(Mandatory)]
+        [long]$MaximumSizeBytes
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "$Description was not found: '$Path'."
+    }
+
+    $item = Get-Item -LiteralPath $Path
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        $item.Length -lt 1 -or
+        $item.Length -gt $MaximumSizeBytes) {
+        throw "$Description must be a regular file between 1 and $MaximumSizeBytes bytes."
+    }
+
+    $root = [IO.Path]::GetPathRoot($item.FullName)
+    $drive = [IO.DriveInfo]::new($root)
+    if ($drive.DriveType -ne [IO.DriveType]::Fixed) {
+        throw "$Description must reside on a fixed local drive."
+    }
+}
+
+function Wait-BoundedCaptureInterval {
+    param(
+        [Parameter(Mandatory)]
+        [int]$Seconds,
+
+        [Parameter(Mandatory)]
+        [string]$DebugLogPath,
+
+        [Parameter(Mandatory)]
+        [long]$MaximumSizeBytes
+    )
+
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    while ($timer.Elapsed.TotalSeconds -lt $Seconds) {
+        Start-Sleep -Milliseconds 100
+        $debugLog = Get-Item -LiteralPath $DebugLogPath
+        if (($debugLog.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            $debugLog.Length -gt $MaximumSizeBytes) {
+            throw "The debugger transcript exceeded the bounded $MaximumSizeBytes-byte capture limit."
+        }
+    }
+}
+
+function Read-AnchoredJsonSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [string]$Description,
+
+        [Parameter(Mandatory)]
+        [long]$MaximumSizeBytes
+    )
+
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read)
+    try {
+        $length = $stream.Length
+        if ($length -lt 1 -or $length -gt $MaximumSizeBytes) {
+            throw "$Description must be a regular file between 1 and $MaximumSizeBytes bytes."
+        }
+
+        $bytes = [byte[]]::new([int]$length)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -le 0) {
+                throw "$Description changed while its anchored snapshot was being read."
+            }
+
+            $offset += $read
+        }
+        if ($stream.Length -ne $length) {
+            throw "$Description changed while its anchored snapshot was being read."
+        }
+
+        $textOffset = if ($bytes.Length -ge 3 -and
+            $bytes[0] -eq 0xef -and
+            $bytes[1] -eq 0xbb -and
+            $bytes[2] -eq 0xbf) {
+            3
+        }
+        else {
+            0
+        }
+        try {
+            $utf8 = [Text.UTF8Encoding]::new($false, $true)
+            $text = $utf8.GetString(
+                $bytes,
+                $textOffset,
+                $bytes.Length - $textOffset)
+        }
+        catch [Text.DecoderFallbackException] {
+            throw "$Description is not valid UTF-8."
+        }
+
+        return [pscustomobject]@{
+            text = $text
+            sha256 = [Convert]::ToHexString(
+                [Security.Cryptography.SHA256]::HashData($bytes)
+            ).ToLowerInvariant()
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Get-LogProbe {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $item = Get-Item -LiteralPath $Path
+    $lastSample = Get-Content -LiteralPath $Path -Tail 16 |
+        Where-Object { $_ -match '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s*,' } |
+        Select-Object -Last 1
+    if ($null -eq $lastSample -or
+        $lastSample -notmatch
+            '^(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*,') {
+        throw 'The GPU-Z reference log does not end in a timestamped sensor sample.'
+    }
+
+    return [pscustomobject]@{
+        size_bytes = $item.Length
+        last_write_utc = [DateTimeOffset]$item.LastWriteTimeUtc
+        last_sample_local = $Matches.timestamp
+    }
+}
+
+function Convert-CdbReturnClock {
+    param([Parameter(Mandatory)][string]$Text)
+
+    $timeMatches = [regex]::Matches($Text,
+        '(?im)^Debug session time:\s+[A-Za-z]{3}\s+(?<value>[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}(?:\.(?<fraction>\d{1,7}))?\s+\d{4})(?:\s+\(UTC\s+(?<sign>[+-])\s*(?<hours>\d{1,2}):(?<minutes>\d{2})\))?\s*$')
+    $uptimeMatches = [regex]::Matches($Text,
+        '(?im)^System Uptime:\s+(?<days>\d+)\s+days\s+(?<hours>\d{1,2}):(?<minutes>\d{2}):(?<seconds>\d{2})(?:\.(?<fraction>\d{1,7}))?\s*$')
+    if ($timeMatches.Count -ne 1 -or $uptimeMatches.Count -ne 1) {
+        throw 'Each v3 return requires exactly one real CDB .time UTC timestamp and system uptime.'
+    }
+    $timeMatch = $timeMatches[0]
+    if (($timeMatch.Groups['hours'].Success -and [int]$timeMatch.Groups['hours'].Value -ne 0) -or
+        ($timeMatch.Groups['minutes'].Success -and [int]$timeMatch.Groups['minutes'].Value -ne 0)) {
+        throw 'The per-return .time -h 0 output did not use UTC.'
+    }
+    $timestampText = [regex]::Replace($timeMatch.Groups['value'].Value, '\s+', ' ')
+    $timestamp = [DateTime]::MinValue
+    $formats = [string[]]@('MMM d HH:mm:ss yyyy', 'MMM dd HH:mm:ss yyyy',
+        'MMM d HH:mm:ss.FFFFFFF yyyy', 'MMM dd HH:mm:ss.FFFFFFF yyyy')
+    if (-not [DateTime]::TryParseExact($timestampText, $formats,
+        [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None, [ref]$timestamp)) {
+        throw 'CDB emitted an invalid per-return system timestamp.'
+    }
+    $uptime = $uptimeMatches[0]
+    $days = [long]$uptime.Groups['days'].Value
+    $hours = [int]$uptime.Groups['hours'].Value
+    $minutes = [int]$uptime.Groups['minutes'].Value
+    $seconds = [int]$uptime.Groups['seconds'].Value
+    if ($days -gt 99999 -or $hours -gt 23 -or $minutes -gt 59 -or $seconds -gt 59) {
+        throw 'CDB emitted an invalid per-return system uptime.'
+    }
+    $uptimeFraction = $uptime.Groups['fraction'].Value
+    [long]$fractionTicks = if ($uptimeFraction.Length -eq 0) { 0 } else { [long]$uptimeFraction.PadRight(7, '0') }
+    [long]$uptimeTicks = (($days * 86400L + $hours * 3600L + $minutes * 60L + $seconds) * 10000000L) + $fractionTicks
+    return [pscustomobject]@{
+        captured_at_utc = [DateTime]::SpecifyKind($timestamp, [DateTimeKind]::Utc).ToString('O')
+        timestamp_precision_ns = [long][Math]::Pow(10, 9 - $timeMatch.Groups['fraction'].Value.Length)
+        system_uptime_100ns = $uptimeTicks
+        system_uptime_precision_ns = [long][Math]::Pow(10, 9 - $uptimeFraction.Length)
+    }
+}
+
+function Split-ReferenceCsvLine {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Line)
+    $fields = [Collections.Generic.List[string]]::new()
+    $field = [Text.StringBuilder]::new()
+    $quoted = $false
+    $closed = $false
+    for ($index = 0; $index -lt $Line.Length; $index++) {
+        $character = $Line[$index]
+        if ($quoted) {
+            if ($character -eq '"') {
+                if ($index + 1 -lt $Line.Length -and $Line[$index + 1] -eq '"') {
+                    $null = $field.Append('"'); $index++
+                } else { $quoted = $false; $closed = $true }
+            } else { $null = $field.Append($character) }
+        } elseif ($character -eq ',') {
+            $fields.Add($field.ToString().Trim()); $null = $field.Clear(); $closed = $false
+        } elseif ($character -eq '"') {
+            if ($closed -or $field.ToString().Trim().Length -ne 0) { throw 'A reference CSV row contains an invalid quote.' }
+            $null = $field.Clear(); $quoted = $true
+        } else {
+            if ($closed -and -not [char]::IsWhiteSpace($character)) { throw 'A reference CSV quote is followed by unexpected text.' }
+            $null = $field.Append($character)
+        }
+        if ($fields.Count -gt 1024 -or $field.Length -gt 65536) { throw 'A reference CSV row exceeds the bounded parser limits.' }
+    }
+    if ($quoted) { throw 'Multiline or incomplete reference CSV rows are not accepted.' }
+    $fields.Add($field.ToString().Trim())
+    if ($fields.Count -gt 1 -and $fields[$fields.Count - 1] -eq '') { $fields.RemoveAt($fields.Count - 1) }
+    return ,$fields.ToArray()
+}
+
+function Get-ReferenceSnapshotMetadata {
+    param([Parameter(Mandatory)][byte[]]$Bytes, [Parameter(Mandatory)][ValidateSet('gpuz', 'hwinfo')][string]$Kind)
+
+    if ($Bytes.Length -eq 0 -or $Bytes[$Bytes.Length - 1] -ne 0x0a -or $Bytes.Contains([byte]0)) {
+        throw 'Reference snapshots must be nonempty, LF-complete text without NUL bytes.'
+    }
+    $textEncoding = 'utf-8'
+    try { $text = [Text.UTF8Encoding]::new($false, $true).GetString($Bytes) }
+    catch [Text.DecoderFallbackException] {
+        [Text.Encoding]::RegisterProvider([Text.CodePagesEncodingProvider]::Instance)
+        $text = [Text.Encoding]::GetEncoding(1252).GetString($Bytes)
+        $textEncoding = 'windows-1252'
+    }
+    $text = $text.TrimStart([char]0xfeff)
+    $header = $null
+    $sessionIndex = -1
+    $rowCount = 0
+    $lastLine = $null
+    $reader = [IO.StringReader]::new($text)
+    try {
+        while ($null -ne ($line = $reader.ReadLine())) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            if ($line -match '^\s*"?Date"?\s*,') {
+                $fields = Split-ReferenceCsvLine -Line $line
+                $sessionIndex++
+                if ($sessionIndex -ge 1024 -or $fields.Count -gt $(if ($Kind -eq 'gpuz') { 257 } else { 1024 })) {
+                    throw 'The reference snapshot exceeds the session or channel bound.'
+                }
+                $header = $fields
+                $lastLine = $null
+                continue
+            }
+            if ($null -eq $header) { throw 'Reference CSV rows precede their session header.' }
+            $rowCount++
+            if ($rowCount -gt 250000) { throw 'The reference snapshot exceeds 250000 samples.' }
+            $lastLine = $line
+        }
+    } finally { $reader.Dispose() }
+    if ($null -eq $header -or $null -eq $lastLine) { throw 'The final reference session has no complete sample.' }
+    $fields = Split-ReferenceCsvLine -Line $lastLine
+    if ($fields.Count -ne $header.Count) { throw 'The final reference row does not match its exact session header.' }
+    $parsed = [DateTime]::MinValue
+    if ($Kind -eq 'gpuz') {
+        $value = $fields[0]
+        $formats = [string[]]@('yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd HH:mm:ss.FFF')
+    } else {
+        if ($header[1] -ne 'Time') { throw 'HWiNFO requires exact Date and Time columns.' }
+        $value = '{0} {1}' -f $fields[0], $fields[1]
+        $formats = [string[]]@('d.M.yyyy H:m:s', 'd.M.yyyy H:m:s.FFF')
+    }
+    if (-not [DateTime]::TryParseExact($value, $formats, [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::None, [ref]$parsed)) { throw 'The final reference sample timestamp is invalid.' }
+    $lastSample = $parsed.ToString('yyyy-MM-dd HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture)
+    $expectedChannels = if ($Kind -eq 'gpuz') { $gpuzFanChannels } else { $hwinfoFanChannels }
+    foreach ($channel in $expectedChannels) {
+        if (@($header | Where-Object { $_ -ceq $channel }).Count -ne 1) {
+            throw "The $Kind reference requires exactly one literal channel '$channel'."
+        }
+    }
+    return [pscustomobject]@{
+        text_encoding = $textEncoding
+        session_index = $sessionIndex
+        header_fields = $header
+        selected_channels = $expectedChannels
+        last_sample_local = $lastSample
+    }
+}
+
+function New-ReferenceCheckpoint {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][ValidateSet('gpuz', 'hwinfo')][string]$Kind,
+        [Parameter(Mandatory)][ValidateSet('before', 'midpoint', 'after')][string]$Phase)
+
+    $limit = if ($Kind -eq 'gpuz') { $maximumGpuzPrefixSizeBytes } else { $maximumHwinfoPrefixSizeBytes }
+    Assert-RegularLocalFile -Path $Path -Description "$Kind reference" -MaximumSizeBytes $limit
+    $captured = [DateTimeOffset]::UtcNow
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+        [IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+    try {
+        if ($stream.Length -lt 1 -or $stream.Length -gt $limit) { throw 'The live reference exceeds its bounded snapshot size.' }
+        $bytes = [byte[]]::new([int]$stream.Length)
+        $readOffset = 0
+        while ($readOffset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $readOffset, $bytes.Length - $readOffset)
+            if ($read -le 0) { throw 'The live reference was truncated during its bounded snapshot.' }
+            $readOffset += $read
+        }
+    } finally { $stream.Dispose() }
+    $lastLf = [Array]::LastIndexOf($bytes, [byte]0x0a)
+    if ($lastLf -lt 0) { throw 'The live reference does not contain a complete LF row.' }
+    if ($lastLf + 1 -ne $bytes.Length) {
+        $completeBytes = [byte[]]::new($lastLf + 1)
+        [Array]::Copy($bytes, $completeBytes, $completeBytes.Length)
+        $bytes = $completeBytes
+    }
+    $metadata = Get-ReferenceSnapshotMetadata -Bytes $bytes -Kind $Kind
+    $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
+    $item = Get-Item -LiteralPath $Path
+    return [pscustomobject]@{
+        checkpoint = [ordered]@{
+            phase = $Phase
+            captured_at_utc = $captured.ToString('O')
+            completed_at_utc = [DateTimeOffset]::UtcNow.ToString('O')
+            size_bytes = $bytes.Length
+            sha256 = $hash
+            last_write_utc = ([DateTimeOffset]$item.LastWriteTimeUtc).ToString('O')
+            last_sample_local = $metadata.last_sample_local
+            session_index = $metadata.session_index
+            header_fields = $metadata.header_fields
+        }
+        bytes = $bytes
+        metadata = $metadata
+    }
+}
+
+function Assert-ReferenceCheckpointGrowth {
+    param([Parameter(Mandatory)][object]$Before, [Parameter(Mandatory)][object]$After)
+    if ($After.checkpoint.size_bytes -le $Before.checkpoint.size_bytes -or
+        [DateTimeOffset]$After.checkpoint.last_write_utc -le [DateTimeOffset]$Before.checkpoint.last_write_utc -or
+        [string]::CompareOrdinal($After.checkpoint.last_sample_local, $Before.checkpoint.last_sample_local) -le 0 -or
+        $After.checkpoint.session_index -ne $Before.checkpoint.session_index -or
+        ($After.checkpoint.header_fields -join "`0") -cne ($Before.checkpoint.header_fields -join "`0") -or
+        $After.metadata.text_encoding -cne $Before.metadata.text_encoding) {
+        throw 'A reference must grow to a newer complete sample in the same exact session, header, and encoding.'
+    }
+    $prefix = [byte[]]::new([int]$Before.checkpoint.size_bytes)
+    [Array]::Copy($After.bytes, $prefix, $prefix.Length)
+    $prefixHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($prefix)).ToLowerInvariant()
+    if ($prefixHash -cne $Before.checkpoint.sha256) { throw 'A previously sealed reference prefix was overwritten or replaced during capture.' }
+}
+
+function Save-SealedReference {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Kind,
+        [Parameter(Mandatory)][object[]]$Checkpoints, [Parameter(Mandatory)][string]$Directory)
+    if ($Checkpoints.Count -ne 3) { throw 'A v3 reference requires before, midpoint, and after checkpoints.' }
+    Assert-ReferenceCheckpointGrowth -Before $Checkpoints[0] -After $Checkpoints[1]
+    Assert-ReferenceCheckpointGrowth -Before $Checkpoints[1] -After $Checkpoints[2]
+    $final = $Checkpoints[2]
+    $name = "sealed-$Kind-cooler-reference.csv"
+    $destination = Join-Path $Directory $name
+    $output = [IO.File]::Open($destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+    try { $output.Write($final.bytes, 0, $final.bytes.Length); $output.Flush($true) } finally { $output.Dispose() }
+    if ((Get-Item -LiteralPath $destination).Length -ne $final.checkpoint.size_bytes -or
+        (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -cne $final.checkpoint.sha256) {
+        throw 'The sealed reference changed before the observation could be committed.'
+    }
+    return [ordered]@{
+        source_kind = "${Kind}_fan_reference"
+        original_file_name = [IO.Path]::GetFileName($Path)
+        sealed_relative_path = $name
+        prefix_size_bytes = $final.checkpoint.size_bytes
+        prefix_sha256 = $final.checkpoint.sha256
+        text_encoding = $final.metadata.text_encoding
+        session_index = $final.metadata.session_index
+        header_fields = $final.metadata.header_fields
+        selected_channels = $final.metadata.selected_channels
+        checkpoints = @($Checkpoints | ForEach-Object { $_.checkpoint })
+    }
+}
+
+function Invoke-CdbDetach {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PipeName,
+
+        [Parameter(Mandatory)]
+        [Diagnostics.Process]$ServerProcess,
+
+        [Parameter(Mandatory)]
+        [string]$DebugLogPath,
+
+        [Parameter(Mandatory)]
+        [long]$MaximumSizeBytes,
+
+        [Parameter(Mandatory)]
+        [string]$DetachOutputPath,
+
+        [Parameter(Mandatory)]
+        [string]$DetachErrorPath
+    )
+
+    $remote = 'npipe:server=localhost,pipe={0}' -f $PipeName
+    $client = Start-Process -FilePath $CdbPath -ArgumentList @(
+        '-remote',
+        $remote,
+        '-bonc',
+        '-c',
+        'qqd'
+    ) -RedirectStandardOutput $DetachOutputPath -RedirectStandardError $DetachErrorPath -WindowStyle Hidden -PassThru
+
+    if (-not $client.WaitForExit(15000)) {
+        throw 'The CDB detach client did not exit within 15 seconds.'
+    }
+
+    if (-not $ServerProcess.WaitForExit(15000)) {
+        throw 'CDB did not detach normally; it was left running to protect GPU-Z.'
+    }
+
+    Assert-RegularLocalFile `
+        -Path $DebugLogPath `
+        -Description 'CDB detach transcript' `
+        -MaximumSizeBytes $MaximumSizeBytes
+    $detachTranscript = Get-Content -LiteralPath $DebugLogPath -Raw
+    if ($detachTranscript -notmatch '(?ms)> qqd\s+quit:') {
+        throw "CDB exited without a confirmed qqd detach; client exit code: $($client.ExitCode)."
+    }
+}
+
+if (-not $IsWindows) {
+    throw 'Attached NVAPI cooler-status tracing is supported only on Windows.'
+}
+
+Assert-Administrator
+if ($ObservationVersion3 -and [string]::IsNullOrWhiteSpace($HwinfoLogPath)) {
+    throw 'Observation v3 requires a current HWiNFO fan log in addition to GPU-Z.'
+}
+if (-not $ObservationVersion3 -and -not [string]::IsNullOrWhiteSpace($HwinfoLogPath)) {
+    throw 'HwinfoLogPath is accepted only with ObservationVersion3.'
+}
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$candidateSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-candidate-inventory-v1.schema.json'
+$priorSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-candidate-call-observation-v1.schema.json'
+$reportSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-cooler-status-v1-observation-v2.schema.json'
+if ($ObservationVersion3) {
+    $reportSchemaPath = Join-Path $projectRoot 'docs\schema\nvapi-cooler-status-v1-observation-v3.schema.json'
+    $HwinfoLogPath = [IO.Path]::GetFullPath($HwinfoLogPath)
+    Assert-RegularLocalFile -Path $HwinfoLogPath -Description 'HWiNFO reference log' -MaximumSizeBytes $maximumHwinfoPrefixSizeBytes
+}
+
+$CandidateInventoryPath = [IO.Path]::GetFullPath($CandidateInventoryPath)
+$PriorObservationPath = [IO.Path]::GetFullPath($PriorObservationPath)
+$GpuzLogPath = [IO.Path]::GetFullPath($GpuzLogPath)
+Assert-RegularLocalFile `
+    -Path $CandidateInventoryPath `
+    -Description 'Candidate inventory' `
+    -MaximumSizeBytes 16MB
+Assert-RegularLocalFile `
+    -Path $PriorObservationPath `
+    -Description 'Prior attached observation' `
+    -MaximumSizeBytes 16MB
+
+$candidateInventorySnapshot = Read-AnchoredJsonSnapshot `
+    -Path $CandidateInventoryPath `
+    -Description 'Candidate inventory' `
+    -MaximumSizeBytes 16MB
+$candidateInventoryJson = $candidateInventorySnapshot.text
+if (-not ($candidateInventoryJson | Test-Json -SchemaFile $candidateSchemaPath)) {
+    throw 'Candidate inventory does not satisfy nvapi-candidate-inventory-v1.'
+}
+
+$priorObservationSnapshot = Read-AnchoredJsonSnapshot `
+    -Path $PriorObservationPath `
+    -Description 'Prior attached observation' `
+    -MaximumSizeBytes 16MB
+$priorObservationJson = $priorObservationSnapshot.text
+if (-not ($priorObservationJson | Test-Json -SchemaFile $priorSchemaPath)) {
+    throw 'Prior observation does not satisfy nvapi-candidate-call-observation-v1.'
+}
+
+$candidateInventory = $candidateInventoryJson | ConvertFrom-Json
+$priorObservation = $priorObservationJson | ConvertFrom-Json
+$candidateInventorySha256 = $candidateInventorySnapshot.sha256
+$priorObservationSha256 = $priorObservationSnapshot.sha256
+if ($candidateInventorySha256 -ne $profile.candidate_inventory_sha256 -or
+    $priorObservationSha256 -ne $profile.prior_observation_sha256) {
+    throw 'The supplied candidate inventory or prior observation is not the exact allowlisted artifact.'
+}
+
+if ($candidateInventorySha256 -ne $priorObservation.candidate_inventory_sha256 -or
+    $candidateInventory.gpuz_sha256 -ne $priorObservation.gpuz_sha256) {
+    throw 'Prior observation is not anchored to the supplied candidate inventory.'
+}
+
+if ($candidateInventory.gpuz_sha256 -ne $profile.gpuz_sha256) {
+    throw "GPU-Z hash is not allowlisted by fixed profile '$($profile.name)'."
+}
+
+$candidateMatches = @(
+    $candidateInventory.candidates |
+        Where-Object {
+            $_.interface_id -eq $profile.interface_id -and
+            $_.catalog_status -eq 'not_in_public_catalog' -and
+            $_.module_name -eq $profile.nvapi_module_name -and
+            $_.module_sha256 -eq $profile.nvapi_module_sha256 -and
+            $_.rva -eq $profile.function_rva -and
+            $_.execution_status -eq 'executed_entry'
+        }
+)
+if ($candidateMatches.Count -ne 1) {
+    throw 'The inventory does not contain the exact executed cooler-status candidate.'
+}
+
+if ($priorObservation.capture_mode -ne 'bounded_input_words') {
+    throw 'The fixed profile requires a prior bounded-input observation.'
+}
+
+$priorTargets = @(
+    $priorObservation.targets |
+        Where-Object {
+            $_.interface_ids -contains $profile.interface_id -and
+            $_.module_name -eq $profile.nvapi_module_name -and
+            $_.module_sha256 -eq $profile.nvapi_module_sha256 -and
+            $_.rva -eq $profile.function_rva -and
+            $_.call_count -gt 0
+        }
+)
+if ($priorTargets.Count -ne 1) {
+    throw 'The prior observation does not execute the exact cooler-status candidate.'
+}
+
+$priorCallSites = @($priorTargets[0].call_sites)
+if ($priorCallSites.Count -ne $profile.caller_rvas.Count) {
+    throw 'The prior observation does not contain exactly the two allowlisted call sites.'
+}
+
+foreach ($callerRva in $profile.caller_rvas) {
+    $matches = @(
+        $priorCallSites |
+            Where-Object {
+                $_.caller_module_name -eq $profile.caller_module_name -and
+                $_.caller_module_sha256 -eq $profile.gpuz_sha256 -and
+                $_.caller_rva -eq $callerRva -and
+                $_.call_count -gt 0
+            }
+    )
+    if ($matches.Count -ne 1) {
+        throw "The prior observation does not anchor allowlisted call site $callerRva."
+    }
+}
+
+$unexpectedCallSites = @(
+    $priorCallSites |
+        Where-Object {
+            $_.caller_module_name -ne $profile.caller_module_name -or
+            $_.caller_module_sha256 -ne $profile.gpuz_sha256 -or
+            $profile.caller_rvas -notcontains $_.caller_rva
+        }
+)
+if ($unexpectedCallSites.Count -ne 0) {
+    throw 'The prior observation contains a call site outside the fixed profile.'
+}
+
+$nvapiModulePath = Resolve-SignedModuleByHash -ModuleName $profile.nvapi_module_name -ExpectedSha256 $profile.nvapi_module_sha256
+if ((Get-PeMachine -Path $nvapiModulePath) -ne 0x014c) {
+    throw 'The allowlisted NVAPI implementation is not a 32-bit PE image.'
+}
+
+if ([string]::IsNullOrWhiteSpace($CdbPath)) {
+    $winDbgPackage = Get-AppxPackage -Name 'Microsoft.WinDbg' |
+        Sort-Object -Property Version -Descending |
+        Select-Object -First 1
+    if ($null -eq $winDbgPackage) {
+        throw 'The signed Microsoft WinDbg package is required.'
+    }
+
+    $CdbPath = Join-Path $winDbgPackage.InstallLocation 'x86\cdb.exe'
+}
+
+$CdbPath = [IO.Path]::GetFullPath($CdbPath)
+if (-not (Test-Path -LiteralPath $CdbPath -PathType Leaf) -or
+    (Get-PeMachine -Path $CdbPath) -ne 0x014c) {
+    throw "The signed x86 CDB executable was not found at '$CdbPath'."
+}
+
+$cdbSignature = Get-AuthenticodeSignature -LiteralPath $CdbPath
+if ($cdbSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+    $null -eq $cdbSignature.SignerCertificate -or
+    $cdbSignature.SignerCertificate.Subject -notlike '*Microsoft Corporation*') {
+    throw 'Microsoft CDB signature validation failed.'
+}
+
+if (@(Get-Process -Name 'WinDbgX', 'cdb' -ErrorAction SilentlyContinue).Count -ne 0) {
+    throw 'Close every existing WinDbg or CDB session before attaching to GPU-Z.'
+}
+
+$gpuProcesses = @(
+    if ($GpuzProcessId -gt 0) {
+        Get-Process -Id $GpuzProcessId -ErrorAction Stop
+    }
+    else {
+        Get-Process -Name 'GPU-Z' -ErrorAction SilentlyContinue
+    }
+)
+if ($gpuProcesses.Count -ne 1 -or $gpuProcesses[0].ProcessName -ne 'GPU-Z') {
+    throw 'Exactly one GPU-Z target process is required.'
+}
+
+$gpuProcess = $gpuProcesses[0]
+$gpuzPath = $gpuProcess.Path
+if ([string]::IsNullOrWhiteSpace($gpuzPath)) {
+    throw 'The elevated capture could not resolve the GPU-Z executable path.'
+}
+
+$gpuzSignature = Get-AuthenticodeSignature -LiteralPath $gpuzPath
+if ($gpuzSignature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+    $null -eq $gpuzSignature.SignerCertificate -or
+    $gpuzSignature.SignerCertificate.Subject -notlike '*TechPowerUp LLC*') {
+    throw 'GPU-Z signature validation failed.'
+}
+
+if ((Get-PeMachine -Path $gpuzPath) -ne 0x014c) {
+    throw 'The fixed profile requires the signed 32-bit GPU-Z image.'
+}
+
+$gpuzSha256 = (
+    Get-FileHash -LiteralPath $gpuzPath -Algorithm SHA256
+).Hash.ToLowerInvariant()
+if ($gpuzSha256 -ne $profile.gpuz_sha256) {
+    throw 'The running GPU-Z image does not match the fixed cooler-status profile.'
+}
+
+if ([string]::IsNullOrWhiteSpace($RtxmonConsolePath)) {
+    $RtxmonConsolePath = Join-Path `
+        $projectRoot `
+        'csharp\RtxMonitor.Console\bin\Release\net8.0\RtxMonitor.Console.exe'
+}
+
+$RtxmonConsolePath = [IO.Path]::GetFullPath($RtxmonConsolePath)
+Assert-RegularLocalFile `
+    -Path $RtxmonConsolePath `
+    -Description 'RTX Monitor identity probe' `
+    -MaximumSizeBytes 16MB
+$identityProbeSha256 = (Get-FileHash `
+    -LiteralPath $RtxmonConsolePath `
+    -Algorithm SHA256).Hash.ToLowerInvariant()
+$identityText = & $RtxmonConsolePath `
+    --capabilities `
+    --gpu $GpuIndex `
+    --json 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0) {
+    throw "RTX Monitor identity probe failed with exit code $LASTEXITCODE."
+}
+
+$identity = $identityText | ConvertFrom-Json
+if ($identity.schema_version -ne 2 -or
+    $identity.gpu.index -ne $GpuIndex -or
+    $identity.gpu.name -ne $profile.gpu_name -or
+    $identity.gpu.uuid -ne $profile.gpu_uuid -or
+    $identity.gpu.driver_version -ne $profile.driver_version -or
+    $identity.gpu.nvml_version -ne $profile.nvml_version -or
+    -not $identity.board.pci_identity_available -or
+    $identity.board.pci_bus_id -ne $profile.pci_bus_id -or
+    $identity.board.pci_vendor_id -ne $profile.pci_vendor_id -or
+    $identity.board.pci_device_id -ne $profile.pci_device_id -or
+    $identity.board.pci_subsystem_vendor_id -ne $profile.pci_subsystem_vendor_id -or
+    $identity.board.pci_subsystem_device_id -ne $profile.pci_subsystem_device_id -or
+    -not $identity.board.vbios_available -or
+    $identity.board.vbios_version -ne $profile.vbios_version) {
+    throw 'RTX Monitor identity probe does not match the exact GPU, PCI, VBIOS, and driver profile.'
+}
+
+if (-not (Test-Path -LiteralPath $GpuzLogPath -PathType Leaf)) {
+    throw "GPU-Z reference log was not found: '$GpuzLogPath'."
+}
+
+$gpuzLogItem = Get-Item -LiteralPath $GpuzLogPath
+if (($gpuzLogItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+    $gpuzLogItem.Length -lt 1 -or
+    $gpuzLogItem.Length -gt 64MB) {
+    throw 'GPU-Z reference log must be a regular local file between 1 byte and 64 MiB.'
+}
+
+$logRoot = [IO.Path]::GetPathRoot($GpuzLogPath)
+$logDrive = [IO.DriveInfo]::new($logRoot)
+if ($logDrive.DriveType -ne [IO.DriveType]::Fixed) {
+    throw 'GPU-Z reference log must reside on a fixed local drive.'
+}
+
+$initialGpuzCheckpoint = $null
+$initialHwinfoCheckpoint = $null
+if ($ObservationVersion3) {
+    $initialGpuzCheckpoint = New-ReferenceCheckpoint -Path $GpuzLogPath -Kind gpuz -Phase before
+    $initialHwinfoCheckpoint = New-ReferenceCheckpoint -Path $HwinfoLogPath -Kind hwinfo -Phase before
+    $initialLogProbe = [pscustomobject]@{
+        size_bytes = $initialGpuzCheckpoint.checkpoint.size_bytes
+        last_write_utc = [DateTimeOffset]$initialGpuzCheckpoint.checkpoint.last_write_utc
+        last_sample_local = $initialGpuzCheckpoint.checkpoint.last_sample_local
+    }
+    if (([DateTimeOffset]::UtcNow - [DateTimeOffset]$initialHwinfoCheckpoint.checkpoint.last_write_utc).TotalSeconds -gt 5) {
+        throw 'HWiNFO reference log is not advancing immediately before capture.'
+    }
+} else {
+    $initialLogProbe = Get-LogProbe -Path $GpuzLogPath
+}
+if (([DateTimeOffset]::UtcNow - $initialLogProbe.last_write_utc).TotalSeconds -gt 5) {
+    throw 'GPU-Z reference log is not advancing immediately before capture.'
+}
+
+$evidenceRoot = [IO.Path]::GetFullPath((Join-Path $projectRoot 'evidence'))
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $evidenceRoot (
+        'gpuz-nvapi-cooler-status-v1-{0}' -f (Get-Date -Format 'yyyyMMdd-HHmmss')
+    )
+}
+
+$OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
+$evidencePrefix = $evidenceRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) +
+    [IO.Path]::DirectorySeparatorChar
+if (-not $OutputDirectory.StartsWith(
+        $evidencePrefix,
+        [StringComparison]::OrdinalIgnoreCase)) {
+    throw "OutputDirectory must be a child of '$evidenceRoot'."
+}
+
+if (Test-Path -LiteralPath $OutputDirectory) {
+    throw "OutputDirectory already exists: '$OutputDirectory'."
+}
+
+$null = New-Item -ItemType Directory -Path $OutputDirectory
+$failurePath = Join-Path $OutputDirectory 'capture-error.txt'
+$commandPath = Join-Path $OutputDirectory 'windbg-commands.txt'
+$debugLogPath = Join-Path $OutputDirectory 'windbg-cooler-status-v1.log'
+$debugOutputPath = Join-Path $OutputDirectory 'cdb-output.txt'
+$debugErrorPath = Join-Path $OutputDirectory 'cdb-error.txt'
+$detachOutputPath = Join-Path $OutputDirectory 'cdb-detach-output.txt'
+$detachErrorPath = Join-Path $OutputDirectory 'cdb-detach-error.txt'
+$reportPath = Join-Path $OutputDirectory 'nvapi-cooler-status-v1-observation-v2.json'
+if ($ObservationVersion3) { $reportPath = Join-Path $OutputDirectory 'nvapi-cooler-status-v1-observation-v3.json' }
+
+$breakpointCommands = @(
+    foreach ($callerRva in $profile.caller_rvas) {
+        $hitFormat = (
+            'RTXMON_NVAPI_COOLER_V1_BEGIN site={0} tid=0x%08x status=0x%08x buffer=0x%08x\\n' -f
+                $callerRva
+        )
+        $clockCommand = if ($ObservationVersion3) { '.time -h 0; ' } else { '' }
+        'bp {0}+{1} ".printf \"{2}\", @$tid, @eax, poi(@esp+4); {3}dd /c 1 poi(@esp+4) L1aa; .echo RTXMON_NVAPI_COOLER_V1_END site={1}; gc"' -f
+            $profile.debugger_module_name,
+            $callerRva,
+            $hitFormat,
+            $clockCommand
+    }
+)
+@(
+    '.echo RTXMON_ATTACH_READY'
+    $breakpointCommands
+    'g'
+) | Set-Content -LiteralPath $commandPath -Encoding ascii
+
+$pipeName = 'rtx-monitor-gpuz-cooler-v1-{0}-{1}' -f
+    $gpuProcess.Id,
+    ([Guid]::NewGuid().ToString('N'))
+$debugger = $null
+$captureStartedUtc = $null
+$midpointLogProbe = $null
+$midpointGpuzCheckpoint = $null
+$midpointHwinfoCheckpoint = $null
+$supervisionStartedUtc = [DateTimeOffset]::UtcNow
+try {
+    $debugger = Start-Process -FilePath $CdbPath -ArgumentList @(
+        '-server',
+        ('npipe:pipe={0}' -f $pipeName),
+        '-pd',
+        '-noshell',
+        '-nosqm',
+        '-logo',
+        ('"{0}"' -f $debugLogPath),
+        '-p',
+        [string]$gpuProcess.Id,
+        '-cf',
+        ('"{0}"' -f $commandPath)
+    ) -RedirectStandardOutput $debugOutputPath -RedirectStandardError $debugErrorPath -WindowStyle Hidden -PassThru
+
+    $readyDeadline = (Get-Date).AddSeconds(20)
+    do {
+        Start-Sleep -Milliseconds 250
+        $ready = $false
+        if (Test-Path -LiteralPath $debugLogPath -PathType Leaf) {
+            $debugLog = Get-Item -LiteralPath $debugLogPath
+            if (($debugLog.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                $debugLog.Length -gt $maximumDebugLogSizeBytes) {
+                throw "The debugger transcript exceeded the bounded $maximumDebugLogSizeBytes-byte capture limit."
+            }
+            if ($debugLog.Length -gt 0) {
+                $ready = Select-String `
+                    -LiteralPath $debugLogPath `
+                    -Pattern 'RTXMON_ATTACH_READY' `
+                    -Quiet
+            }
+        }
+        $debugger.Refresh()
+    } while (-not $ready -and -not $debugger.HasExited -and
+        (Get-Date) -lt $readyDeadline)
+
+    if (-not $ready) {
+        throw 'CDB did not reach the attached cooler-status capture ready marker.'
+    }
+
+    $captureStartedUtc = [DateTimeOffset]::UtcNow
+    $firstHalfSeconds = [Math]::Floor($DurationSeconds / 2)
+    Wait-BoundedCaptureInterval `
+        -Seconds $firstHalfSeconds `
+        -DebugLogPath $debugLogPath `
+        -MaximumSizeBytes $maximumDebugLogSizeBytes
+    if ($ObservationVersion3) {
+        $midpointGpuzCheckpoint = New-ReferenceCheckpoint -Path $GpuzLogPath -Kind gpuz -Phase midpoint
+        $midpointHwinfoCheckpoint = New-ReferenceCheckpoint -Path $HwinfoLogPath -Kind hwinfo -Phase midpoint
+        Assert-ReferenceCheckpointGrowth -Before $initialGpuzCheckpoint -After $midpointGpuzCheckpoint
+        Assert-ReferenceCheckpointGrowth -Before $initialHwinfoCheckpoint -After $midpointHwinfoCheckpoint
+        $midpointLogProbe = [pscustomobject]@{
+            size_bytes = $midpointGpuzCheckpoint.checkpoint.size_bytes
+            last_write_utc = [DateTimeOffset]$midpointGpuzCheckpoint.checkpoint.last_write_utc
+            last_sample_local = $midpointGpuzCheckpoint.checkpoint.last_sample_local
+        }
+    } else { $midpointLogProbe = Get-LogProbe -Path $GpuzLogPath }
+    if ($midpointLogProbe.size_bytes -le $initialLogProbe.size_bytes -or
+        $midpointLogProbe.last_write_utc -le $initialLogProbe.last_write_utc) {
+        throw 'GPU-Z reference log did not grow during the first half of capture.'
+    }
+
+    Wait-BoundedCaptureInterval `
+        -Seconds ($DurationSeconds - $firstHalfSeconds) `
+        -DebugLogPath $debugLogPath `
+        -MaximumSizeBytes $maximumDebugLogSizeBytes
+    Invoke-CdbDetach -PipeName $pipeName -ServerProcess $debugger -DebugLogPath $debugLogPath -MaximumSizeBytes $maximumDebugLogSizeBytes -DetachOutputPath $detachOutputPath -DetachErrorPath $detachErrorPath
+}
+finally {
+    if ($null -ne $debugger) {
+        $debugger.Refresh()
+        if (-not $debugger.HasExited) {
+            Invoke-CdbDetach -PipeName $pipeName -ServerProcess $debugger -DebugLogPath $debugLogPath -MaximumSizeBytes $maximumDebugLogSizeBytes -DetachOutputPath $detachOutputPath -DetachErrorPath $detachErrorPath
+        }
+    }
+}
+
+$capturedUtc = [DateTimeOffset]::UtcNow
+$supervisionCompletedUtc = $capturedUtc
+$finalGpuzCheckpoint = $null
+$finalHwinfoCheckpoint = $null
+if ($ObservationVersion3) {
+    $finalGpuzCheckpoint = New-ReferenceCheckpoint -Path $GpuzLogPath -Kind gpuz -Phase after
+    $finalHwinfoCheckpoint = New-ReferenceCheckpoint -Path $HwinfoLogPath -Kind hwinfo -Phase after
+    Assert-ReferenceCheckpointGrowth -Before $midpointGpuzCheckpoint -After $finalGpuzCheckpoint
+    Assert-ReferenceCheckpointGrowth -Before $midpointHwinfoCheckpoint -After $finalHwinfoCheckpoint
+    $finalLogProbe = [pscustomobject]@{
+        size_bytes = $finalGpuzCheckpoint.checkpoint.size_bytes
+        last_write_utc = [DateTimeOffset]$finalGpuzCheckpoint.checkpoint.last_write_utc
+        last_sample_local = $finalGpuzCheckpoint.checkpoint.last_sample_local
+    }
+} else { $finalLogProbe = Get-LogProbe -Path $GpuzLogPath }
+if ($null -eq $midpointLogProbe -or
+    $finalLogProbe.size_bytes -le $midpointLogProbe.size_bytes -or
+    $finalLogProbe.last_write_utc -le $midpointLogProbe.last_write_utc) {
+    throw 'GPU-Z reference log did not continue growing through the capture window.'
+}
+
+$gpuProcess.Refresh()
+if ($gpuProcess.HasExited -or -not $gpuProcess.Responding) {
+    throw 'GPU-Z was not alive and responsive after the confirmed debugger detach.'
+}
+
+Assert-RegularLocalFile `
+    -Path $debugLogPath `
+    -Description 'Debugger transcript' `
+    -MaximumSizeBytes $maximumDebugLogSizeBytes
+$debugText = Get-Content -LiteralPath $debugLogPath -Raw
+$debuggerCommandFailure = [regex]::Match(
+    $debugText,
+    'Command file execution failed|Syntax error|Some commands were skipped|Numeric expression missing|Couldn.t resolve|Unable to insert breakpoint|Memory access error',
+    [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+if ($debuggerCommandFailure.Success) {
+    throw "CDB reported a command failure: $($debuggerCommandFailure.Value)."
+}
+
+$loadedModuleMatches = [regex]::Matches(
+    $debugText,
+    '(?im)^ModLoad:\s+(?<start>[0-9a-f]{8})\s+(?<end>[0-9a-f]{8})\s+(?<path>[^\r\n]*\\nvapi_impl\.dll)\s*$')
+if ($loadedModuleMatches.Count -ne 1) {
+    throw 'The debugger transcript did not prove exactly one loaded nvapi_impl.dll image.'
+}
+
+$loadedModuleMatch = $loadedModuleMatches[0]
+$loadedModulePath = [IO.Path]::GetFullPath(
+    $loadedModuleMatch.Groups['path'].Value.Trim())
+Assert-RegularLocalFile `
+    -Path $loadedModulePath `
+    -Description 'NVAPI module loaded in the GPU-Z target' `
+    -MaximumSizeBytes 64MB
+if ((Get-PeMachine -Path $loadedModulePath) -ne 0x014c) {
+    throw 'The NVAPI implementation loaded in GPU-Z is not a 32-bit PE image.'
+}
+
+$loadedModuleSha256 = (Get-FileHash `
+    -LiteralPath $loadedModulePath `
+    -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($loadedModuleSha256 -ne $profile.nvapi_module_sha256) {
+    throw 'The NVAPI image actually loaded in GPU-Z does not match the allowlisted SHA-256.'
+}
+
+$loadedModuleStart = [Convert]::ToUInt32(
+    $loadedModuleMatch.Groups['start'].Value,
+    16)
+$loadedModuleEnd = [Convert]::ToUInt32(
+    $loadedModuleMatch.Groups['end'].Value,
+    16)
+$functionRva = [Convert]::ToUInt32($profile.function_rva.Substring(2), 16)
+if ($loadedModuleEnd -le $loadedModuleStart -or
+    $functionRva -ge ([uint64]$loadedModuleEnd - $loadedModuleStart)) {
+    throw 'The allowlisted cooler function RVA is outside the loaded NVAPI image range.'
+}
+
+$recordPattern = (
+    '(?ms)^RTXMON_NVAPI_COOLER_V1_BEGIN site=(?<site>0x[0-9a-f]{8}) ' +
+    'tid=0x(?<tid>[0-9a-f]{8}) status=0x(?<status>[0-9a-f]{8}) ' +
+    'buffer=0x(?<buffer>[0-9a-f]{8})\r?\n' +
+    '(?<dump>.*?)' +
+    '^RTXMON_NVAPI_COOLER_V1_END site=(?<end_site>0x[0-9a-f]{8})\r?$'
+)
+$hitRecords = [regex]::Matches(
+    $debugText,
+    $recordPattern,
+    [Text.RegularExpressions.RegexOptions]::IgnoreCase
+)
+if ($hitRecords.Count -lt 1 -or $hitRecords.Count -gt $maximumCaptureRecords) {
+    throw "Cooler-status record count must be between 1 and $maximumCaptureRecords."
+}
+$samples = [Collections.Generic.List[object]]::new()
+foreach ($hitRecord in $hitRecords) {
+    $callerRva = $hitRecord.Groups['site'].Value.ToLowerInvariant()
+    $endCallerRva = $hitRecord.Groups['end_site'].Value.ToLowerInvariant()
+    if ($callerRva -ne $endCallerRva -or
+        $profile.caller_rvas -notcontains $callerRva) {
+        throw 'A cooler-status record has an invalid call-site boundary.'
+    }
+
+    $returnStatus = '0x{0}' -f
+        $hitRecord.Groups['status'].Value.ToLowerInvariant()
+    if ($returnStatus -ne '0x00000000') {
+        throw "The fixed cooler-status call returned a non-success status: $returnStatus."
+    }
+
+    $bufferAddress = '0x{0}' -f
+        $hitRecord.Groups['buffer'].Value.ToLowerInvariant()
+    $bufferAddressValue = [Convert]::ToUInt64($bufferAddress.Substring(2), 16)
+    if ($bufferAddressValue -eq 0) {
+        throw 'The cooler-status call returned a null buffer pointer.'
+    }
+
+    $wordMatches = [regex]::Matches(
+        $hitRecord.Groups['dump'].Value,
+        '(?im)^(?<address>[0-9a-f]{8}(?:\x60[0-9a-f]{8})?)[ \t]+(?<value>[0-9a-f]{8})[ \t]*\r?$',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    if ($wordMatches.Count -ne $profile.structure_word_count) {
+        throw "A cooler-status hit does not contain exactly $($profile.structure_word_count) bounded DWORDs."
+    }
+
+    $rawWords = @(
+        for ($wordIndex = 0; $wordIndex -lt $profile.structure_word_count; $wordIndex++) {
+            $wordMatch = $wordMatches[$wordIndex]
+            $addressText = $wordMatch.Groups['address'].Value.Replace(
+                ([char]0x60).ToString(),
+                ''
+            )
+            $observedAddress = [Convert]::ToUInt64($addressText, 16)
+            $expectedAddress = $bufferAddressValue + [uint64]($wordIndex * 4)
+            if ($observedAddress -ne $expectedAddress) {
+                throw "Cooler-status DWORD addresses are not contiguous at index $wordIndex."
+            }
+
+            '0x{0}' -f $wordMatch.Groups['value'].Value.ToLowerInvariant()
+        }
+    )
+    if ($rawWords[0] -ne $profile.structure_version) {
+        throw "Cooler-status structure version changed from $($profile.structure_version)."
+    }
+
+    $countWord = [Convert]::ToUInt32($rawWords[1].Substring(2), 16)
+    $observedCount = [int]($countWord -band [uint32]0xff)
+    if ($observedCount -lt 1 -or $observedCount -gt $profile.entry_capacity) {
+        throw "Cooler-status count $observedCount is outside the fixed capacity."
+    }
+
+    $rawEntries = @(
+        for ($entryIndex = 0; $entryIndex -lt $observedCount; $entryIndex++) {
+            $baseByteOffset = $profile.entry_base_offset +
+                ($entryIndex * $profile.entry_stride_bytes)
+            $baseWordIndex = [int]($baseByteOffset / 4)
+            [pscustomobject]@{
+                entry_index = $entryIndex
+                base_word_index = $baseWordIndex
+                raw_identifier_word = $rawWords[$baseWordIndex]
+                raw_field_words = @(
+                    foreach ($byteOffset in $profile.raw_field_byte_offsets_within_entry) {
+                        $rawWords[$baseWordIndex + [int]($byteOffset / 4)]
+                    }
+                )
+            }
+        }
+    )
+
+    $sample = [ordered]@{
+            sequence = $samples.Count + 1
+            thread_id = '0x{0}' -f
+                $hitRecord.Groups['tid'].Value.ToLowerInvariant()
+            caller_rva = $callerRva
+            return_status = $returnStatus
+            buffer_address = $bufferAddress
+            structure_version = $rawWords[0]
+            observed_count = $observedCount
+            raw_words = $rawWords
+            raw_entries = $rawEntries
+        }
+    if ($ObservationVersion3) {
+        $returnClock = Convert-CdbReturnClock -Text $hitRecord.Groups['dump'].Value
+        $sample.captured_at_utc = $returnClock.captured_at_utc
+        $sample.timestamp_precision_ns = $returnClock.timestamp_precision_ns
+        $sample.system_uptime_100ns = $returnClock.system_uptime_100ns
+        $sample.system_uptime_precision_ns = $returnClock.system_uptime_precision_ns
+        $sampleInstant = [DateTimeOffset]$returnClock.captured_at_utc
+        # A displayed second/millisecond represents a time interval, not exact clock accuracy.
+        $displayMargin = [TimeSpan]::FromTicks([long]($returnClock.timestamp_precision_ns / 100))
+        if ($sampleInstant + $displayMargin -lt $supervisionStartedUtc -or
+            $sampleInstant -gt $supervisionCompletedUtc + $displayMargin) {
+            throw 'A per-return CDB clock is outside the supervised attach/detach interval.'
+        }
+        if ($samples.Count -gt 0 -and
+            ($returnClock.system_uptime_100ns -lt $samples[$samples.Count - 1].system_uptime_100ns -or
+             $sampleInstant -lt [DateTimeOffset]$samples[$samples.Count - 1].captured_at_utc)) {
+            throw 'Per-return CDB clocks moved backwards; no interpolation or clock repair is permitted.'
+        }
+    }
+    $samples.Add([pscustomobject]$sample)
+}
+
+if ($samples.Count -eq 0) {
+    throw 'No successful cooler-status v1 call was observed during the bounded window.'
+}
+
+$callSites = @(
+    foreach ($callerRva in $profile.caller_rvas) {
+        $siteCallCount = @($samples | Where-Object { $_.caller_rva -eq $callerRva }).Count
+        if ($siteCallCount -lt 1) {
+            throw "No complete 426-DWORD observation was captured at call site $callerRva."
+        }
+
+        [ordered]@{
+            caller_rva = $callerRva
+            call_count = $siteCallCount
+        }
+    }
+)
+
+$report = [ordered]@{
+    schema_version = $(if ($ObservationVersion3) { 3 } else { 2 })
+    source_kind = 'nvapi_cooler_status_v1_observation'
+    profile_name = $profile.name
+    capture_started_utc = $captureStartedUtc.ToString('O')
+    captured_utc = $capturedUtc.ToString('O')
+    duration_seconds = $DurationSeconds
+    process_id = $gpuProcess.Id
+    gpuz_sha256 = $gpuzSha256
+    debugger_sha256 = (
+        Get-FileHash -LiteralPath $CdbPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    debugger_file_version = (Get-Item -LiteralPath $CdbPath).VersionInfo.FileVersion
+    gpu_profile = [ordered]@{
+        gpu_index = $identity.gpu.index
+        gpu_name = $identity.gpu.name
+        gpu_uuid = $identity.gpu.uuid
+        driver_version = $identity.gpu.driver_version
+        nvml_version = $identity.gpu.nvml_version
+        pci_bus_id = $identity.board.pci_bus_id
+        pci_vendor_id = $identity.board.pci_vendor_id
+        pci_device_id = $identity.board.pci_device_id
+        pci_subsystem_vendor_id = $identity.board.pci_subsystem_vendor_id
+        pci_subsystem_device_id = $identity.board.pci_subsystem_device_id
+        vbios_version = $identity.board.vbios_version
+    }
+    identity_probe_sha256 = $identityProbeSha256
+    candidate_inventory_sha256 = $candidateInventorySha256
+    prior_observation_sha256 = $priorObservationSha256
+    nvapi_module_sha256 = $profile.nvapi_module_sha256
+    loaded_nvapi_module = [ordered]@{
+        file_name = [IO.Path]::GetFileName($loadedModulePath)
+        file_sha256 = $loadedModuleSha256
+        start_address = '0x{0:x8}' -f $loadedModuleStart
+        end_address = '0x{0:x8}' -f $loadedModuleEnd
+        proof_source = 'cdb_modload_target_image'
+    }
+    interface_id = $profile.interface_id
+    function_rva = $profile.function_rva
+    caller_module_name = $profile.caller_module_name
+    caller_rvas = $profile.caller_rvas
+    capture_point = $profile.capture_point
+    buffer_pointer_expression = $profile.buffer_pointer_expression
+    return_status_register = $profile.return_status_register
+    structure_version = $profile.structure_version
+    structure_size_bytes = $profile.structure_size_bytes
+    structure_word_count = $profile.structure_word_count
+    count_byte_offset = $profile.count_byte_offset
+    entry_base_offset = $profile.entry_base_offset
+    entry_stride_bytes = $profile.entry_stride_bytes
+    entry_capacity = $profile.entry_capacity
+    raw_field_byte_offsets_within_entry =
+        $profile.raw_field_byte_offsets_within_entry
+    reference_log = [ordered]@{
+        size_bytes_before = $initialLogProbe.size_bytes
+        size_bytes_midpoint = $midpointLogProbe.size_bytes
+        size_bytes_after = $finalLogProbe.size_bytes
+        last_write_utc_before = $initialLogProbe.last_write_utc.ToString('O')
+        last_write_utc_midpoint = $midpointLogProbe.last_write_utc.ToString('O')
+        last_write_utc_after = $finalLogProbe.last_write_utc.ToString('O')
+        last_sample_local_before = $initialLogProbe.last_sample_local
+        last_sample_local_midpoint = $midpointLogProbe.last_sample_local
+        last_sample_local_after = $finalLogProbe.last_sample_local
+        grew_during_capture = $true
+    }
+    call_count = $samples.Count
+    call_sites = $callSites
+    samples = @($samples)
+    warning = 'This fixed, fail-closed GPU, PCI, VBIOS, driver, artifact, and loaded-module profile passively reads the complete 426-DWORD buffer supplied by signed GPU-Z at two post-call return sites. It never calls NVAPI, writes memory, interprets the four raw per-entry fields, or generalizes this private interface beyond the anchored profile.'
+}
+if ($ObservationVersion3) {
+    $timezone = [TimeZoneInfo]::Local
+    $offsetBefore = $timezone.GetUtcOffset($supervisionStartedUtc)
+    $offsetAfter = $timezone.GetUtcOffset($supervisionCompletedUtc)
+    if ($offsetBefore -ne $offsetAfter) { throw 'The local UTC offset changed during capture; reference alignment is ambiguous.' }
+    $report.capture_session_id = [Guid]::NewGuid().ToString('D')
+    $report.supervision_started_utc = $supervisionStartedUtc.ToString('O')
+    $report.supervision_completed_utc = $supervisionCompletedUtc.ToString('O')
+    $report.clock = [ordered]@{
+        source = 'cdb_time_command'
+        command = '.time -h 0'
+        timestamp_event = 'debugger_stopped_at_post_call'
+        timezone_id = $timezone.Id
+        local_utc_offset_minutes = [int]$offsetBefore.TotalMinutes
+        resolution_kind = 'display_precision_only'
+        timestamp_interpolation = $false
+        capture_window_source = 'supervisor_utc_with_attach_race'
+        accuracy_bound_available = $false
+    }
+    $report.references = [ordered]@{
+        gpuz = Save-SealedReference -Path $GpuzLogPath -Kind gpuz -Directory $OutputDirectory `
+            -Checkpoints @($initialGpuzCheckpoint, $midpointGpuzCheckpoint, $finalGpuzCheckpoint)
+        hwinfo = Save-SealedReference -Path $HwinfoLogPath -Kind hwinfo -Directory $OutputDirectory `
+            -Checkpoints @($initialHwinfoCheckpoint, $midpointHwinfoCheckpoint, $finalHwinfoCheckpoint)
+    }
+}
+$reportJson = $report | ConvertTo-Json -Depth 10
+if ($ObservationVersion3 -and [Text.Encoding]::UTF8.GetByteCount($reportJson) -gt 16MB) {
+    throw 'The v3 observation exceeds the bounded 16 MiB offline input limit.'
+}
+if (-not ($reportJson | Test-Json -SchemaFile $reportSchemaPath)) {
+    throw 'Cooler-status report did not satisfy its selected versioned observation schema.'
+}
+
+$reportJson | Set-Content -LiteralPath $reportPath -Encoding utf8NoBOM
+if (Test-Path -LiteralPath $failurePath -PathType Leaf) {
+    Remove-Item -LiteralPath $failurePath -Force
+}
+
+$report | ConvertTo-Json -Depth 10

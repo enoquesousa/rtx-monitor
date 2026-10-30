@@ -1,0 +1,39 @@
+/build/
+/artifacts/
+/desktop/target/
+/desktop/assets/models/*.blend1
+/desktop/assets/models/motion-proof-*/
+/desktop/model-tools/*.log
+**/bin/
+**/obj/
+**/__pycache__/
+*.py[cod]
+/scripts/research-readers/**/_runtime/
+
+# Research inputs and their pinned manifest are kept on the owner's computer.
+# Public source builds run with public telemetry when this bundle is absent.
+/scripts/research-readers/
+/scripts/tests/test_research_provider.py
+.vs/
+.vscode/
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# Local reverse-engineering evidence and proprietary firmware inputs.
+/experiments/local/
+/evidence/
+/dumps/
+*.rom
+*.vbios
+*.bin
+*.dump
+*.dmp
+*.raw
+*.mmio
+*.pciconfig
+*.evidence.zip
+*.evidence.tar
+*.evidence.tar.gz
+*.evidence.tar.zst

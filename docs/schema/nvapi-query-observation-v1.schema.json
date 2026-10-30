@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:nvapi-query-observation:1",
+  "title": "RTX Monitor NVAPI query observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "captured_utc",
+    "duration_seconds",
+    "gpuz_sha256",
+    "forced_target_process_ids",
+    "observation_count",
+    "unique_interface_count",
+    "interfaces",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "source_kind": {
+      "const": "nvapi_query_interface_observation"
+    },
+    "captured_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "gpuz_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "forced_target_process_ids": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "uniqueItems": true
+    },
+    "observation_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unique_interface_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "interfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "interface_id",
+          "call_count"
+        ],
+        "properties": {
+          "interface_id": {
+            "type": "string",
+            "pattern": "^0x[0-9a-f]{8}$"
+          },
+          "call_count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

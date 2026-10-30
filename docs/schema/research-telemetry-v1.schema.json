@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RTX Monitor reviewed research telemetry v1",
+  "description": "Cached, opt-in fixed read contracts. Each suite has its own acquisition time. Raw payloads do not imply known units or physical sensor locations. view=summary omits query and data payloads.",
+  "type": "object",
+  "required": ["schema_version", "state", "observed_at", "updated_at", "identity", "collection", "settings_writes_requested"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "state": { "type": "string" },
+    "observed_at": { "type": ["string", "null"], "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "identity": { "type": ["object", "null"] },
+    "expected_identity": { "type": "object" },
+    "settings_writes_requested": { "const": false },
+    "physical_accuracy_guarantee": { "const": false },
+    "error": { "type": ["string", "null"] },
+    "collection": {
+      "type": ["object", "null"],
+      "properties": {
+        "expected_suites": { "type": "integer", "minimum": 0 },
+        "completed_suites": { "type": "integer", "minimum": 0 },
+        "active_suite": { "type": ["string", "null"] },
+        "cycle": { "type": "integer", "minimum": 0 },
+        "readings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field", "state", "captured_at", "value", "unit", "max_age_ms"],
+            "properties": {
+              "field": { "type": "string" },
+              "state": { "type": "string" },
+              "captured_at": { "type": "string", "format": "date-time" },
+              "value": { "type": ["number", "null"] },
+              "unit": { "type": "string" },
+              "max_age_ms": { "type": "integer", "minimum": 1 },
+              "physical_site": { "type": "null" },
+              "physical_accuracy_guarantee": { "const": false }
+            }
+          }
+        },
+        "suites": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["suite", "state", "captured_at"],
+            "properties": {
+              "suite": { "type": "string" },
+              "state": { "type": "string" },
+              "captured_at": { "type": "string", "format": "date-time" },
+              "queries": { "type": "array", "items": { "type": "object" } },
+              "query_count": { "type": "integer", "minimum": 0 },
+              "available_count": { "type": "integer", "minimum": 0 },
+              "max_age_ms": { "type": "integer", "minimum": 1 },
+              "data": {},
+              "error": { "type": "string" }
+            }
+          }
+        },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "query_records": { "type": "integer", "minimum": 0 },
+            "unique_ids_invoked": { "type": "integer", "minimum": 0 },
+            "available_output": { "type": "integer", "minimum": 0 },
+            "success_without_available_payload": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

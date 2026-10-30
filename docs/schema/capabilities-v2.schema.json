@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/enoquesousa/rtx-monitor/main/docs/schema/capabilities-v2.schema.json",
+  "title": "RTX Monitor thermal capability inventory v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "gpu",
+    "board",
+    "captured_at_unix_ms",
+    "providers",
+    "thermal_capabilities"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "gpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "name", "uuid", "driver_version", "nvml_version"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "name": { "type": "string" },
+        "uuid": { "type": "string" },
+        "driver_version": { "type": "string" },
+        "nvml_version": { "type": "string" }
+      }
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pci_identity_available",
+        "pci_bus_id",
+        "pci_vendor_id",
+        "pci_device_id",
+        "pci_subsystem_vendor_id",
+        "pci_subsystem_device_id",
+        "vbios_available",
+        "vbios_version",
+        "profile_key"
+      ],
+      "properties": {
+        "pci_identity_available": { "type": "boolean" },
+        "pci_bus_id": {
+          "type": "string",
+          "pattern": "^$|^[0-9A-Fa-f]{8}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}\\.[0-7]$"
+        },
+        "pci_vendor_id": { "$ref": "#/$defs/pciId" },
+        "pci_device_id": { "$ref": "#/$defs/pciId" },
+        "pci_subsystem_vendor_id": { "$ref": "#/$defs/pciId" },
+        "pci_subsystem_device_id": { "$ref": "#/$defs/pciId" },
+        "vbios_available": { "type": "boolean" },
+        "vbios_version": { "type": ["string", "null"] },
+        "profile_key": { "type": "string", "minLength": 1 }
+      }
+    },
+    "captured_at_unix_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "providers": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "state", "native_status", "capability_count"],
+        "properties": {
+          "provider": { "$ref": "#/$defs/provider" },
+          "state": { "$ref": "#/$defs/state" },
+          "native_status": { "type": "integer" },
+          "capability_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          }
+        }
+      }
+    },
+    "thermal_capabilities": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "provider_native_id",
+          "target",
+          "controller",
+          "state",
+          "confidence",
+          "current_temperature_c",
+          "default_min_temperature_c",
+          "default_max_temperature_c",
+          "native_status"
+        ],
+        "properties": {
+          "provider": { "$ref": "#/$defs/provider" },
+          "provider_native_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "target": {
+            "enum": [
+              "none",
+              "gpu",
+              "memory",
+              "power_supply",
+              "board",
+              "vcd_board",
+              "vcd_inlet",
+              "vcd_outlet",
+              "unknown"
+            ]
+          },
+          "controller": {
+            "enum": [
+              "none",
+              "gpu_internal",
+              "adm1032",
+              "adt7461",
+              "max6649",
+              "max1617",
+              "lm99",
+              "lm89",
+              "lm64",
+              "g781",
+              "adt7473",
+              "sbmax6649",
+              "vbios_event",
+              "os",
+              "nvsyscon_canoas",
+              "nvsyscon_e551",
+              "max6649r",
+              "adt7473s",
+              "unknown"
+            ]
+          },
+          "state": { "$ref": "#/$defs/state" },
+          "confidence": {
+            "enum": ["unknown", "driver_reported", "experimental"]
+          },
+          "current_temperature_c": { "$ref": "#/$defs/nullableTemperature" },
+          "default_min_temperature_c": { "$ref": "#/$defs/nullableTemperature" },
+          "default_max_temperature_c": { "$ref": "#/$defs/nullableTemperature" },
+          "native_status": { "type": "integer" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pciId": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{4}$"
+    },
+    "provider": {
+      "enum": [
+        "NVML nvmlDeviceGetThermalSettings",
+        "NVML nvmlDeviceGetFieldValues",
+        "NVAPI NvAPI_GPU_GetThermalSettings"
+      ]
+    },
+    "state": {
+      "enum": [
+        "unknown",
+        "available",
+        "not_supported",
+        "provider_unavailable",
+        "query_failed"
+      ]
+    },
+    "nullableTemperature": {
+      "type": ["integer", "null"]
+    }
+  }
+}

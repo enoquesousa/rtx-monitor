@@ -1,0 +1,6 @@
+* text=auto eol=lf
+
+# These reviewed research inputs are verified byte for byte against a pinned
+# manifest. Never normalize their line endings when adding or checking out.
+scripts/research-readers/vendor/** -text
+scripts/research-readers/manifest.json -text

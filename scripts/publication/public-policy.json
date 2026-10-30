@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "allowed_extensions": [
+    ".bat", ".blend", ".c", ".cmake", ".cmd", ".cpp", ".cs", ".csproj",
+    ".css", ".csv", ".glb", ".h", ".html", ".hpp", ".java", ".js",
+    ".json", ".lock", ".md", ".png", ".props", ".ps1", ".py", ".rs",
+    ".sh", ".svg", ".toml", ".txt", ".wgsl", ".yml"
+  ],
+  "allowed_extensionless_names": [
+    ".editorconfig", ".gitattributes", ".gitignore", "LICENSE",
+    "CMakeLists.txt"
+  ],
+  "denied_prefixes": [
+    "artifacts/", "dumps/", "evidence/", "experiments/local/",
+    "scripts/research-readers/"
+  ],
+  "denied_extensions": [
+    ".bin", ".dmp", ".dump", ".evidence", ".exe", ".log", ".pciconfig",
+    ".raw", ".rom", ".sys", ".vbios"
+  ],
+  "allowed_synthetic_gpu_uuids": [
+    "GPU-00000000-0000-0000-0000-000000000000",
+    "GPU-00000000-0000-0000-0000-000000000001",
+    "GPU-11111111-2222-3333-4444-555555555555",
+    "GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  ]
+}

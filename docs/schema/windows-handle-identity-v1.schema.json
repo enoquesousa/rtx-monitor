@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:windows-handle-identity:1",
+  "title": "RTX Monitor Windows handle identity v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "captured_utc",
+    "process_id",
+    "process_image_name",
+    "process_image_sha256",
+    "handle",
+    "object_type",
+    "object_name",
+    "dos_device_alias",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "source_kind": {
+      "const": "windows_handle_identity"
+    },
+    "captured_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "process_id": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "process_image_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "process_image_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "handle": {
+      "type": "string",
+      "pattern": "^0x(?:[0-9a-f]{8}|[0-9a-f]{16})$"
+    },
+    "object_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "object_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "dos_device_alias": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

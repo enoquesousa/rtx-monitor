@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "validation": "offline_glb_geometry_and_reference_integrity",
+  "hardware_calls": 0,
+  "parts": 29,
+  "gltf_nodes": 29,
+  "gpu_bound_parts": 1,
+  "unlocalized_thermal_channels": 7,
+  "rotor_nodes": 2,
+  "blades_per_rotor": 9,
+  "input_references_unchanged": 13,
+  "vertices_after_gltf_vertex_splitting": 149293,
+  "triangles": 101466,
+  "glb_bytes": 5320000,
+  "glb_sha256": "a74888db5daf74d456fe3578cc258bf7dbc3cf145a2b235398396a83f92ac97d",
+  "dimensional_accuracy": "visual approximation only; no calibrated input scale",
+  "physical_fan_mapping_verified": false,
+  "unknown_component_temperatures_assigned": false
+}

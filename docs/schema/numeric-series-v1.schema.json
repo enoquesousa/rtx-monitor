@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:numeric-series:1",
+  "title": "RTX Monitor numeric time-series analysis input",
+  "description": "Strict versioned input consumed by the rtxmon-lab offline series analyzer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "candidate_id",
+    "candidate_source_kind",
+    "value_unit",
+    "locator",
+    "hypothesis",
+    "alternative_hypotheses",
+    "limitations",
+    "samples",
+    "reference"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source_kind": { "const": "numeric_time_series" },
+    "candidate_id": { "$ref": "#/$defs/identifier" },
+    "candidate_source_kind": {
+      "enum": [
+        "pci_config",
+        "bar0_mmio",
+        "private_interface",
+        "vbios_offline",
+        "public_telemetry",
+        "external_reference"
+      ]
+    },
+    "value_unit": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "locator": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/locator" }
+      ]
+    },
+    "hypothesis": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1, "maxLength": 4096 }
+      ]
+    },
+    "alternative_hypotheses": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "samples": { "$ref": "#/$defs/samples" },
+    "reference": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/reference" }
+      ]
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "offset_bytes",
+        "width_bytes",
+        "endianness",
+        "signed",
+        "scale",
+        "addend"
+      ],
+      "properties": {
+        "operation_id": { "$ref": "#/$defs/identifier" },
+        "offset_bytes": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "width_bytes": { "enum": [1, 2, 4, 8] },
+        "endianness": { "enum": ["little", "big"] },
+        "signed": { "type": "boolean" },
+        "scale": { "type": "number" },
+        "addend": { "type": "number" }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["monotonic_ns", "value"],
+      "properties": {
+        "monotonic_ns": { "type": "integer", "minimum": 0 },
+        "value": { "type": "number" }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 1000000,
+      "items": { "$ref": "#/$defs/sample" }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "unit", "samples"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "unit": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "samples": { "$ref": "#/$defs/samples" }
+      }
+    }
+  }
+}

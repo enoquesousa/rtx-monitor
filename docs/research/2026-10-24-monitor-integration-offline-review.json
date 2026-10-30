@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "review_kind": "independent_offline_integration_review",
+  "created_utc": "2026-10-25T03:01:51.273917+00:00",
+  "hardware_calls_by_reviewer": 0,
+  "hardware_validation": "Executed separately by the root coordinator; this document does not assert runtime success.",
+  "pins": {
+    "manifest_sha256": "a6bc298410ce2d8d9249a8e521a30e51e609a00bd14d6b918dffefec03cdfce0",
+    "worker_sha256": "6b730f133c85f68818e390530df26d0b7c9481e35556fd36327d5621919cfae3",
+    "tests_sha256": "dd741426d3719628315b6c1ad6fac553af7ebb3b9eb807b1745608dab55bd51d",
+    "catalog_sha256": "722bc3f9ad9ab04c787ef7b900d787a38636dfc3f23602a631c50ed8df577dda"
+  },
+  "bundle_review": {
+    "fixed_suite_entries": 45,
+    "original_vendor_source_files_compared": 1991,
+    "source_hash_mismatches": 0,
+    "vendor_bytes": 25029559,
+    "nvidia_executable_binaries_bundled": false,
+    "arbitrary_id_or_selector_cli": false,
+    "owned_bridge_introspection_entry": false,
+    "initial_legacy_clocks_mode_enabled": false,
+    "later_reviewed_legacy_clock_contract": "coverage-private -> probe_private_v3 -> v2 -> v1; units remain raw",
+    "external_sdk_headers_copied": 8,
+    "external_sdk_header_paths_in_json": 7,
+    "external_sdk_pin_occurrences": 21,
+    "output_guards_unchanged": true,
+    "runtime_temporary_output": "Only vendored remaining-2026-10-24/_runtime for thermal-cache and group-info; automatic cleanup."
+  },
+  "offline_tests": {
+    "command": "python -B scripts/tests/test_research_provider.py -v",
+    "cases_passed": 28,
+    "cases_failed": 0,
+    "areas": [
+      "manifest tamper and changed source bytes fail closed",
+      "fixed suite selection and path containment",
+      "Python3.13 absolute proof relocation preserves SHA",
+      "SDK directory-plus-header path relocation",
+      "disposable child sibling imports",
+      "observed zero versus unchanged zero buffer",
+      "native error and canary failure discard numbers",
+      "HRESULT versus CUDA/NVAPI success rules",
+      "stale acquisitions do not renew on publication",
+      "latest failed sample withdraws previous success",
+      "FAST reader failure clears other private cache and identity",
+      "unknown A7F values are not converted to temperature",
+      "configuration readback differences reject suite",
+      "All actual absolute SDK header references and SHA pins in vendored JSON resolve to copied bytes, including d3d11.h",
+      "Original thermal-cache/group-info main output guards executed with inert native routine: scoped paths accepted, external paths rejected and temporary directories removed",
+      "Windows atomic replace transient lock retries commit complete JSON; permanent locks raise after20 attempts and preserve published bytes"
+    ]
+  },
+  "limits": [
+    "Seven additional thermal origins remain physically unidentified.",
+    "A7F cached thermal history has no proved unit conversion.",
+    "Metadata/predicates/cache states do not become physically identified sensor measurements.",
+    "NVML fan RPM is reported/intended speed, not a certified mechanical tachometer.",
+    "Voltage formula was externally corroborated at one plateau; no physical accuracy guarantee.",
+    "Native610.88 profile stays gated;621.01 research provider remains separate.",
+    "Research snapshots/export are separate from public SQLite event history.",
+    "Historical29suite/79ID/303call inventory is not a fresh simultaneous run."
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:lab-command-error:1",
+  "title": "RTX Monitor laboratory command error",
+  "description": "Exact JSON error envelope written to stderr by rtxmon-lab. Exit code 2 denotes invalid arguments; exit code 1 denotes a package or I/O error; unsupported_platform is emitted before path access outside Windows.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operation",
+    "status",
+    "error_code",
+    "message"
+  ],
+  "properties": {
+    "operation": {
+      "type": ["string", "null"]
+    },
+    "status": {
+      "const": "error"
+    },
+    "error_code": {
+      "enum": ["invalid_arguments", "package_error", "analysis_error", "unsupported_platform", "io_error"]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

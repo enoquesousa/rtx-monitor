@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:nvapi-interface-resolution:1",
+  "title": "RTX Monitor NVAPI interface resolution observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "captured_utc",
+    "duration_seconds",
+    "gpuz_sha256",
+    "observation_count",
+    "unique_interface_count",
+    "resolved_observation_count",
+    "null_result_count",
+    "modules",
+    "interfaces",
+    "warning"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "source_kind": {
+      "const": "nvapi_query_interface_resolution_observation"
+    },
+    "captured_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_seconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "gpuz_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "observation_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unique_interface_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "resolved_observation_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "null_result_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "module_name",
+          "original_file_name",
+          "size_bytes",
+          "image_size",
+          "sha256"
+        ],
+        "properties": {
+          "module_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "original_file_name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "image_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    "interfaces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "interface_id",
+          "call_count",
+          "resolved_count",
+          "null_result_count",
+          "targets"
+        ],
+        "properties": {
+          "interface_id": {
+            "$ref": "#/$defs/interfaceId"
+          },
+          "call_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "resolved_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "null_result_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/target"
+            }
+          }
+        }
+      }
+    },
+    "warning": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "interfaceId": {
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{8}$"
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_name",
+        "module_sha256",
+        "rva",
+        "observation_count"
+      ],
+      "properties": {
+        "module_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "module_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rva": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^0x[0-9a-f]{8}$"
+        },
+        "observation_count": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "module_name": {
+              "type": "string"
+            },
+            "module_sha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "rva": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "properties": {
+            "module_name": {
+              "type": "null"
+            },
+            "module_sha256": {
+              "type": "null"
+            },
+            "rva": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

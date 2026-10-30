@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "source_kind": "profile_telemetry",
+  "origin": "private_profile",
+  "support_scope": "exact_gpu_driver_module_profile",
+  "runtime_source": "direct_nvidia_driver",
+  "validation_revision": "v011-source-fidelity-1",
+  "gpu_index": 0,
+  "gpu_uuid": "GPU-11111111-2222-3333-4444-555555555555",
+  "captured_at_utc": "2026-09-06T13:37:01.0994673+00:00",
+  "captured_at_unix_ms": 1788701821099,
+  "profile_id": "rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88",
+  "profile_revision": 2,
+  "profile_state": "active",
+  "revocation_reason": null,
+  "identity": {
+    "gpu_uuid": "GPU-11111111-2222-3333-4444-555555555555",
+    "driver_version": "610.88",
+    "nvml_version": "13.610.88",
+    "pci_vendor_id": "0x10de",
+    "pci_device_id": "0x2504",
+    "pci_subsystem_vendor_id": "0x10de",
+    "pci_subsystem_device_id": "0x1536",
+    "vbios_version": "94.06.25.00.fc"
+  },
+  "expected_identity": {
+    "gpu_uuid": "GPU-11111111-2222-3333-4444-555555555555",
+    "driver_version": "610.88",
+    "vbios_version": "94.06.25.00.fc",
+    "pci_vendor_id": "0x10de",
+    "pci_device_id": "0x2504",
+    "pci_subsystem_vendor_id": "0x10de",
+    "pci_subsystem_device_id": "0x1536"
+  },
+  "gsp": {
+    "state": "not_observed",
+    "version": null
+  },
+  "fields": [
+    {
+      "field": "gpu_hotspot_temperature_c",
+      "state": "available",
+      "origin": "private_profile",
+      "value": 43.59375,
+      "raw_value": 11160,
+      "raw_encoding": "signed_fixed8",
+      "raw_source": "native_abi",
+      "formula": "raw_value / 256",
+      "wire_encoding": "signed_fixed8",
+      "wire_formula": "wire_raw_value / 256",
+      "wire_raw_value": 11160,
+      "wire_raw_state": "available",
+      "unit": "celsius",
+      "captured_at_utc": "2026-09-06T13:37:01.0990000+00:00",
+      "captured_at_unix_ms": 1788701821099,
+      "native_status": 0,
+      "acquisition": {
+        "started_at_utc": "2026-09-06T13:37:01.0980000+00:00",
+        "started_unix_ms": 1788701821098,
+        "started_monotonic_ms": 4056865,
+        "finished_monotonic_ms": 4056866,
+        "clock": "native_monotonic_milliseconds",
+        "scope": "thermal_pair"
+      },
+      "source_kind": "nvapi_thermal_channel",
+      "interface_id": "0x65fe3aad",
+      "structure_version": "0x000200a8",
+      "nvapi_module_sha256": "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4",
+      "function_rva": "0x001e0bc0",
+      "profile_evidence_stage": "matched_external_reference",
+      "provenance_state": "validated_worker_payload",
+      "tolerances": [
+        {
+          "reference": "GPU-Z",
+          "value": 0.051,
+          "unit": "celsius",
+          "scope": "same_acquisition_reference_rounding",
+          "asynchronous_comparison": "diagnostic_only",
+          "physical_accuracy_guarantee": false
+        }
+      ],
+      "evidence_references": [
+        "docs/adr/0010-fixed-profile-private-nvapi-acquisition.md",
+        "docs/profiles/rtx3060-galax-12gb.json",
+        "docs/profiles/rtx3060-runtime-fixture-provenance.json",
+        "docs/research/2026-09-06-v011-stabilization.md"
+      ]
+    },
+    {
+      "field": "gpu_core_voltage_v",
+      "state": "available",
+      "origin": "private_profile",
+      "value": 0.95,
+      "raw_value": 950000,
+      "raw_encoding": "unsigned_microvolts",
+      "raw_source": "native_abi",
+      "formula": "raw_value / 1000000",
+      "wire_encoding": "unsigned_microvolts",
+      "wire_formula": "wire_raw_value / 1000000",
+      "wire_raw_value": 950000,
+      "wire_raw_state": "available",
+      "unit": "volt",
+      "captured_at_utc": "2026-09-06T13:37:01.0990000+00:00",
+      "captured_at_unix_ms": 1788701821099,
+      "native_status": 0,
+      "acquisition": null,
+      "source_kind": "nvapi_voltage_status",
+      "interface_id": "0x465f9bcf",
+      "structure_version": "0x0001004c",
+      "nvapi_module_sha256": "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4",
+      "function_rva": "0x001c9070",
+      "profile_evidence_stage": "matched_external_reference",
+      "provenance_state": "validated_worker_payload",
+      "tolerances": [
+        {
+          "reference": "GPU-Z",
+          "value": 0.001,
+          "unit": "volt",
+          "scope": "recorded_reference_comparison",
+          "asynchronous_comparison": "diagnostic_only",
+          "physical_accuracy_guarantee": false
+        },
+        {
+          "reference": "HWiNFO",
+          "value": 0.002,
+          "unit": "volt",
+          "scope": "recorded_reference_comparison",
+          "asynchronous_comparison": "diagnostic_only",
+          "physical_accuracy_guarantee": false
+        }
+      ],
+      "evidence_references": [
+        "docs/adr/0010-fixed-profile-private-nvapi-acquisition.md",
+        "docs/research/2026-08-26-rtx3060-nvapi-voltage-status-v1.md",
+        "docs/profiles/rtx3060-galax-12gb.json",
+        "docs/profiles/rtx3060-runtime-fixture-provenance.json",
+        "csharp/RtxMonitor.Lab/VoltageStatusCorrelationV2.cs"
+      ]
+    }
+  ]
+}

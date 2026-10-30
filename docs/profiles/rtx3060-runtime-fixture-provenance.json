@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "purpose": "Real public JSON outputs of the fixed x64 experimental reader on the target GPU; these are decoded sample contracts, not raw NVAPI buffers.",
+  "board_label_source": "user_statement",
+  "board_label": "Galax RTX 3060 12 GB",
+  "gsp_state": "not_observed",
+  "fixtures": [
+    {
+      "fixture": "csharp/RtxMonitor.Managed.Tests/Fixtures/rtx3060-thermal-recorded-v1.json",
+      "source_artifact": "evidence/v09-limits-20260905/final-thermal.jsonl",
+      "source_artifact_sha256": "1f2f9948ad21ee15df9b98f7e4baae4095e4ba30780c4c7a8c2117322cc36aa6",
+      "source_line_one_based": 1,
+      "captured_at_utc": "2026-09-05T20:47:28.8430000+00:00",
+      "source_kind": "nvapi_thermal_channel",
+      "fixture_sha256_lf": "fbf59f8957662e002ba903897b56075b19d9b8d454759cd8a1022604c3df7fb7"
+    },
+    {
+      "fixture": "csharp/RtxMonitor.Managed.Tests/Fixtures/rtx3060-voltage-recorded-v1.json",
+      "source_artifact": "evidence/v09-limits-20260905/voltage-6000ms.jsonl",
+      "source_artifact_sha256": "a460664961f9a8819bd7ede379396675f981b1436ab6247ff33d92e938dccb75",
+      "source_line_one_based": 1,
+      "captured_at_utc": "2026-09-05T20:42:55.0690000+00:00",
+      "source_kind": "nvapi_voltage_status",
+      "fixture_sha256_lf": "10d83e3208e4ce9a5950f7e0d581bf1f7a30d66d8726703c73b4496195658b72"
+    }
+  ]
+}

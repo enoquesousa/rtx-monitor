@@ -1,0 +1,704 @@
+{
+  "schema_version": 1,
+  "name": "GALAX RTX 3060 · reference-guided assembly",
+  "coordinate_system": "glTF right handed, Y up, X card length, Z card width",
+  "units": "millimetre_visual_approximation",
+  "model": "rtx3060.glb",
+  "nominal_visual_extent_mm": [
+    250,
+    42,
+    115
+  ],
+  "bounds_min": [
+    -93.625,
+    -8.0,
+    -71.5
+  ],
+  "bounds_max": [
+    158.0,
+    36.20000076293945,
+    60.599998474121094
+  ],
+  "parts": [
+    {
+      "id": "pcb",
+      "node": "pcb",
+      "name": "pcb",
+      "label": "PCB · face e verso",
+      "kind": "pcb",
+      "explode": [
+        0,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "pcb_mounting_rings",
+      "node": "pcb_mounting_rings",
+      "name": "pcb_mounting_rings",
+      "label": "Anéis de montagem e cobre exposto",
+      "kind": "hardware",
+      "explode": [
+        0,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "pcie_fingers",
+      "node": "pcie_fingers",
+      "name": "pcie_fingers",
+      "label": "Conector PCIe x16 · contatos visuais",
+      "kind": "connector",
+      "explode": [
+        0,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "gpu_package",
+      "node": "gpu_package",
+      "name": "gpu_package",
+      "label": "GPU · encapsulamento e die",
+      "kind": "gpu",
+      "explode": [
+        0,
+        16,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": "gpu_package"
+    },
+    {
+      "id": "vram_0",
+      "node": "vram_0",
+      "name": "vram_0",
+      "label": "VRAM · pacote 1 (sem sensor localizado)",
+      "kind": "memory",
+      "explode": [
+        0,
+        13,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "vram_1",
+      "node": "vram_1",
+      "name": "vram_1",
+      "label": "VRAM · pacote 2 (sem sensor localizado)",
+      "kind": "memory",
+      "explode": [
+        0,
+        13,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "vram_2",
+      "node": "vram_2",
+      "name": "vram_2",
+      "label": "VRAM · pacote 3 (sem sensor localizado)",
+      "kind": "memory",
+      "explode": [
+        0,
+        13,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "vram_3",
+      "node": "vram_3",
+      "name": "vram_3",
+      "label": "VRAM · pacote 4 (sem sensor localizado)",
+      "kind": "memory",
+      "explode": [
+        0,
+        13,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "vram_4",
+      "node": "vram_4",
+      "name": "vram_4",
+      "label": "VRAM · pacote 5 (sem sensor localizado)",
+      "kind": "memory",
+      "explode": [
+        0,
+        13,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "vram_5",
+      "node": "vram_5",
+      "name": "vram_5",
+      "label": "VRAM · pacote 6 (sem sensor localizado)",
+      "kind": "memory",
+      "explode": [
+        0,
+        13,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "vrm_inductors",
+      "node": "vrm_inductors",
+      "name": "vrm_inductors",
+      "label": "VRM · indutores (sem medição localizada)",
+      "kind": "vrm",
+      "explode": [
+        0,
+        11,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "vrm_capacitors",
+      "node": "vrm_capacitors",
+      "name": "vrm_capacitors",
+      "label": "VRM · capacitores (sem medição localizada)",
+      "kind": "vrm",
+      "explode": [
+        0,
+        11,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "vrm_power_stages",
+      "node": "vrm_power_stages",
+      "name": "vrm_power_stages",
+      "label": "VRM · estágios de potência",
+      "kind": "vrm",
+      "explode": [
+        0,
+        10,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "power_8pin",
+      "node": "power_8pin",
+      "name": "power_8pin",
+      "label": "Conector auxiliar · 8 pinos",
+      "kind": "connector",
+      "explode": [
+        0,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "pcb_smd_details",
+      "node": "pcb_smd_details",
+      "name": "pcb_smd_details",
+      "label": "SMDs · detalhe visual aproximado, não netlist",
+      "kind": "pcb_detail",
+      "explode": [
+        0,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "display_ports",
+      "node": "display_ports",
+      "name": "display_ports",
+      "label": "Saídas de vídeo · três DP e uma HDMI, representação",
+      "kind": "connector",
+      "explode": [
+        0,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "io_bracket",
+      "node": "io_bracket",
+      "name": "io_bracket",
+      "label": "Espelho traseiro · aberturas e fixação",
+      "kind": "bracket",
+      "explode": [
+        -32,
+        0,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "heatsink_base",
+      "node": "heatsink_base",
+      "name": "heatsink_base",
+      "label": "Dissipador · base de contato (temperatura não medida)",
+      "kind": "heatsink",
+      "explode": [
+        0,
+        46,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "thermal_pads",
+      "node": "thermal_pads",
+      "name": "thermal_pads",
+      "label": "Thermal pads · geometria ilustrativa, sem medição",
+      "kind": "thermal_interface",
+      "explode": [
+        0,
+        30,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "heatsink_fins",
+      "node": "heatsink_fins",
+      "name": "heatsink_fins",
+      "label": "Dissipador · dois bancos de aletas",
+      "kind": "heatsink",
+      "explode": [
+        0,
+        46,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "heatpipe_0",
+      "node": "heatpipe_0",
+      "name": "heatpipe_0",
+      "label": "Heatpipe 1 · sem sensor localizado",
+      "kind": "heatpipe",
+      "explode": [
+        0,
+        46,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "heatpipe_1",
+      "node": "heatpipe_1",
+      "name": "heatpipe_1",
+      "label": "Heatpipe 2 · sem sensor localizado",
+      "kind": "heatpipe",
+      "explode": [
+        0,
+        46,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "fan_0_rotor",
+      "node": "fan_0_rotor",
+      "name": "fan_0_rotor",
+      "label": "Rotor 0 · nove pás, índice lógico convencional",
+      "kind": "fan_rotor",
+      "explode": [
+        0,
+        100,
+        0
+      ],
+      "pivot": [
+        -30,
+        29.5,
+        0
+      ],
+      "fan_index": 0,
+      "thermal_binding": null
+    },
+    {
+      "id": "fan_0_stator",
+      "node": "fan_0_stator",
+      "name": "fan_0_stator",
+      "label": "Estrutura e cabo do cooler 0",
+      "kind": "fan_frame",
+      "explode": [
+        0,
+        82,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "fan_1_rotor",
+      "node": "fan_1_rotor",
+      "name": "fan_1_rotor",
+      "label": "Rotor 1 · nove pás, índice lógico convencional",
+      "kind": "fan_rotor",
+      "explode": [
+        0,
+        100,
+        0
+      ],
+      "pivot": [
+        96,
+        29.5,
+        0
+      ],
+      "fan_index": 1,
+      "thermal_binding": null
+    },
+    {
+      "id": "fan_1_stator",
+      "node": "fan_1_stator",
+      "name": "fan_1_stator",
+      "label": "Estrutura e cabo do cooler 1",
+      "kind": "fan_frame",
+      "explode": [
+        0,
+        82,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "front_shroud",
+      "node": "front_shroud",
+      "name": "front_shroud",
+      "label": "Carenagem frontal · dois recortes circulares",
+      "kind": "shroud",
+      "explode": [
+        0,
+        136,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "backplate",
+      "node": "backplate",
+      "name": "backplate",
+      "label": "Backplate · furação, inscrições e colmeia",
+      "kind": "backplate",
+      "explode": [
+        0,
+        -58,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    },
+    {
+      "id": "fasteners",
+      "node": "fasteners",
+      "name": "fasteners",
+      "label": "Parafusos e fixadores · posição aproximada",
+      "kind": "hardware",
+      "explode": [
+        0,
+        165,
+        0
+      ],
+      "pivot": [
+        0,
+        0,
+        0
+      ],
+      "fan_index": null,
+      "thermal_binding": null
+    }
+  ],
+  "references": [
+    {
+      "index": 1,
+      "label": "PCB oblíquo",
+      "file": "references\\ref_01_11_28_12.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_28_12.png",
+      "sha256": "556b9daaca899410b82f0c8ad48ded8d67b8e3c4dec1734b60660b0a12d4d7a9"
+    },
+    {
+      "index": 2,
+      "label": "PCB ortográfico",
+      "file": "references\\ref_02_11_28_19.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_28_19.png",
+      "sha256": "aaf818c4a9adb8591bdd7b25be7189c757a5f172842efb07a6344db5464f97bb"
+    },
+    {
+      "index": 3,
+      "label": "Espelho de I/O",
+      "file": "references\\ref_03_11_28_26.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_28_26.png",
+      "sha256": "45683314fba2d4bc861cfa1e3f0a30d52fffa9c6fadbf5cde4fcc0c36389822f"
+    },
+    {
+      "index": 4,
+      "label": "Backplate interno",
+      "file": "references\\ref_04_11_28_33.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_28_33.png",
+      "sha256": "6382799dad77c03d7eb2727c5fb92ab0149c799d62690f7bd97f517148170abf"
+    },
+    {
+      "index": 5,
+      "label": "Espelho montado",
+      "file": "references\\ref_05_11_28_38.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_28_38.png",
+      "sha256": "c0d0b364cfd6403c694d950b3ac6f255c9c321d5094a2e0b38a6f2f24e04990b"
+    },
+    {
+      "index": 6,
+      "label": "Carenagem ortográfica",
+      "file": "references\\ref_06_11_28_47.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_28_47.png",
+      "sha256": "06105e5a4e506af5640825a6c7f4d9321b312b643e4f0cda68c64653641e9670"
+    },
+    {
+      "index": 7,
+      "label": "Coolers · verso",
+      "file": "references\\ref_07_11_28_59.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_28_59.png",
+      "sha256": "55b51b0ae945776a1727c3169c4c59025690577a5840c152e6359839e53ee52b"
+    },
+    {
+      "index": 8,
+      "label": "Coolers · frente",
+      "file": "references\\ref_08_11_29_09.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_29_09.png",
+      "sha256": "73bce476b65a77c4d29260ec4be96d18fd6b36734719ff946f69c01287a59132"
+    },
+    {
+      "index": 9,
+      "label": "Carenagem oblíqua",
+      "file": "references\\ref_09_11_29_15.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_29_15.png",
+      "sha256": "9a310abb62228981543b439afb627a4424e6437b658c3efb3f153648f478a59d"
+    },
+    {
+      "index": 10,
+      "label": "Dissipador",
+      "file": "references\\ref_10_11_30_30.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_30_30.png",
+      "sha256": "30f2a986f37a29bfa869164684a6aa8ff50c217daec00d98217c8c700b62f8e7"
+    },
+    {
+      "index": 11,
+      "label": "Placa · verso",
+      "file": "references\\ref_11_11_30_43.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_30_43.png",
+      "sha256": "abf82de2ab4a744c606a74d8e8deec6f3057975da0aff6f7afe09e496246c0e2"
+    },
+    {
+      "index": 12,
+      "label": "Backplate externo",
+      "file": "references\\ref_12_11_31_01.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_31_01.png",
+      "sha256": "1f509eb83523e4f594762c606bba45ac47a4a8ca105991adc5f17db37c89fa87"
+    },
+    {
+      "index": 13,
+      "label": "Conjunto montado",
+      "file": "references\\ref_13_11_31_34.png",
+      "original_name": "Imagem do ChatGPT 25 de out. de 2026, 11_31_34.png",
+      "sha256": "0a47dc594af94a64c58bb3117da1ddfdddd9e1ad9a609a2462b23576b72f9109"
+    }
+  ],
+  "limitations": [
+    "Dimensions and hidden geometry are visual approximations; references contain no calibrated scale.",
+    "The supplied references differ in backplate branding/vent patterns and connector details; separate component views guide the reconstruction.",
+    "SMD layout is illustrative geometry, not an electrical or manufacturing reconstruction.",
+    "Only the GPU component has a localized temperature role. Its maximum has no proven coordinate inside the die.",
+    "Seven additional thermal channels remain physically unlocalized; VRAM/VRM/heatsink temperatures are not assigned.",
+    "Driver fan indices 0 and 1 are assigned to the left and right visual rotors by convention, not by a verified physical mapping.",
+    "NVML fan RPM is driver-reported intended RPM; exact physical tachometer and angular phase are not established."
+  ],
+  "fan_mapping": {
+    "physical_mapping_verified": false,
+    "rotor_0_visual": "left rotor viewed from fan face",
+    "rotor_1_visual": "right rotor viewed from fan face",
+    "blades_per_rotor": 9,
+    "phase_synchronized_to_hardware": false
+  },
+  "thermal_mapping": {
+    "gpu_package": "measured GPU component only; no inferred spatial distribution",
+    "unknown_channel_indices": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "unknown_parts": [
+      "vram",
+      "vrm",
+      "backplate",
+      "heatpipes",
+      "heatsink",
+      "shroud"
+    ]
+  }
+}

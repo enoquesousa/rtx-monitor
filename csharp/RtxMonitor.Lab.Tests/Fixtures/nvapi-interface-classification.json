@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "source_kind": "nvapi_interface_classification",
+  "observation_artifact_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "interface_table_artifact_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "gpuz_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "captured_utc": "2026-08-25T22:41:09Z",
+  "observation_count": 3,
+  "observed_unique_interface_count": 2,
+  "public_catalog_match_count": 1,
+  "not_in_public_catalog_count": 1,
+  "interfaces": [
+    {
+      "interface_id": "0x0150e828",
+      "call_count": 2,
+      "classification": "public_catalog_match",
+      "public_function": "NvAPI_Initialize"
+    },
+    {
+      "interface_id": "0xdeadbeef",
+      "call_count": 1,
+      "classification": "not_in_public_catalog",
+      "public_function": null
+    }
+  ],
+  "warnings": [
+    "Synthetic classification used only by hardware-independent tests."
+  ]
+}

@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/enoquesousa/rtx-monitor/main/docs/schema/telemetry-event-v4.schema.json",
+  "title": "RTX Monitor telemetry event v4",
+  "description": "One JSON Lines event with public NVIDIA telemetry, identity-gated Windows telemetry, and reproducible computed metrics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_type",
+    "sequence",
+    "target_gpu_uuid",
+    "gpu_index",
+    "gpu_name",
+    "observed_at_unix_ms",
+    "status",
+    "status_code",
+    "message",
+    "consecutive_failures",
+    "retry_after_ms",
+    "sample",
+    "alert_threshold_c",
+    "alert_hysteresis_c",
+    "public_telemetry",
+    "computed_metrics",
+    "windows_telemetry"
+  ],
+  "properties": {
+    "schema_version": { "const": 4 },
+    "event_type": {
+      "enum": ["sample", "gap", "recovered", "alert_raised", "alert_cleared"]
+    },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "target_gpu_uuid": { "type": "string", "minLength": 1 },
+    "gpu_index": { "type": ["integer", "null"], "minimum": 0 },
+    "gpu_name": { "type": ["string", "null"] },
+    "observed_at_unix_ms": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "minLength": 1 },
+    "status_code": { "type": "integer", "minimum": 0, "maximum": 11 },
+    "message": { "type": "string" },
+    "consecutive_failures": { "type": "integer", "minimum": 0 },
+    "retry_after_ms": { "type": "integer", "minimum": 0 },
+    "sample": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/sample" }
+      ]
+    },
+    "alert_threshold_c": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 500
+    },
+    "alert_hysteresis_c": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 500
+    },
+    "public_telemetry": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/publicTelemetry" }
+      ]
+    },
+    "computed_metrics": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/computedMetrics" }
+      ]
+    },
+    "windows_telemetry": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "windows-telemetry-v1.schema.json" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event_type": { "const": "sample" } } },
+      "then": {
+        "properties": {
+          "status": { "const": "ok" },
+          "status_code": { "const": 0 },
+          "consecutive_failures": { "const": 0 },
+          "retry_after_ms": { "const": 0 },
+          "sample": { "type": "object" },
+          "alert_threshold_c": { "type": "null" },
+          "alert_hysteresis_c": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "gap" } } },
+      "then": {
+        "properties": {
+          "status_code": { "minimum": 1 },
+          "consecutive_failures": { "minimum": 1 },
+          "retry_after_ms": { "minimum": 1 },
+          "sample": { "type": "null" },
+          "alert_threshold_c": { "type": "null" },
+          "alert_hysteresis_c": { "type": "null" },
+          "public_telemetry": { "type": "null" },
+          "computed_metrics": { "type": "null" },
+          "windows_telemetry": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "recovered" } } },
+      "then": {
+        "properties": {
+          "status": { "const": "ok" },
+          "status_code": { "const": 0 },
+          "consecutive_failures": { "minimum": 1 },
+          "retry_after_ms": { "const": 0 },
+          "sample": { "type": "null" },
+          "alert_threshold_c": { "type": "null" },
+          "alert_hysteresis_c": { "type": "null" },
+          "public_telemetry": { "type": "null" },
+          "computed_metrics": { "type": "null" },
+          "windows_telemetry": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_type": { "enum": ["alert_raised", "alert_cleared"] }
+        }
+      },
+      "then": {
+        "properties": {
+          "status": { "const": "ok" },
+          "status_code": { "const": 0 },
+          "consecutive_failures": { "const": 0 },
+          "retry_after_ms": { "const": 0 },
+          "sample": { "type": "object" },
+          "alert_threshold_c": { "type": "integer" },
+          "alert_hysteresis_c": { "type": "integer" },
+          "public_telemetry": { "type": "null" },
+          "computed_metrics": { "type": "null" },
+          "windows_telemetry": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["temperature_c", "sensor", "backend", "timestamp_unix_ms"],
+      "properties": {
+        "temperature_c": { "type": "integer" },
+        "sensor": { "const": "gpu_die" },
+        "backend": { "type": "string", "minLength": 1 },
+        "timestamp_unix_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "available",
+        "not_supported",
+        "provider_unavailable",
+        "query_failed"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0, "maximum": 48 },
+        "available": { "type": "integer", "minimum": 0, "maximum": 48 },
+        "not_supported": { "type": "integer", "minimum": 0, "maximum": 48 },
+        "provider_unavailable": { "type": "integer", "minimum": 0, "maximum": 48 },
+        "query_failed": { "type": "integer", "minimum": 0, "maximum": 48 }
+      }
+    },
+    "publicTelemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gpu_index", "captured_at_unix_ms", "coverage", "performance_limit_reasons", "fields"],
+      "properties": {
+        "gpu_index": { "type": "integer", "minimum": 0 },
+        "captured_at_unix_ms": { "type": "integer", "minimum": 0 },
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "performance_limit_reasons": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["raw_bitmask", "active_reasons", "primary_reason"],
+          "properties": {
+            "raw_bitmask": { "type": "integer", "minimum": 0 },
+            "active_reasons": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": ["gpu_idle", "application_clocks", "software_power_cap", "hardware_slowdown", "sync_boost", "software_thermal", "hardware_thermal", "hardware_power_brake", "display_clock"]
+              }
+            },
+            "primary_reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 34,
+          "maxItems": 48,
+          "items": { "$ref": "#/$defs/publicField" }
+        }
+      }
+    },
+    "publicField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "provider",
+        "provider_native_id",
+        "state",
+        "origin",
+        "value_type",
+        "unit",
+        "value_u64",
+        "value_i64",
+        "value_f64",
+        "native_status",
+        "timestamp_unix_ms"
+      ],
+      "properties": {
+        "field": { "type": "string", "minLength": 1 },
+        "provider": { "type": "string", "minLength": 1 },
+        "provider_native_id": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "state": {
+          "enum": ["available", "not_supported", "provider_unavailable", "query_failed"]
+        },
+        "origin": { "enum": ["driver_reported", "computed"] },
+        "value_type": {
+          "enum": ["unknown", "unsigned_integer", "signed_integer", "double", "bitmask"]
+        },
+        "unit": {
+          "enum": [
+            "celsius",
+            "milliwatt",
+            "millijoule",
+            "megahertz",
+            "percent",
+            "bytes",
+            "pstate",
+            "bitmask",
+            "microseconds"
+          ]
+        },
+        "value_u64": { "type": ["integer", "null"], "minimum": 0 },
+        "value_i64": { "type": ["integer", "null"] },
+        "value_f64": { "type": ["number", "null"] },
+        "native_status": { "type": "integer" },
+        "timestamp_unix_ms": { "type": "integer", "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": { "enum": ["not_supported", "provider_unavailable", "query_failed"] }
+            }
+          },
+          "then": {
+            "properties": {
+              "value_type": { "const": "unknown" },
+              "value_u64": { "type": "null" },
+              "value_i64": { "type": "null" },
+              "value_f64": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": { "const": "available" },
+              "value_type": { "enum": ["unsigned_integer", "bitmask"] }
+            },
+            "required": ["state", "value_type"]
+          },
+          "then": {
+            "properties": {
+              "value_u64": { "type": "integer" },
+              "value_i64": { "type": "null" },
+              "value_f64": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": { "const": "available" },
+              "value_type": { "const": "signed_integer" }
+            },
+            "required": ["state", "value_type"]
+          },
+          "then": {
+            "properties": {
+              "value_u64": { "type": "null" },
+              "value_i64": { "type": "integer" },
+              "value_f64": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": { "const": "available" },
+              "value_type": { "const": "double" }
+            },
+            "required": ["state", "value_type"]
+          },
+          "then": {
+            "properties": {
+              "value_u64": { "type": "null" },
+              "value_i64": { "type": "null" },
+              "value_f64": { "type": "number" }
+            }
+          }
+        }
+      ]
+    },
+    "computedMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gpu_index", "timestamp_unix_ms", "metrics"],
+      "properties": {
+        "gpu_index": { "type": "integer", "minimum": 0 },
+        "timestamp_unix_ms": { "type": "integer", "minimum": 0 },
+        "metrics": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/computedMetric" }
+        }
+      }
+    },
+    "computedMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "state",
+        "origin",
+        "unit",
+        "formula",
+        "value",
+        "window_ms",
+        "sample_count",
+        "temperature_threshold_c",
+        "inputs"
+      ],
+      "properties": {
+        "metric": {
+          "enum": [
+            "gpu_temperature_window_average",
+            "gpu_temperature_slope",
+            "gpu_temperature_time_above_threshold",
+            "gpu_memory_temperature_delta"
+          ]
+        },
+        "state": { "enum": ["available", "insufficient_data", "input_unavailable"] },
+        "origin": { "const": "computed" },
+        "unit": { "enum": ["celsius", "celsius_per_second", "seconds"] },
+        "formula": { "type": "string", "minLength": 1 },
+        "value": { "type": ["number", "null"] },
+        "window_ms": { "type": "integer", "minimum": 0 },
+        "sample_count": { "type": "integer", "minimum": 0 },
+        "temperature_threshold_c": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 500
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "available" } } },
+          "then": { "properties": { "value": { "type": "number" } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": { "enum": ["insufficient_data", "input_unavailable"] }
+            }
+          },
+          "then": { "properties": { "value": { "type": "null" } } }
+        }
+      ]
+    }
+  }
+}

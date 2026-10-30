@@ -1,0 +1,437 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rtx-monitor:schema:private-profile-status:2",
+  "title": "RTX Monitor private profile eligibility and acquisition limits v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_kind",
+    "gpu_index",
+    "evaluated_at_utc",
+    "profile_id",
+    "profile_revision",
+    "profile_state",
+    "revocation_reason",
+    "acquisition_performed",
+    "returned_payload_state",
+    "gsp_state",
+    "identity_checks",
+    "operations",
+    "rate_limit_scope",
+    "timeout_behavior"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "source_kind": {
+      "const": "private_profile_status"
+    },
+    "gpu_index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "evaluated_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 127
+    },
+    "profile_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "profile_state": {
+      "enum": [
+        "unknown",
+        "active",
+        "revoked"
+      ]
+    },
+    "revocation_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 127
+    },
+    "acquisition_performed": {
+      "const": false
+    },
+    "returned_payload_state": {
+      "const": "not_evaluated"
+    },
+    "gsp_state": {
+      "const": "not_observed"
+    },
+    "identity_checks": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": false,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "state"
+          ],
+          "properties": {
+            "field": {
+              "const": "pci_vendor_id"
+            },
+            "state": {
+              "enum": [
+                "unavailable",
+                "matched",
+                "mismatch"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "state"
+          ],
+          "properties": {
+            "field": {
+              "const": "pci_device_id"
+            },
+            "state": {
+              "enum": [
+                "unavailable",
+                "matched",
+                "mismatch"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "state"
+          ],
+          "properties": {
+            "field": {
+              "const": "pci_subsystem_vendor_id"
+            },
+            "state": {
+              "enum": [
+                "unavailable",
+                "matched",
+                "mismatch"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "state"
+          ],
+          "properties": {
+            "field": {
+              "const": "pci_subsystem_device_id"
+            },
+            "state": {
+              "enum": [
+                "unavailable",
+                "matched",
+                "mismatch"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "state"
+          ],
+          "properties": {
+            "field": {
+              "const": "gpu_uuid"
+            },
+            "state": {
+              "enum": [
+                "unavailable",
+                "matched",
+                "mismatch"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "state"
+          ],
+          "properties": {
+            "field": {
+              "const": "vbios_version"
+            },
+            "state": {
+              "enum": [
+                "unavailable",
+                "matched",
+                "mismatch"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "field",
+            "state"
+          ],
+          "properties": {
+            "field": {
+              "const": "driver_version"
+            },
+            "state": {
+              "enum": [
+                "unavailable",
+                "matched",
+                "mismatch"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": false,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "state",
+            "eligible_for_acquisition",
+            "minimum_interval_ms",
+            "acquisition_timeout_ms"
+          ],
+          "properties": {
+            "operation": {
+              "const": "thermal"
+            },
+            "state": {
+              "enum": [
+                "unknown",
+                "compatible",
+                "revoked",
+                "identity_unavailable",
+                "identity_mismatch",
+                "module_unavailable",
+                "gpu_not_found",
+                "identity_ambiguous",
+                "query_failed",
+                "rate_limited",
+                "timeout"
+              ]
+            },
+            "eligible_for_acquisition": {
+              "type": "boolean"
+            },
+            "minimum_interval_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60000
+            },
+            "acquisition_timeout_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60000
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "compatible"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "eligible_for_acquisition": {
+                    "const": true
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "eligible_for_acquisition": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "operation",
+            "state",
+            "eligible_for_acquisition",
+            "minimum_interval_ms",
+            "acquisition_timeout_ms"
+          ],
+          "properties": {
+            "operation": {
+              "const": "voltage"
+            },
+            "state": {
+              "enum": [
+                "unknown",
+                "compatible",
+                "revoked",
+                "identity_unavailable",
+                "identity_mismatch",
+                "module_unavailable",
+                "gpu_not_found",
+                "identity_ambiguous",
+                "query_failed",
+                "rate_limited",
+                "timeout"
+              ]
+            },
+            "eligible_for_acquisition": {
+              "type": "boolean"
+            },
+            "minimum_interval_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60000
+            },
+            "acquisition_timeout_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60000
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "compatible"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "eligible_for_acquisition": {
+                    "const": true
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "eligible_for_acquisition": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "rate_limit_scope": {
+      "const": "process_per_operation"
+    },
+    "timeout_behavior": {
+      "const": "discard_late_result_and_block_process"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profile_state": {
+            "const": "revoked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "revocation_reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operations": {
+            "items": {
+              "properties": {
+                "state": {
+                  "const": "revoked"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operations": {
+            "contains": {
+              "properties": {
+                "eligible_for_acquisition": {
+                  "const": true
+                }
+              },
+              "required": [
+                "eligible_for_acquisition"
+              ]
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "profile_state": {
+            "const": "active"
+          },
+          "identity_checks": {
+            "items": {
+              "properties": {
+                "state": {
+                  "const": "matched"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+[package]
+name = "rtx3060-monitor"
+version = "0.12.4"
+edition = "2021"
+description = "Native Windows RTX 3060 monitoring and reference-based 3D assembly"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "wgpu"] }
+egui-wgpu = "=0.33.3"
+wgpu = "=27.0.1"
+gltf = { version = "1.4.1", default-features = false, features = ["utils", "names"] }
+glam = { version = "0.30", features = ["bytemuck"] }
+bytemuck = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+png = "=0.18.1"
+pollster = "=0.4.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+codegen-units = 8
+strip = "debuginfo"

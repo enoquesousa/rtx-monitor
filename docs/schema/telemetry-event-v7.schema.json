@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/enoquesousa/rtx-monitor/main/docs/schema/telemetry-event-v7.schema.json",
+  "title": "RTX Monitor telemetry event v7",
+  "description": "Sample or gap event carrying separately identified experimental profile evidence. The unchanged public, Windows, and computed contracts remain those of v5.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_type",
+    "sequence",
+    "target_gpu_uuid",
+    "gpu_index",
+    "gpu_name",
+    "observed_at_unix_ms",
+    "status",
+    "status_code",
+    "message",
+    "consecutive_failures",
+    "retry_after_ms",
+    "sample",
+    "alert_threshold_c",
+    "alert_hysteresis_c",
+    "public_telemetry",
+    "computed_metrics",
+    "windows_telemetry",
+    "experimental_telemetry"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 7
+    },
+    "event_type": {
+      "enum": [
+        "sample",
+        "gap"
+      ]
+    },
+    "sequence": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/sequence"
+    },
+    "target_gpu_uuid": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/target_gpu_uuid"
+    },
+    "gpu_index": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/gpu_index"
+    },
+    "gpu_name": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/gpu_name"
+    },
+    "observed_at_unix_ms": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/observed_at_unix_ms"
+    },
+    "status": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/status"
+    },
+    "status_code": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/status_code"
+    },
+    "message": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/message"
+    },
+    "consecutive_failures": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/consecutive_failures"
+    },
+    "retry_after_ms": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/retry_after_ms"
+    },
+    "sample": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/sample"
+    },
+    "alert_threshold_c": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/alert_threshold_c"
+    },
+    "alert_hysteresis_c": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/alert_hysteresis_c"
+    },
+    "public_telemetry": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/public_telemetry"
+    },
+    "computed_metrics": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/computed_metrics"
+    },
+    "windows_telemetry": {
+      "$ref": "telemetry-event-v5.schema.json#/properties/windows_telemetry"
+    },
+    "experimental_telemetry": {
+      "$ref": "experimental-telemetry-v2.schema.json"
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "telemetry-event-v5.schema.json#/allOf/0"
+    },
+    {
+      "$ref": "telemetry-event-v5.schema.json#/allOf/1"
+    }
+  ]
+}

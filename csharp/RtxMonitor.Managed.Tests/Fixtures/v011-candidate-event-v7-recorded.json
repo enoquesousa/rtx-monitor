@@ -1,0 +1,841 @@
+{
+  "schema_version": 7,
+  "event_type": "sample",
+  "sequence": 11,
+  "target_gpu_uuid": "GPU-11111111-2222-3333-4444-555555555555",
+  "gpu_index": 0,
+  "gpu_name": "NVIDIA GeForce RTX 3060",
+  "observed_at_unix_ms": 1788667613156,
+  "status": "ok",
+  "status_code": 0,
+  "message": "",
+  "consecutive_failures": 0,
+  "retry_after_ms": 0,
+  "sample": {
+    "temperature_c": 35,
+    "sensor": "gpu_die",
+    "backend": "NVML nvmlDeviceGetTemperatureV",
+    "timestamp_unix_ms": 1788667613156
+  },
+  "alert_threshold_c": null,
+  "alert_hysteresis_c": null,
+  "public_telemetry": {
+    "gpu_index": 0,
+    "captured_at_unix_ms": 1788667613156,
+    "coverage": {
+      "total": 37,
+      "available": 32,
+      "not_supported": 5,
+      "provider_unavailable": 0,
+      "query_failed": 0
+    },
+    "performance_limit_reasons": {
+      "raw_bitmask": 1,
+      "active_reasons": [
+        "gpu_idle"
+      ],
+      "primary_reason": "idle"
+    },
+    "fields": [
+      {
+        "field": "gpu_die_temperature_c",
+        "provider": "NVML nvmlDeviceGetTemperatureV",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "signed_integer",
+        "unit": "celsius",
+        "value_u64": null,
+        "value_i64": 35,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "memory_temperature_c",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 82,
+        "state": "not_supported",
+        "origin": "driver_reported",
+        "value_type": "unknown",
+        "unit": "celsius",
+        "value_u64": null,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 3,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "total_energy_mj",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 83,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "millijoule",
+        "value_u64": 2453625190,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "power_average_mw",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 185,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "milliwatt",
+        "value_u64": 36424,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "power_instant_mw",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 186,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "milliwatt",
+        "value_u64": 36390,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "power_limit_min_mw",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 187,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "milliwatt",
+        "value_u64": 100000,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "power_limit_max_mw",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 188,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "milliwatt",
+        "value_u64": 170000,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "power_limit_default_mw",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 189,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "milliwatt",
+        "value_u64": 170000,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "power_limit_current_mw",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 190,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "milliwatt",
+        "value_u64": 170000,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "power_limit_requested_mw",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 192,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "milliwatt",
+        "value_u64": 170000,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "temperature_shutdown_c",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 193,
+        "state": "not_supported",
+        "origin": "driver_reported",
+        "value_type": "unknown",
+        "unit": "celsius",
+        "value_u64": null,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 3,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "temperature_slowdown_c",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 194,
+        "state": "not_supported",
+        "origin": "driver_reported",
+        "value_type": "unknown",
+        "unit": "celsius",
+        "value_u64": null,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 3,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "temperature_memory_max_c",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 195,
+        "state": "not_supported",
+        "origin": "driver_reported",
+        "value_type": "unknown",
+        "unit": "celsius",
+        "value_u64": null,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 3,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "temperature_gpu_max_c",
+        "provider": "NVML nvmlDeviceGetFieldValues",
+        "provider_native_id": 196,
+        "state": "not_supported",
+        "origin": "driver_reported",
+        "value_type": "unknown",
+        "unit": "celsius",
+        "value_u64": null,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 3,
+        "timestamp_unix_ms": 1788667613157
+      },
+      {
+        "field": "clock_graphics_mhz",
+        "provider": "NVML nvmlDeviceGetClockInfo",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "megahertz",
+        "value_u64": 1777,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "clock_sm_mhz",
+        "provider": "NVML nvmlDeviceGetClockInfo",
+        "provider_native_id": 1,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "megahertz",
+        "value_u64": 1777,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "clock_memory_mhz",
+        "provider": "NVML nvmlDeviceGetClockInfo",
+        "provider_native_id": 2,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "megahertz",
+        "value_u64": 7501,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "clock_video_mhz",
+        "provider": "NVML nvmlDeviceGetClockInfo",
+        "provider_native_id": 3,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "megahertz",
+        "value_u64": 1552,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "utilization_gpu_percent",
+        "provider": "NVML nvmlDeviceGetUtilizationRates",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "percent",
+        "value_u64": 7,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "utilization_memory_percent",
+        "provider": "NVML nvmlDeviceGetUtilizationRates",
+        "provider_native_id": 1,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "percent",
+        "value_u64": 1,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "memory_total_bytes",
+        "provider": "NVML nvmlDeviceGetMemoryInfo",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "bytes",
+        "value_u64": 12884901888,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "memory_free_bytes",
+        "provider": "NVML nvmlDeviceGetMemoryInfo",
+        "provider_native_id": 1,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "bytes",
+        "value_u64": 11143983104,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "memory_used_bytes",
+        "provider": "NVML nvmlDeviceGetMemoryInfo",
+        "provider_native_id": 2,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "bytes",
+        "value_u64": 1740918784,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "fan_speed_percent",
+        "provider": "NVML nvmlDeviceGetFanSpeed_v2",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "percent",
+        "value_u64": 30,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "fan_speed_intended_rpm",
+        "provider": "NVML nvmlDeviceGetFanSpeedRPM",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "rpm",
+        "value_u64": 1097,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "fan_speed_percent",
+        "provider": "NVML nvmlDeviceGetFanSpeed_v2",
+        "provider_native_id": 1,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "percent",
+        "value_u64": 30,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "fan_speed_intended_rpm",
+        "provider": "NVML nvmlDeviceGetFanSpeedRPM",
+        "provider_native_id": 1,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "rpm",
+        "value_u64": 1103,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "performance_state",
+        "provider": "NVML nvmlDeviceGetPerformanceState",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "signed_integer",
+        "unit": "pstate",
+        "value_u64": null,
+        "value_i64": 0,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "clock_event_reasons_current",
+        "provider": "NVML nvmlDeviceGetCurrentClocksEventReasons",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "bitmask",
+        "unit": "bitmask",
+        "value_u64": 1,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "clock_event_reasons_supported",
+        "provider": "NVML nvmlDeviceGetSupportedClocksEventReasons",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "bitmask",
+        "unit": "bitmask",
+        "value_u64": 511,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "encoder_utilization_percent",
+        "provider": "NVML nvmlDeviceGetEncoderUtilization",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "percent",
+        "value_u64": 0,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "encoder_sampling_period_us",
+        "provider": "NVML nvmlDeviceGetEncoderUtilization",
+        "provider_native_id": 1,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "microseconds",
+        "value_u64": 100000,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "decoder_utilization_percent",
+        "provider": "NVML nvmlDeviceGetDecoderUtilization",
+        "provider_native_id": 0,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "percent",
+        "value_u64": 0,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "decoder_sampling_period_us",
+        "provider": "NVML nvmlDeviceGetDecoderUtilization",
+        "provider_native_id": 1,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "microseconds",
+        "value_u64": 100000,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "power_consumption_default_limit_percent",
+        "provider": "RTX Monitor computed power ratio",
+        "provider_native_id": 8,
+        "state": "available",
+        "origin": "computed",
+        "value_type": "double",
+        "unit": "percent",
+        "value_u64": null,
+        "value_i64": null,
+        "value_f64": 21.405882352941177,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "power_consumption_current_limit_percent",
+        "provider": "RTX Monitor computed power ratio",
+        "provider_native_id": 9,
+        "state": "available",
+        "origin": "computed",
+        "value_type": "double",
+        "unit": "percent",
+        "value_u64": null,
+        "value_i64": null,
+        "value_f64": 21.405882352941177,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      },
+      {
+        "field": "temperature_gpu_limit_c",
+        "provider": "NVML nvmlDeviceGetTemperatureThreshold",
+        "provider_native_id": 3,
+        "state": "available",
+        "origin": "driver_reported",
+        "value_type": "unsigned_integer",
+        "unit": "celsius",
+        "value_u64": 93,
+        "value_i64": null,
+        "value_f64": null,
+        "native_status": 0,
+        "timestamp_unix_ms": 1788667613156
+      }
+    ]
+  },
+  "computed_metrics": {
+    "gpu_index": 0,
+    "timestamp_unix_ms": 1788667613156,
+    "metrics": [
+      {
+        "metric": "gpu_temperature_window_average",
+        "state": "available",
+        "origin": "computed",
+        "unit": "celsius",
+        "formula": "mean(gpu_die_temperature_c within window)",
+        "value": 35,
+        "window_ms": 5000,
+        "sample_count": 5,
+        "temperature_threshold_c": null,
+        "inputs": [
+          "gpu_die_temperature_c"
+        ]
+      },
+      {
+        "metric": "gpu_temperature_slope",
+        "state": "available",
+        "origin": "computed",
+        "unit": "celsius_per_second",
+        "formula": "(last(gpu_die_temperature_c)-first(gpu_die_temperature_c))/elapsed_seconds",
+        "value": 0,
+        "window_ms": 5000,
+        "sample_count": 5,
+        "temperature_threshold_c": null,
+        "inputs": [
+          "gpu_die_temperature_c"
+        ]
+      },
+      {
+        "metric": "gpu_temperature_time_above_threshold",
+        "state": "available",
+        "origin": "computed",
+        "unit": "seconds",
+        "formula": "sum(clipped_interval_seconds where prior(gpu_die_temperature_c)>threshold_c)",
+        "value": 0,
+        "window_ms": 5000,
+        "sample_count": 5,
+        "temperature_threshold_c": 80,
+        "inputs": [
+          "gpu_die_temperature_c"
+        ]
+      },
+      {
+        "metric": "gpu_memory_temperature_delta",
+        "state": "input_unavailable",
+        "origin": "computed",
+        "unit": "celsius",
+        "formula": "gpu_die_temperature_c-memory_temperature_c at the same snapshot",
+        "value": null,
+        "window_ms": 0,
+        "sample_count": 0,
+        "temperature_threshold_c": null,
+        "inputs": [
+          "gpu_die_temperature_c",
+          "memory_temperature_c"
+        ]
+      }
+    ]
+  },
+  "windows_telemetry": {
+    "schema_version": 1,
+    "captured_at_unix_ms": 1788667612894,
+    "state": "partial",
+    "error": "Um ou mais counters não produziram valor nesta coleta.",
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3060",
+      "uuid": "GPU-11111111-2222-3333-4444-555555555555",
+      "driver_version": "610.88",
+      "nvml_version": "13.610.88"
+    },
+    "adapter": {
+      "luid": "0x000000000001728b",
+      "description": "NVIDIA GeForce RTX 3060",
+      "vendor_id": 4318,
+      "device_id": 9476,
+      "subsystem_vendor_id": 4318,
+      "subsystem_device_id": 5430
+    },
+    "local_memory": {
+      "state": "available",
+      "value": 530894848,
+      "unit": "bytes",
+      "error": null
+    },
+    "non_local_memory": {
+      "state": "available",
+      "value": 85622784,
+      "unit": "bytes",
+      "error": null
+    },
+    "engines": [
+      {
+        "engine_type": "3D",
+        "utilization": {
+          "state": "inactive",
+          "value": 0,
+          "unit": "percent",
+          "error": null
+        }
+      },
+      {
+        "engine_type": "Copy",
+        "utilization": {
+          "state": "counter_unavailable",
+          "value": null,
+          "unit": "percent",
+          "error": null
+        }
+      },
+      {
+        "engine_type": "VideoDecode",
+        "utilization": {
+          "state": "counter_unavailable",
+          "value": null,
+          "unit": "percent",
+          "error": null
+        }
+      },
+      {
+        "engine_type": "VideoEncode",
+        "utilization": {
+          "state": "counter_unavailable",
+          "value": null,
+          "unit": "percent",
+          "error": null
+        }
+      },
+      {
+        "engine_type": "OFA",
+        "utilization": {
+          "state": "counter_unavailable",
+          "value": null,
+          "unit": "percent",
+          "error": null
+        }
+      },
+      {
+        "engine_type": "VR",
+        "utilization": {
+          "state": "counter_unavailable",
+          "value": null,
+          "unit": "percent",
+          "error": null
+        }
+      }
+    ]
+  },
+  "experimental_telemetry": {
+    "schema_version": 2,
+    "source_kind": "experimental_telemetry",
+    "origin": "experimental",
+    "gpu_index": 0,
+    "gpu_uuid": "GPU-11111111-2222-3333-4444-555555555555",
+    "captured_at_utc": "2026-09-06T01:06:52.2578159-03:00",
+    "captured_at_unix_ms": 1788667612257,
+    "profile_id": "rtx3060-2504-1536-vbios-94.06.25.00.fc-driver-610.88",
+    "profile_revision": 2,
+    "profile_state": "active",
+    "revocation_reason": null,
+    "identity": {
+      "gpu_uuid": "GPU-11111111-2222-3333-4444-555555555555",
+      "driver_version": "610.88",
+      "nvml_version": "13.610.88",
+      "pci_vendor_id": "0x10de",
+      "pci_device_id": "0x2504",
+      "pci_subsystem_vendor_id": "0x10de",
+      "pci_subsystem_device_id": "0x1536",
+      "vbios_version": "94.06.25.00.fc"
+    },
+    "expected_identity": {
+      "gpu_uuid": "GPU-11111111-2222-3333-4444-555555555555",
+      "driver_version": "610.88",
+      "vbios_version": "94.06.25.00.fc",
+      "pci_vendor_id": "0x10de",
+      "pci_device_id": "0x2504",
+      "pci_subsystem_vendor_id": "0x10de",
+      "pci_subsystem_device_id": "0x1536"
+    },
+    "gsp": {
+      "state": "not_observed",
+      "version": null
+    },
+    "fields": [
+      {
+        "field": "gpu_hotspot_temperature_c",
+        "state": "available",
+        "origin": "experimental",
+        "value": 45.6875,
+        "raw_value": 11696,
+        "raw_encoding": "signed_fixed8",
+        "raw_source": "native_abi",
+        "formula": "raw_value / 256",
+        "wire_encoding": "signed_fixed8",
+        "wire_formula": "wire_raw_value / 256",
+        "wire_raw_value": 11696,
+        "wire_raw_state": "available",
+        "unit": "celsius",
+        "captured_at_utc": "2026-09-06T01:06:52.241-03:00",
+        "captured_at_unix_ms": 1788667612241,
+        "native_status": 0,
+        "acquisition": {
+          "started_at_utc": "2026-09-06T01:06:52.241-03:00",
+          "started_unix_ms": 1788667612241,
+          "started_monotonic_ms": 63294009,
+          "finished_monotonic_ms": 63294009,
+          "clock": "native_monotonic_milliseconds",
+          "scope": "thermal_pair"
+        },
+        "source_kind": "nvapi_thermal_channel",
+        "interface_id": "0x65fe3aad",
+        "structure_version": "0x000200a8",
+        "nvapi_module_sha256": "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4",
+        "function_rva": "0x001e0bc0",
+        "profile_evidence_stage": "matched_external_reference",
+        "provenance_state": "validated_worker_payload",
+        "tolerances": [
+          {
+            "reference": "GPU-Z",
+            "value": 0.051,
+            "unit": "celsius"
+          }
+        ],
+        "evidence_references": [
+          "docs/adr/0010-fixed-profile-private-nvapi-acquisition.md",
+          "docs/profiles/rtx3060-galax-12gb.json",
+          "docs/profiles/rtx3060-runtime-fixture-provenance.json",
+          "csharp/RtxMonitor.Lab/ThermChannelCorrelationV2.cs"
+        ]
+      },
+      {
+        "field": "gpu_core_voltage_v",
+        "state": "available",
+        "origin": "experimental",
+        "value": 0.95625,
+        "raw_value": 956250,
+        "raw_encoding": "unsigned_microvolts",
+        "raw_source": "native_abi",
+        "formula": "raw_value / 1000000",
+        "wire_encoding": "unsigned_microvolts",
+        "wire_formula": "wire_raw_value / 1000000",
+        "wire_raw_value": 956250,
+        "wire_raw_state": "available",
+        "unit": "volt",
+        "captured_at_utc": "2026-09-06T01:06:52.257-03:00",
+        "captured_at_unix_ms": 1788667612257,
+        "native_status": 0,
+        "acquisition": null,
+        "source_kind": "nvapi_voltage_status",
+        "interface_id": "0x465f9bcf",
+        "structure_version": "0x0001004c",
+        "nvapi_module_sha256": "df6455ccf83e43cfe68f405af1eec4e053c7f95da998bf358053b7583980c2f4",
+        "function_rva": "0x001c9070",
+        "profile_evidence_stage": "matched_external_reference",
+        "provenance_state": "validated_worker_payload",
+        "tolerances": [
+          {
+            "reference": "GPU-Z",
+            "value": 0.001,
+            "unit": "volt"
+          },
+          {
+            "reference": "HWiNFO",
+            "value": 0.002,
+            "unit": "volt"
+          }
+        ],
+        "evidence_references": [
+          "docs/adr/0010-fixed-profile-private-nvapi-acquisition.md",
+          "docs/research/2026-08-26-rtx3060-nvapi-voltage-status-v1.md",
+          "docs/profiles/rtx3060-galax-12gb.json",
+          "docs/profiles/rtx3060-runtime-fixture-provenance.json",
+          "csharp/RtxMonitor.Lab/VoltageStatusCorrelationV2.cs"
+        ]
+      }
+    ]
+  }
+}
